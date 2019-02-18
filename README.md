@@ -16,6 +16,7 @@ To install it, you need to have:
 - multiprocessing
 
 then type in the main code folder
+
 python3 setup.py install
 
 this will intall it on you computer. 
