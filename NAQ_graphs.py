@@ -256,7 +256,7 @@ class NAQ(object):
             B[2 * ei + 1, u] = expl 
             B[2 * ei + 1, v] = -1.
 
-        if self.open_graph: #only outgoing waves at the degree 1 nodes
+        if self.open_graph or self.transport_graph: #only outgoing waves at the degree 1 nodes
 
             self.BT = (B.T).asformat('csc').copy() #save the transpose of B
             for ei, e in enumerate(list(self.graph.edges())):
@@ -268,26 +268,9 @@ class NAQ(object):
                         
                 if len(self.graph[v]) == 1:
                     B[2 * ei + 1 , u] = 0.
-                    B[2 * ei , v]     = 0.
+                    B[2 * ei  , v] = 0.
 
             self.B = B.asformat('csc')
-
-        elif self.transport_graph: #only outgoing waves at the degree 1 nodes and not in the input nodes
-
-            self.BT = (B.T).asformat('csc').copy() #save the transpose of B
-            for ei, e in enumerate(list(self.graph.edges())):
-                (u, v) = e[:2]
-          
-                if len(self.graph[u]) == 1 and u not in self.input_nodes:
-                    B[2 * ei , v]     = 0.
-                    B[2 * ei + 1 , u] = 0.
-                        
-                if len(self.graph[v]) == 1 and v not in self.input_nodes:
-                    B[2 * ei + 1 , u] = 0.
-                    B[2 * ei , v]     = 0.
-
-            self.B = B.asformat('csc')
-
 
         else:
             self.B = B.asformat('csc')
