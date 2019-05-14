@@ -138,9 +138,18 @@ class NAQ(object):
         #if a pump is set
         if self.open_graph and self.pump_params is not None:
             gamma = self.pump_params['gamma_perp'] / ( k - self.pump_params['k_a'] + 1.j * self.pump_params['gamma_perp'])
+            self.pump_mask = sc.sparse.lil_matrix((2*self.m, 2*self.m))
             for e in self.pump_params['edges']:
-                chi[e] *= np.sqrt(1. + gamma * self.pump_params['D0'])
+                chi[2*e] *= np.sqrt(1. + gamma * self.pump_params['D0'])
+                chi[2*e+1] *= np.sqrt(1. + gamma * self.pump_params['D0'])
+                self.pump_mask[2*e,2*e] = 1.
+                self.pump_mask[2*e+1,2*e+1] = 1.
 
+            self.in_mask = sc.sparse.lil_matrix((2*self.m, 2*self.m))
+            for ei, e in enumerate(list(self.graph.edges())):
+                if len(self.graph[e[0]])>1 and len(self.graph[e[1]])>1:
+                    self.in_mask[2*ei,2*ei] = 1
+                    self.in_mask[2*ei+1,2*ei+1] = 1
 
         self.set_chi(k*chi) #set the new chi
 
@@ -498,7 +507,7 @@ class NAQ(object):
         """
  
         s_min = params['s_min']
-        s_size = params['s_size']
+        s_size = np.array(params['s_size'])
         max_steps = params['max_steps']
         reduc = params['reduc']
 
@@ -608,7 +617,9 @@ class NAQ(object):
             if m[0] != 0:
                 modes.append(m)
 
-        return self.clean_modes(np.asarray(modes), th)
+        modes = self.clean_modes(np.asarray(modes), th) #remove duplicates
+
+        return modes[np.argsort(np.array(modes)[:,1])] #return sorted modes (by lossyness)
    
     
     def f_find(self,  k):
@@ -641,24 +652,77 @@ class NAQ(object):
         return modes_clean
      
 
-    def pump_trajectories(self, modes, params, D0_max, D0_steps):
-        """
-        For a sequence of D0, find the mode positions, of the modes modes. 
-        """
 
-        D0s = np.linspace(0., D0_max, D0_steps) #sequence of D0
-        new_modes = [modes.copy(), ] #to collect trajectory of modes 
-
-        for D0 in D0s[1:]:
+    def pump_linear(self, mode, D0, delta_D0):
+            """
+            Construct the L_0 Laplacian, from nodes to nodes
+            """
+                    
+            #update the laplacian
             self.pump_params['D0'] = D0
+            self.update_chi(mode)
+            self.update_laplacian()
+            
+            #compute the node field
+            phi = self.compute_solution()
+            
+            #compute the inner sum
+            L0_in = self.BT.dot(self.Winv.dot(self.in_mask)).dot(self.B).asformat('csc')
+            L0_in_norm = phi.T.dot(L0_in.dot(phi))
+            
+            #compute the field on the pump
+            L0_I = self.BT.dot(self.Winv.dot(self.pump_mask.dot(self.in_mask))).dot(self.B).asformat('csc')
+            L0_I_norm = phi.T.dot(L0_I.dot(phi))
+        
+            #overlapping factor
+            f = np.real(L0_I_norm/L0_in_norm)
 
-            new_modes.append(np.array(self.update_modes(new_modes[-1], params)))
+            #complex wavenumber
+            k = mode[0]-1.j*mode[1]
+            
+            #gamma factor
+            gamma = self.pump_params['gamma_perp'] / ( k - self.pump_params['k_a'] + 1.j * self.pump_params['gamma_perp'])
 
-        return np.array(new_modes)
+            #shift in k
+            k_shift = -0.5*k*gamma*f*delta_D0
+            
+            return k_shift
+        
+    def pump_trajectories(self, modes, params, D0_max, D0_steps):
+            """
+            For a sequence of D0, find the mode positions, of the modes modes. 
+            """
 
-    def plot_pump_traj(self, Ks, Alphas, s, modes, new_modes):
+            self.D0s = np.linspace(0., D0_max, D0_steps) #sequence of D0
+            new_modes = [modes.copy(), ] #to collect trajectory of modes 
+            self.pump_params['D0'] = self.D0s[0]
+
+            for iD0 in range(D0_steps-1):
+                print('D0:', self.D0s[iD0+1], )
+
+                for m in range(len(modes)):
+                    #estimate the shift in k
+                    k_shift = self.pump_linear(new_modes[-1][m], self.D0s[iD0], self.D0s[iD0+1] - self.D0s[iD0])
+                    
+                    #shift the mode to estimated position
+                    new_modes_init = new_modes[-1].copy()
+                    new_modes_init[m,0] += np.real(k_shift)
+                    new_modes_init[m,1] -= np.imag(k_shift)
+                    
+                #set the pump to next step and correct the mode
+                self.pump_params['D0'] = self.D0s[iD0+1]
+                new_modes.append(np.array(self.update_modes(new_modes_init, params)))
+
+            return np.array(new_modes) 
+
+    def plot_pump_traj(self, Ks, Alphas, s, modes, new_modes, estimate = True):
         self.plot_scan(Ks,Alphas,s, modes)
 
         for i in range(len(modes)):
             plt.plot(new_modes[:,i,0],new_modes[:,i,1],'b-')
         plt.plot(new_modes[-1,:,0],new_modes[-1,:,1],'b+')
+
+        if estimate:
+            for m in range(len(modes)):
+                k_shift = self.pump_linear(modes[m], 0, self.D0s[-1])
+                plt.plot([modes[m,0], modes[m,0]+np.real(k_shift)], [modes[m,1], modes[m,1]- np.imag(k_shift)],c='k', lw=1)
