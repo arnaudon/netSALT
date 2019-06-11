@@ -44,7 +44,7 @@ There are several test jupyter-notebooks based, on a simple small-world graph:
   > open quantum graphs, with complex wavenumbers
  3. `test_NAQ_U1_open_pump.ipynb` 
   > lasing quantum graph, with complex wavenumbers and a pump (requires to run step 2 to get the modes)
- 4. `test_NAQ_U1_transport.ipynb
+ 4. `test_NAQ_U1_transport.ipynb`
   > transport quantum graphs, with real wavenumber and an input/output at the node level
   
 The test 2 and 3 are using a slightly more advanced graph generation, with more flexibility for scripting, etc... clean example for that will come out shortly. 
