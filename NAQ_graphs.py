@@ -130,7 +130,7 @@ class NAQ(object):
 
         chi = self.chi0.copy()
 
-        if isinstance(mode, list):  #complex wavenumber 
+        if isinstance(mode, (list, np.ndarray) ):  #complex wavenumber 
             k = mode[0]-1.j*mode[1]
         else:  #real wavenumber
             k = mode
@@ -150,7 +150,6 @@ class NAQ(object):
                 if len(self.graph[e[0]])>1 and len(self.graph[e[1]])>1:
                     self.in_mask[2*ei,2*ei] = 1
                     self.in_mask[2*ei+1,2*ei+1] = 1
-
         self.set_chi(k*chi) #set the new chi
 
     def Winv_matrix(self):
@@ -391,7 +390,7 @@ class NAQ(object):
         """
 
         def cond_L0(k):
-            self.update_chi([k,])
+            self.update_chi(k)
             return self.test_laplacian()
 
         k_mu = []

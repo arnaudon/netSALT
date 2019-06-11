@@ -1,0 +1,51 @@
+###################
+## random graphs ##
+###################
+SM:
+        #network params
+        n: 10
+        k: 2
+        p: 0.3
+        lead_prob: 0.2
+        seed: 0
+       
+        #mode search params
+        s_min: 0.00001 #minimum value for the condition numbe
+        s_size: [0.1, 0.1] #size of random steps (smaller it will converge slowly, larger it will never accept steps)
+        max_steps: 1000 #max number of steps before it gives up
+        reduc: 1. #if it does not improve after 20 steps, multiply by this number (not really needed)
+
+SBM:
+        sizes: [200, 50, 200]
+        probs: [[10., 1.0, 0.0],
+                [1.0, 10., 1.0 ],
+                [ 0.0, 1.0, 10]]
+        seed: 2
+        t_min: -0.5
+        t_max: .3
+        n_t: 200
+SBM_2:
+        sizes: [50, 50, 50, 50]
+        probs: [[ 10., 1.0, 0.0, 0.5],
+                [ 1.0, 10., 0.5, 0.0],
+                [ 0.0, 0.5, 10., 1.0],
+                [ 0.5, 0.0, 1.0, 10.]]
+        seed: 1
+        t_min: -2.0
+        t_max: 0.2
+        n_t: 200
+ER:
+        n: 50
+        p: 0.16
+        t_max: 5
+        n_t: 200
+grid:
+        n: 20
+        m: 20
+powerlaw:
+        n: 80
+        m: 2
+        p: 0.1
+geometric:
+        n: 50
+        p: 0.3
