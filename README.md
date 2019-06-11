@@ -30,7 +30,7 @@ to install it to you local folders.
 For the abelian symmetry group U(1), use the main branch 'master'.
 
 
-There are several test jupyter-notebooks:
+There are several test jupyter-notebooks based, on a simple small-world graph:
 
  1. _test_NAQ_U1_closed.ipynb_
   > classic closed quantum graphs, with real wavenumber
@@ -41,6 +41,7 @@ There are several test jupyter-notebooks:
  4. _test_NAQ_U1_transport.ipynb_
   > transport quantum graphs, with real wavenumber and an input/output at the node level
   
+The test 2 and 3 are using a slightly more advanced graph generation, with more flexibility for scripting, etc... clean example for that will come out shortly. 
   
 ## Non-abelian quantum graphs
 
