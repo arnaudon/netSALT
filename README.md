@@ -13,12 +13,14 @@ To install it, you need to have python3 as well as:
 These can nbe installed using anaconda or pip. 
 
 Then to install the package, just run
-
+```bash
 python setup.py install
+```
 
 if you are using an anaconda environment, otherwise
-
+```bash
 python3 setup.py install --user
+```
 
 to install it to you local folders.
 
