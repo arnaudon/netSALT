@@ -130,10 +130,10 @@ class NAQ(object):
 
         chi = self.chi0.copy()
 
-        if len(mode)>1:  #complex wavenumber 
+        if isinstance(mode, list):  #complex wavenumber 
             k = mode[0]-1.j*mode[1]
         else:  #real wavenumber
-            k = mode[0]
+            k = mode
 
         #if a pump is set
         if self.open_graph and self.pump_params is not None:
@@ -499,7 +499,16 @@ class NAQ(object):
             return solution # return the solution
 
 
+    def node_solution_to_edge_solution(self, sol):
+        #compute the flux on each edge
 
+        B = self.BT.todense().T #full indicence matrix
+        Winv = self.Winv.todense()#weight matrix
+
+        flux = np.array(list(Winv.dot(B).dot(sol))).flatten() #flux on each edge
+
+        return flux 
+    
     def find_mode(self, k_0, params, disp = True, save_traj = False):
         """
         Find the frequency and dissipation of the network, given an initial condition k
