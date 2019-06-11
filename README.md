@@ -32,14 +32,14 @@ For the abelian symmetry group U(1), use the main branch 'master'.
 
 There are several test jupyter-notebooks:
 
- 1. _test_NAQ_U1_closed.ipynb_ :
- classic closed quantum graphs, with real wavenumber
- 2. _test_NAQ_U1_open.ipynb_ :
- open quantum graphs, with complex wavenumbers
-  3. _test_NAQ_U1_open_pump.ipynb_ :
-  lasing quantum graph, with complex wavenumbers and a pump
-  4. _test_NAQ_U1_transport.ipynb_ :
-  transport quantum graphs, with real wavenumber and an input/output at the node level
+ 1. _test_NAQ_U1_closed.ipynb_
+  > classic closed quantum graphs, with real wavenumber
+ 2. _test_NAQ_U1_open.ipynb_ 
+  > open quantum graphs, with complex wavenumbers
+ 3. _test_NAQ_U1_open_pump.ipynb_ 
+  > lasing quantum graph, with complex wavenumbers and a pump (requires to run step 2 to get the modes)
+ 4. _test_NAQ_U1_transport.ipynb_
+  > transport quantum graphs, with real wavenumber and an input/output at the node level
   
   
 ## Non-abelian quantum graphs
