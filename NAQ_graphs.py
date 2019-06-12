@@ -390,7 +390,7 @@ class NAQ(object):
         """
 
         def cond_L0(k):
-            self.update_chi(k)
+            self.update_chi(k[0])
             return self.test_laplacian()
 
         k_mu = []
