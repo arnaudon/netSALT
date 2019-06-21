@@ -27,7 +27,7 @@ import pylab as plt
 import networkx as nx
 from multiprocessing import Pool
 from functools import partial
-
+from tqdm import tqdm
 
 class NAQ(object):
     """ 
@@ -447,7 +447,7 @@ class NAQ(object):
                 Ks_list.append(np.array([k,alpha]))
                 
         with Pool(processes = self.n_processes_scan) as p_scan:  #initialise the parallel computation
-            out = p_scan.map(self.f_scan, Ks_list) #run them 
+            out = list(tqdm(p_scan.imap(self.f_scan, Ks_list), total = len(Ks_list))) #run them 
 
         s = np.zeros([len(Ks),len(Alphas)] )
         kk = 0 
@@ -636,9 +636,9 @@ class NAQ(object):
         for i, k in enumerate(Ks):
             for j, alpha in enumerate(Alphas):
                 Ks_list.append(np.array([k,alpha]))
-                
+        
         with Pool(processes = self.n_processes_scan) as p_find:  #initialise the parallel computation
-            out = p_find.map(self.f_find, Ks_list) #run them 
+            out = list(tqdm(p_find.imap(self.f_find, Ks_list), total = len(Ks_list))) #run them 
 
         modes = []
         for m in out:
