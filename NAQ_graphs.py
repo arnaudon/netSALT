@@ -164,8 +164,24 @@ class NAQ(object):
 
         if self.group == 'O3':
             self.Winv_matrix_O3()
+            
+    def diag_chi(self):
+        """
+        Compute the diag (chi)
+        """
+        if self.group == 'U1':
 
- 
+            Chi = sc.sparse.lil_matrix(( 2 * self.m, 2 * self.m), dtype = self.dtype) 
+
+            for ei, e in enumerate(list(self.graph.edges())):
+                (u, v) = e[:2]
+                Chi[2*ei, 2*ei] = self.graph[u][v]['chi']
+                Chi[2*ei+1, 2*ei+1] = self.graph[u][v]['chi']
+        
+            self.Chi = Chi.asformat('csc')
+        else:
+            print('not yet implemented')
+            
     def Winv_matrix_U1(self):
         """
         Construct the matrix W^{-1} for U1
@@ -175,15 +191,15 @@ class NAQ(object):
         
         for ei, e in enumerate(list(self.graph.edges())):
             (u, v) = e[:2]
- 
-            Winv[2*ei, 2*ei] = self.graph[u][v]['chi'] / ( np.exp( 2.* self.graph[u][v]['L'] * self.graph[u][v]['chi'] ) - 1. ) 
+                
+            Winv[2*ei, 2*ei] = 1. / ( np.exp( 2.* self.graph[u][v]['L'] * self.graph[u][v]['chi'] ) - 1. ) 
             Winv[2*ei+1, 2*ei+1] = Winv[2*ei, 2*ei]
 
         self.Winv = Winv.asformat('csc')
        
     def Z_matrix_U1(self):
         """
-        Construct the matrix Z for U1 (we divide by \chi**2 as it appears in Winv twice, but should not be in this computation)
+        Construct the matrix Z for U1 
         """
         
         Z = sc.sparse.lil_matrix(( 2 * self.m, 2 * self.m), dtype = self.dtype) 
@@ -191,14 +207,14 @@ class NAQ(object):
         for ei, e in enumerate(list(self.graph.edges())):
             (u, v) = e[:2]
  
-            Z[2*ei, 2*ei] =  (np.exp( 2.* self.graph[u][v]['L'] * self.graph[u][v]['chi'] ) - 1.)/(2.* self.graph[u][v]['chi'])/self.graph[u][v]['chi']**2
-            Z[2*ei, 2*ei+1] = self.graph[u][v]['L']*np.exp( self.graph[u][v]['L'] * self.graph[u][v]['chi'] )/self.graph[u][v]['chi']**2
+            Z[2*ei, 2*ei] =  (np.exp( 2.* self.graph[u][v]['L'] * self.graph[u][v]['chi'] ) - 1.)/(2.* self.graph[u][v]['chi'])
+            Z[2*ei, 2*ei+1] = self.graph[u][v]['L']*np.exp( self.graph[u][v]['L'] * self.graph[u][v]['chi'] )
         
             Z[2*ei+1, 2*ei] = Z[2*ei, 2*ei+1]
             Z[2*ei+1, 2*ei+1] = Z[2*ei, 2*ei]
 
         self.Z = Z.asformat('csc')
-        
+
     def Winv_matrix_O3(self):
         """
         Construct the matrix W^{-1} for O3
@@ -344,7 +360,7 @@ class NAQ(object):
         Construct the L_0 Laplacian, from nodes to nodes
         """
         
-        self.L0 = self.BT.dot(self.Winv).dot(self.B).asformat('csc')
+        self.L0 = self.BT.dot(self.Chi.dot(self.Winv)).dot(self.B).asformat('csc')
 
     def update_laplacian(self):
         """
@@ -352,6 +368,7 @@ class NAQ(object):
         """
         self.Winv_matrix()    #compute the inverse of W 
         self.B_matrices()     #compute the incidence matrix
+        self.diag_chi()
         self.node_laplacian() #compute the node Laplacian
                
     def test_laplacian(self):
@@ -527,6 +544,26 @@ class NAQ(object):
         flux = np.array(list(Winv.dot(B).dot(sol))).flatten() #flux on each edge
 
         return flux 
+    
+    def compute_edge_mean_E2(self):
+    
+        phi = self.compute_solution()
+        flux = self.node_solution_to_edge_solution(phi)
+    
+        edge_mean = np.zeros(self.m)
+        for ei, e in enumerate(list(self.graph.edges())):
+            (u, v) = e[:2]
+
+            z = np.zeros([2,2])
+            z[0, 0] = 1.
+            z[0, 1] = np.sinc(-1.j*self.graph[u][v]['L'] * self.graph[u][v]['chi'])
+        
+            z[1, 0] = z[0, 1]
+            z[1, 1] = z[0, 0]
+
+            edge_mean[ei] = flux[2*ei:2*ei+2].T.dot(z.dot(flux[2*ei:2*ei+2]))
+    
+        return edge_mean
     
     def find_mode(self, k_0, params, disp = True, save_traj = False):
         """
