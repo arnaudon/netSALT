@@ -140,16 +140,18 @@ class NAQ(object):
             gamma = self.pump_params['gamma_perp'] / ( k - self.pump_params['k_a'] + 1.j * self.pump_params['gamma_perp'])
             self.pump_mask = sc.sparse.lil_matrix((2*self.m, 2*self.m))
             for e in self.pump_params['edges']:
-                chi[2*e] *= np.sqrt(1. + gamma * self.pump_params['D0'])
-                chi[2*e+1] *= np.sqrt(1. + gamma * self.pump_params['D0'])
+                chi[e] *= np.sqrt(1. + gamma * self.pump_params['D0'])
                 self.pump_mask[2*e,2*e] = 1.
                 self.pump_mask[2*e+1,2*e+1] = 1.
 
+                
+            #TODO: this may be put outside, to speed up compuations, as this function is called often in the search
             self.in_mask = sc.sparse.lil_matrix((2*self.m, 2*self.m))
             for ei, e in enumerate(list(self.graph.edges())):
                 if len(self.graph[e[0]])>1 and len(self.graph[e[1]])>1:
                     self.in_mask[2*ei,2*ei] = 1
                     self.in_mask[2*ei+1,2*ei+1] = 1
+                    
         self.set_chi(k*chi) #set the new chi
 
     def Winv_matrix(self):
@@ -178,6 +180,24 @@ class NAQ(object):
             Winv[2*ei+1, 2*ei+1] = Winv[2*ei, 2*ei]
 
         self.Winv = Winv.asformat('csc')
+       
+    def Z_matrix_U1(self):
+        """
+        Construct the matrix Z for U1 (we divide by \chi**2 as it appears in Winv twice, but should not be in this computation)
+        """
+        
+        Z = sc.sparse.lil_matrix(( 2 * self.m, 2 * self.m), dtype = self.dtype) 
+        
+        for ei, e in enumerate(list(self.graph.edges())):
+            (u, v) = e[:2]
+ 
+            Z[2*ei, 2*ei] =  (np.exp( 2.* self.graph[u][v]['L'] * self.graph[u][v]['chi'] ) - 1.)/(2.* self.graph[u][v]['chi'])/self.graph[u][v]['chi']**2
+            Z[2*ei, 2*ei+1] = self.graph[u][v]['L']*np.exp( self.graph[u][v]['L'] * self.graph[u][v]['chi'] )/self.graph[u][v]['chi']**2
+        
+            Z[2*ei+1, 2*ei] = Z[2*ei, 2*ei+1]
+            Z[2*ei+1, 2*ei+1] = Z[2*ei, 2*ei]
+
+        self.Z = Z.asformat('csc')
         
     def Winv_matrix_O3(self):
         """
@@ -671,19 +691,23 @@ class NAQ(object):
             self.update_chi(mode)
             self.update_laplacian()
             
+            
             #compute the node field
             phi = self.compute_solution()
             
+            self.Z_matrix_U1() #compute the Z matrix
+            edge_norm = self.Winv.dot(self.Z).dot(self.Winv) #compute the correct weight matrix
+            
             #compute the inner sum
-            L0_in = self.BT.dot(self.Winv.dot(self.in_mask)).dot(self.B).asformat('csc')
+            L0_in = self.BT.dot(edge_norm.dot(self.in_mask)).dot(self.B).asformat('csc')
             L0_in_norm = phi.T.dot(L0_in.dot(phi))
             
             #compute the field on the pump
-            L0_I = self.BT.dot(self.Winv.dot(self.pump_mask.dot(self.in_mask))).dot(self.B).asformat('csc')
+            L0_I = self.BT.dot(edge_norm.dot(self.pump_mask.dot(self.in_mask))).dot(self.B).asformat('csc')
             L0_I_norm = phi.T.dot(L0_I.dot(phi))
         
             #overlapping factor
-            f = np.real(L0_I_norm/L0_in_norm)
+            f = L0_I_norm/L0_in_norm
 
             #complex wavenumber
             k = mode[0]-1.j*mode[1]
@@ -692,8 +716,10 @@ class NAQ(object):
             gamma = self.pump_params['gamma_perp'] / ( k - self.pump_params['k_a'] + 1.j * self.pump_params['gamma_perp'])
 
             #shift in k
-            k_shift = -0.5*k*gamma*f*delta_D0
+            #k_shift = -0.5*k*gamma*f*delta_D0
             
+            k_shift = np.sqrt(k**2/(1.+ gamma*f*delta_D0)) -k
+
             return k_shift
         
     def pump_trajectories(self, modes, params, D0_max, D0_steps):
