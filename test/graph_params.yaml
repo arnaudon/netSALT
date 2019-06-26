@@ -10,7 +10,7 @@ SM:
         seed: 0
        
         #mode search params
-        s_min: 0.00001 #minimum value for the condition numbe
+        s_min: 0.0001 #minimum value for the condition numbe
         s_size: [0.1, 0.1] #size of random steps (smaller it will converge slowly, larger it will never accept steps)
         max_steps: 1000 #max number of steps before it gives up
         reduc: 1. #if it does not improve after 20 steps, multiply by this number (not really needed)

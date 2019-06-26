@@ -199,7 +199,7 @@ class NAQ(object):
        
     def Z_matrix_U1(self):
         """
-        Construct the matrix Z for U1 
+        Construct the matrix Z for U1 (used for computing the pump overlapping factor)
         """
         
         Z = sc.sparse.lil_matrix(( 2 * self.m, 2 * self.m), dtype = self.dtype) 
@@ -718,9 +718,243 @@ class NAQ(object):
      
 
 
-    def pump_linear(self, mode, D0, delta_D0):
+    def pump_linear(self, mode, D0_0, D0_1):
             """
             Construct the L_0 Laplacian, from nodes to nodes
+            """
+                    
+            #update the laplacian
+            self.pump_params['D0'] = D0_0
+            self.update_chi(mode)
+            self.update_laplacian()
+            
+            
+            #compute the node field
+            phi = self.compute_solution()
+            
+            self.Z_matrix_U1() #compute the Z matrix
+            edge_norm = self.Winv.dot(self.Z).dot(self.Winv) #compute the correct weight matrix
+            
+            #compute the inner sum
+            L0_in = self.BT.dot(edge_norm.dot(self.in_mask)).dot(self.B).asformat('csc')
+            L0_in_norm = phi.T.dot(L0_in.dot(phi))
+            
+            #compute the field on the pump
+            L0_I = self.BT.dot(edge_norm.dot(self.pump_mask.dot(self.in_mask))).dot(self.B).asformat('csc')
+            L0_I_norm = phi.T.dot(L0_I.dot(phi))
+        
+            #overlapping factor
+            f = L0_I_norm/L0_in_norm
+
+            #complex wavenumber
+            k = mode[0]-1.j*mode[1]
+            
+            #gamma factor
+            gamma = self.pump_params['gamma_perp'] / ( k - self.pump_params['k_a'] + 1.j * self.pump_params['gamma_perp'])
+
+            #shift in k            
+            k_shift = k*np.sqrt( (1. + gamma*f*D0_0) / (1. + gamma*f*D0_1) ) - k
+
+            return k_shift
+        
+    def pump_trajectories(self, modes, params, D0_max, D0_steps):
+            """
+            For a sequence of D0, find the mode positions, of the modes modes. 
+            """
+
+            self.D0s = np.linspace(0., D0_max, D0_steps) #sequence of D0
+            new_modes = [modes.copy(), ] #to collect trajectory of modes 
+            self.pump_params['D0'] = self.D0s[0]
+
+            for iD0 in range(D0_steps-1):
+                print('D0:', self.D0s[iD0+1], )
+
+                for m in range(len(modes)):
+                    #estimate the shift in k
+                    k_shift = self.pump_linear(new_modes[-1][m], self.D0s[iD0], self.D0s[iD0+1])
+                    
+                    #shift the mode to estimated position
+                    new_modes_init = new_modes[-1].copy()
+                    new_modes_init[m,0] += np.real(k_shift)
+                    new_modes_init[m,1] -= np.imag(k_shift)
+                    
+                #set the pump to next step and correct the mode
+                self.pump_params['D0'] = self.D0s[iD0+1]
+                new_modes.append(np.array(self.update_modes(new_modes_init, params)))
+
+            return np.array(new_modes) 
+
+    def plot_pump_traj(self, Ks, Alphas, s, modes, new_modes, estimate = False):
+        self.plot_scan(Ks,Alphas,s, modes)
+
+        for i in range(len(modes)):
+            D_th = self.linear_lasing_threshold(modes[i], self.D0s[0])
+            
+            if D_th < self.D0s[-1]:
+                plt.plot(new_modes[:,i,0],new_modes[:,i,1],'r-+')
+            else:
+                plt.plot(new_modes[:,i,0],new_modes[:,i,1],'b-+')
+
+        plt.plot(new_modes[-1,:,0],new_modes[-1,:,1],'b+')
+
+        if estimate:
+            for m in range(len(modes)):
+
+                for iD0 in range(len(self.D0s)-1):
+                    D_th = self.linear_lasing_threshold(new_modes[iD0][m], self.D0s[iD0])
+
+                    k_shift = self.pump_linear(new_modes[iD0][m], self.D0s[iD0], self.D0s[iD0+1])
+                    
+                    if D_th < self.D0s[-1]-self.D0s[iD0]:
+                        plt.scatter(new_modes[iD0][m][0]+np.real(k_shift), new_modes[iD0][m][1]- np.imag(k_shift), s=30, c='r')
+                    else:
+                        plt.scatter(new_modes[iD0][m][0]+np.real(k_shift), new_modes[iD0][m][1]- np.imag(k_shift), s=30, c='k')
+
+                    plt.plot([new_modes[iD0][m][0], new_modes[iD0][m][0]+np.real(k_shift)], [new_modes[iD0][m][1], new_modes[iD0][m][1] - np.imag(k_shift)], c='k', lw = 0.8)
+                    
+                    
+                 
+    def full_lasing_threshold(self, modes, params, tol, D0_max, D0_steps):
+            """
+            For a sequence of D0, find the mode positions, of the modes modes. 
+            """
+            lasing_threshold_single_modef = partial(self.lasing_threshold_single_mode, params, tol, D0_max, D0_steps)
+            with Pool(processes = self.n_processes_scan) as p_th:  #initialise the parallel computation
+                out = list(tqdm(p_th.imap(lasing_threshold_single_modef, modes), total = len(modes))) #run them 
+
+            K_ths = []
+            D0_ths = []
+            
+            #loop over all modes
+            for m in range(len(modes)):
+                #save the treshold lasing mode
+                K_ths.append(out[m][0])
+                D0_ths.append(out[m][1])
+                
+            return K_ths, D0_ths
+                
+    def lasing_threshold_single_mode(self, params, tol, D0_max, D0_steps, mode):
+                D0s = np.linspace(0., D0_max, D0_steps) #sequence of D0
+
+                #first see if the linear approximation has a lasing threshold under the max
+                D0_th = self.linear_lasing_threshold( mode, 0)
+                
+                if D0_th < D0_max: #if it is, run the fine search
+                    
+                    k_th, D0_th = self.search_threshold( mode, params, tol, D0=0, D0_step_max = D0_steps, D0_max = D0_max)
+                    
+                    if D0_th > D0_max: #if it is larger than max, set it to not lasing
+                        k_th = -1
+                        D0_th = -1
+                        
+                else: #if it is not increase D0 step by step until it does or not
+
+                    new_modes = [mode, ] #to collect trajectory of modes 
+                    D0_th = 0
+                    for iD0 in range(D0_steps-1):
+                        D0_th = D0s[iD0] + self.linear_lasing_threshold( new_modes[-1], D0s[iD0])
+                        
+                        k_shift = self.pump_linear(new_modes[-1], D0s[iD0], D0s[iD0+1])
+                        
+                        #shift the mode to estimated position
+                        new_mode_init = new_modes[-1].copy()
+                        new_mode_init[0] += np.real(k_shift)
+                        new_mode_init[1] -= np.imag(k_shift)
+                        
+                        self.pump_params['D0'] = D0s[iD0+1]
+                        params['reduc'] = 0.7
+                        
+                        k_new = self.find_mode(new_mode_init, params, disp = False, save_traj = False)
+
+                        #check if it has been found
+                        if len(k_new)>1:
+                            new_modes.append(k_new) 
+                        
+                        #if not, try until the end of times
+                        else: 
+                            print('run many attempts')
+                            att = 0 
+                            while len(k_new)==1:
+                                att +=1
+                                k_new = self.find_mode(new_mode_init, params, disp = False, save_traj = False)
+                            new_modes.append(k_new) #compute the real wavenumber
+                
+                            print(att, 'attempts to find a mode, think of fine tuning parameters! (linear increments)')
+                
+                        
+                        if D0_th < D0_max: #if it is, run the fine search
+                            k_th, D0_th = self.search_threshold( new_modes[-1], params, tol, D0 = D0s[iD0+1], D0_step_max = D0_steps, D0_max = D0_max)
+                            
+                        else: #if the mode will not lase, set to -1
+                            k_th = -1
+                            D0_th = -1
+                            
+                return k_th, D0_th
+        
+        
+    def search_threshold(self, mode_init, params, tol, D0, D0_step_max, D0_max):
+    
+        s_size_0 = params['s_size'].copy() #remember the original step size (to be reduced in the search later on)
+        self.pump_params['D0'] = D0
+        new_modes = [mode_init, ] #to collect trajectory of modes 
+        D0_th_previous = D0 #estimate the D_threshold from D0
+        k_imag = new_modes[-1][1]
+                
+        D0_th = self.linear_lasing_threshold(new_modes[-1], D0_th_previous)
+        
+        while abs(k_imag) > tol:
+            
+            #estimate the increment in D0 to get to D0_th
+            D0_step = self.linear_lasing_threshold(new_modes[-1], D0_th_previous) 
+            
+            #if larger that the max allowed step size, set the step to max 
+            #(this prevents long jumps and getting a different mode with the search)
+            if D0_step > D0_step_max:
+                D0_step = D0_step_max
+                
+            D0_th =  D0_th_previous + D0_step
+            
+            #if we get a threshold too large, set it to the mid-point instead (this avoids oscillations to blow up)
+            if D0_th > D0_max: 
+                D0_th = 0.5*(D0_th_previous + D0_th)
+                
+            k_shift = self.pump_linear(new_modes[-1],  D0_th_previous,  D0_th)
+            
+            #shift the mode to estimated position
+            new_mode_init = new_modes[-1].copy()
+            new_mode_init[0] += np.real(k_shift)
+            new_mode_init[1] -= np.imag(k_shift)
+            
+            #rescale the step sizes when we get closer to the solution
+            params['s_size']    = (1e-3 + 1e-1*abs(D0_th -  D0_th_previous)/D0_th)*s_size_0 
+
+            self.pump_params['D0'] = D0_th #set the estimated pump
+            k_new = self.find_mode(new_mode_init, params, disp = False, save_traj = False) #find the new mode
+            
+            #check if it has been found
+            if len(k_new)>1:
+                new_modes.append(k_new) 
+                
+            else: #if not, try until the end of times
+                att = 0 
+                while len(k_new)==1:
+                    att +=1
+                    k_new = self.find_mode(new_mode_init, params, disp = False, save_traj = False)
+                new_modes.append(k_new) #compute the real wavenumber
+                
+                print(att, 'attempts to find a mode, think of fine tuning parameters! (threshold search)')
+                
+            D0_th_previous = D0_th.copy()
+            k_imag = new_modes[-1][1]
+            
+            params['s_size'] = s_size_0 #set the step size back to normal
+        
+        return new_modes[-1], D0_th   
+    
+    
+    def linear_lasing_threshold(self, mode, D0):
+            """
+            Estimate the lasing threshold using linear approximation, for a mode with pumping D0
             """
                     
             #update the laplacian
@@ -751,49 +985,11 @@ class NAQ(object):
             
             #gamma factor
             gamma = self.pump_params['gamma_perp'] / ( k - self.pump_params['k_a'] + 1.j * self.pump_params['gamma_perp'])
-
-            #shift in k
-            #k_shift = -0.5*k*gamma*f*delta_D0
             
-            k_shift = np.sqrt(k**2/(1.+ gamma*f*delta_D0)) -k
+            #Q-value
+            Q = -mode[0]/(2*mode[1])
+            
+            #estimated D_th
+            D_th = 1./(Q*np.imag(gamma)*np.real(f))
 
-            return k_shift
-        
-    def pump_trajectories(self, modes, params, D0_max, D0_steps):
-            """
-            For a sequence of D0, find the mode positions, of the modes modes. 
-            """
-
-            self.D0s = np.linspace(0., D0_max, D0_steps) #sequence of D0
-            new_modes = [modes.copy(), ] #to collect trajectory of modes 
-            self.pump_params['D0'] = self.D0s[0]
-
-            for iD0 in range(D0_steps-1):
-                print('D0:', self.D0s[iD0+1], )
-
-                for m in range(len(modes)):
-                    #estimate the shift in k
-                    k_shift = self.pump_linear(new_modes[-1][m], self.D0s[iD0], self.D0s[iD0+1] - self.D0s[iD0])
-                    
-                    #shift the mode to estimated position
-                    new_modes_init = new_modes[-1].copy()
-                    new_modes_init[m,0] += np.real(k_shift)
-                    new_modes_init[m,1] -= np.imag(k_shift)
-                    
-                #set the pump to next step and correct the mode
-                self.pump_params['D0'] = self.D0s[iD0+1]
-                new_modes.append(np.array(self.update_modes(new_modes_init, params)))
-
-            return np.array(new_modes) 
-
-    def plot_pump_traj(self, Ks, Alphas, s, modes, new_modes, estimate = True):
-        self.plot_scan(Ks,Alphas,s, modes)
-
-        for i in range(len(modes)):
-            plt.plot(new_modes[:,i,0],new_modes[:,i,1],'b-')
-        plt.plot(new_modes[-1,:,0],new_modes[-1,:,1],'b+')
-
-        if estimate:
-            for m in range(len(modes)):
-                k_shift = self.pump_linear(modes[m], 0, self.D0s[-1])
-                plt.plot([modes[m,0], modes[m,0]+np.real(k_shift)], [modes[m,1], modes[m,1]- np.imag(k_shift)],c='k', lw=1)
+            return D_th
