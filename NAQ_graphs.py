@@ -987,9 +987,9 @@ class NAQ(object):
             gamma = self.pump_params['gamma_perp'] / ( k - self.pump_params['k_a'] + 1.j * self.pump_params['gamma_perp'])
             
             #Q-value
-            Q = -mode[0]/(2*mode[1])
+            Q = mode[0]/(2*mode[1])
             
             #estimated D_th
-            D_th = 1./(Q*np.imag(gamma)*np.real(f))
+            D_th = 1./(Q*np.imag(-gamma)*np.real(f))
 
             return D_th
