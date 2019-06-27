@@ -399,7 +399,7 @@ class NAQ(object):
                     print('eig error')
                     return 0.
 
-                return np.min(abs(s))
+                return np.min(abs(w))
 
             elif self.cond_type == 'cond':
                 return -np.linalg.cond(L)
