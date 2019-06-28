@@ -766,8 +766,8 @@ class NAQ(object):
             new_modes = [modes.copy(), ] #to collect trajectory of modes 
             self.pump_params['D0'] = self.D0s[0]
 
-            for iD0 in range(D0_steps-1):
-                print('D0:', self.D0s[iD0+1], )
+            for iD0 in tqdm(range(D0_steps-1)):
+                #print('D0:', self.D0s[iD0+1], )
 
                 for m in range(len(modes)):
                     #estimate the shift in k
