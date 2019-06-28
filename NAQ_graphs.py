@@ -561,7 +561,7 @@ class NAQ(object):
             z[1, 0] = z[0, 1]
             z[1, 1] = z[0, 0]
 
-            edge_mean[ei] = flux[2*ei:2*ei+2].T.dot(z.dot(flux[2*ei:2*ei+2]))
+            edge_mean[ei] = np.conj(flux[2*ei:2*ei+2]).T.dot(z.dot(flux[2*ei:2*ei+2]))
     
         return edge_mean
     
@@ -790,7 +790,7 @@ class NAQ(object):
         for i in range(len(modes)):
             D_th = self.linear_lasing_threshold(modes[i], self.D0s[0])
             
-            if D_th < self.D0s[-1]:
+            if D_th < self.D0s[-1] and D_th>0:
                 plt.plot(new_modes[:,i,0],new_modes[:,i,1],'r-+')
             else:
                 plt.plot(new_modes[:,i,0],new_modes[:,i,1],'b-+')
@@ -818,6 +818,9 @@ class NAQ(object):
             """
             For a sequence of D0, find the mode positions, of the modes modes. 
             """
+            
+            self.D0s = np.linspace(0., D0_max, D0_steps) #sequence of D0s we'll use later
+
             lasing_threshold_single_modef = partial(self.lasing_threshold_single_mode, params, tol, D0_max, D0_steps)
             with Pool(processes = self.n_processes_scan) as p_th:  #initialise the parallel computation
                 out = list(tqdm(p_th.imap(lasing_threshold_single_modef, modes), total = len(modes))) #run them 
@@ -834,13 +837,10 @@ class NAQ(object):
             return K_ths, D0_ths
                 
     def lasing_threshold_single_mode(self, params, tol, D0_max, D0_steps, mode):
-                D0s = np.linspace(0., D0_max, D0_steps) #sequence of D0
 
                 #first see if the linear approximation has a lasing threshold under the max
                 D0_th = self.linear_lasing_threshold( mode, 0)
-                
-                if D0_th < D0_max: #if it is, run the fine search
-                    
+                if D0_th < D0_max and D0_th>0: #if it is, run the fine search (positive for modes going downwards)
                     k_th, D0_th = self.search_threshold( mode, params, tol, D0=0, D0_step_max = D0_steps, D0_max = D0_max)
                     
                     if D0_th > D0_max: #if it is larger than max, set it to not lasing
@@ -852,16 +852,16 @@ class NAQ(object):
                     new_modes = [mode, ] #to collect trajectory of modes 
                     D0_th = 0
                     for iD0 in range(D0_steps-1):
-                        D0_th = D0s[iD0] + self.linear_lasing_threshold( new_modes[-1], D0s[iD0])
+                        D0_th = self.D0s[iD0] + self.linear_lasing_threshold( new_modes[-1], self.D0s[iD0])
                         
-                        k_shift = self.pump_linear(new_modes[-1], D0s[iD0], D0s[iD0+1])
+                        k_shift = self.pump_linear(new_modes[-1], self.D0s[iD0], self.D0s[iD0+1])
                         
                         #shift the mode to estimated position
                         new_mode_init = new_modes[-1].copy()
                         new_mode_init[0] += np.real(k_shift)
                         new_mode_init[1] -= np.imag(k_shift)
                         
-                        self.pump_params['D0'] = D0s[iD0+1]
+                        self.pump_params['D0'] = self.D0s[iD0+1]
                         params['reduc'] = 0.7
                         
                         k_new = self.find_mode(new_mode_init, params, disp = False, save_traj = False)
@@ -882,8 +882,8 @@ class NAQ(object):
                             print(att, 'attempts to find a mode, think of fine tuning parameters! (linear increments)')
                 
                         
-                        if D0_th < D0_max: #if it is, run the fine search
-                            k_th, D0_th = self.search_threshold( new_modes[-1], params, tol, D0 = D0s[iD0+1], D0_step_max = D0_steps, D0_max = D0_max)
+                        if D0_th < D0_max and D0_th>0: #if it is, run the fine search (positive for modes going downwards)
+                            k_th, D0_th = self.search_threshold( new_modes[-1], params, tol, D0 = self.D0s[iD0+1], D0_step_max = D0_steps, D0_max = D0_max)
                             
                         else: #if the mode will not lase, set to -1
                             k_th = -1
@@ -901,7 +901,7 @@ class NAQ(object):
         k_imag = new_modes[-1][1]
                 
         D0_th = self.linear_lasing_threshold(new_modes[-1], D0_th_previous)
-        
+        D0_th_orig = D0_th.copy()
         while abs(k_imag) > tol:
             
             #estimate the increment in D0 to get to D0_th
@@ -919,14 +919,13 @@ class NAQ(object):
                 D0_th = 0.5*(D0_th_previous + D0_th)
                 
             k_shift = self.pump_linear(new_modes[-1],  D0_th_previous,  D0_th)
-            
             #shift the mode to estimated position
             new_mode_init = new_modes[-1].copy()
             new_mode_init[0] += np.real(k_shift)
             new_mode_init[1] -= np.imag(k_shift)
             
             #rescale the step sizes when we get closer to the solution
-            params['s_size']    = (1e-3 + 1e-1*abs(D0_th -  D0_th_previous)/D0_th)*s_size_0 
+            params['s_size']    = (1e-3 + 1e-1*abs((D0_th -  D0_th_previous)/D0_th))*s_size_0 
 
             self.pump_params['D0'] = D0_th #set the estimated pump
             k_new = self.find_mode(new_mode_init, params, disp = False, save_traj = False) #find the new mode
@@ -938,6 +937,7 @@ class NAQ(object):
             else: #if not, try until the end of times
                 att = 0 
                 while len(k_new)==1:
+                    print(att, D0_th, D0_th_orig)
                     att +=1
                     k_new = self.find_mode(new_mode_init, params, disp = False, save_traj = False)
                 new_modes.append(k_new) #compute the real wavenumber
@@ -988,7 +988,6 @@ class NAQ(object):
             
             #Q-value
             Q = mode[0]/(2*mode[1])
-            
             #estimated D_th
             D_th = 1./(Q*np.imag(-gamma)*np.real(f))
 
