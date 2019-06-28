@@ -805,7 +805,7 @@ class NAQ(object):
 
                     k_shift = self.pump_linear(new_modes[iD0][m], self.D0s[iD0], self.D0s[iD0+1])
                     
-                    if D_th < self.D0s[-1]-self.D0s[iD0]:
+                    if D_th < self.D0s[-1]-self.D0s[iD0] and D_th>0:
                         plt.scatter(new_modes[iD0][m][0]+np.real(k_shift), new_modes[iD0][m][1]- np.imag(k_shift), s=30, c='r')
                     else:
                         plt.scatter(new_modes[iD0][m][0]+np.real(k_shift), new_modes[iD0][m][1]- np.imag(k_shift), s=30, c='k')
