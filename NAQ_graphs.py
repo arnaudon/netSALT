@@ -101,6 +101,13 @@ class NAQ(object):
         else:
             self.set_lengths(np.one(self.m))
 
+ 
+        self.in_mask = sc.sparse.lil_matrix((2*self.m, 2*self.m))
+        for ei, e in enumerate(list(self.graph.edges())):
+            if len(self.graph[e[0]])>1 and len(self.graph[e[1]])>1:
+                self.in_mask[2*ei,2*ei] = 1
+                self.in_mask[2*ei+1,2*ei+1] = 1
+                  
         #set the chi wavenumber of matrix
         if chi is not None:
             self.set_chi(chi)
@@ -137,21 +144,14 @@ class NAQ(object):
 
         #if a pump is set
         if self.open_graph and self.pump_params is not None:
-            gamma = self.pump_params['gamma_perp'] / ( k - self.pump_params['k_a'] + 1.j * self.pump_params['gamma_perp'])
+            self.gamma = self.pump_params['gamma_perp'] / ( k - self.pump_params['k_a'] + 1.j * self.pump_params['gamma_perp'])
             self.pump_mask = sc.sparse.lil_matrix((2*self.m, 2*self.m))
             for e in self.pump_params['edges']:
-                chi[e] *= np.sqrt(1. + gamma * self.pump_params['D0'])
+                chi[e] *= np.sqrt(1. + self.gamma * self.pump_params['D0'])
                 self.pump_mask[2*e,2*e] = 1.
                 self.pump_mask[2*e+1,2*e+1] = 1.
 
-                
-            #TODO: this may be put outside, to speed up compuations, as this function is called often in the search
-            self.in_mask = sc.sparse.lil_matrix((2*self.m, 2*self.m))
-            for ei, e in enumerate(list(self.graph.edges())):
-                if len(self.graph[e[0]])>1 and len(self.graph[e[1]])>1:
-                    self.in_mask[2*ei,2*ei] = 1
-                    self.in_mask[2*ei+1,2*ei+1] = 1
-                    
+                 
         self.set_chi(k*chi) #set the new chi
 
     def Winv_matrix(self):
@@ -555,12 +555,19 @@ class NAQ(object):
             (u, v) = e[:2]
 
             z = np.zeros([2,2])
-            z[0, 0] = 1.
-            z[0, 1] = np.sinc(-1.j*self.graph[u][v]['L'] * self.graph[u][v]['chi'])
-        
+            if abs(np.real(self.graph[u][v]['chi']))>0: #if k has a complex part (recall \chi = ik)
+                z[0, 0] = 1.
+            else: #we recast to real because it is real
+                z[0, 0] = np.real((np.exp( self.graph[u][v]['L']*(self.graph[u][v]['chi'] + np.conj(self.graph[u][v]['chi'])) ) - 1.)/self.graph[u][v]['L']*(self.graph[u][v]['chi'] + np.conj(self.graph[u][v]['chi'])) )
+
+            #no issue here if im(k)=0, and just recast to real 
+            z[0, 1] =  np.real(( np.exp( self.graph[u][v]['L']*self.graph[u][v]['chi'] ) - np.exp( self.graph[u][v]['L']*np.conj(self.graph[u][v]['chi'])) ) / (self.graph[u][v]['L']*( self.graph[u][v]['chi'] - np.conj(self.graph[u][v]['chi']) ) ))
+            
+            #other matrix elements
             z[1, 0] = z[0, 1]
             z[1, 1] = z[0, 0]
-
+            
+            #then compute the norm
             edge_mean[ei] = np.conj(flux[2*ei:2*ei+2]).T.dot(z.dot(flux[2*ei:2*ei+2]))
     
         return edge_mean
