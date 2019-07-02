@@ -533,23 +533,15 @@ class NAQ(object):
             solution = sc.sparse.linalg.spsolve(self.L0, source) #solve L * solution = source
 
             return solution # return the solution
-
-
-    def node_solution_to_edge_solution(self, sol):
-        #compute the flux on each edge
-
-        B = self.BT.todense().T #full indicence matrix
-        Winv = self.Winv.todense()#weight matrix
-
-        flux = np.array(list(Winv.dot(B).dot(sol))).flatten() #flux on each edge
-
-        return flux 
     
     def compute_edge_mean_E2(self):
-    
+        """
+        Compute the average |E|^2 on each edge
+        """
+        
         phi = self.compute_solution()
-        flux = self.node_solution_to_edge_solution(phi)
-    
+        flux = self.Winv.dot(self.BT.T).dot(phi) #we use BT.T as we need to make sure the the in-fluxes vanish
+        
         edge_mean = np.zeros(self.m)
         for ei, e in enumerate(list(self.graph.edges())):
             (u, v) = e[:2]
