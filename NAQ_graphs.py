@@ -472,8 +472,11 @@ class NAQ(object):
             for j in range(len(Alphas)):
                 s[i,j] = out[kk]
                 kk+=1
-
-        return s
+        max_s=np.zeros(len(Alphas))        
+        for j in range(len(Alphas)):
+            max_s[j]=max(s[:,j])
+            s[:,j] = s[:,j]/max(s[:,j])
+        return (s,max_s)
 
     def f_scan(self, k):
         #function to compute the scan in parallel
@@ -522,7 +525,7 @@ class NAQ(object):
                 v = v[:,np.argmin(abs(w))]
 
             if s > s_min:
-                print('Laplacian not singular!', s)
+#                print('Laplacian not singular!', s)
                 return 0
 
             return np.array(v.conj()).flatten()
@@ -560,7 +563,7 @@ class NAQ(object):
             z[1, 1] = z[0, 0]
             
             #then compute the norm
-            edge_mean[ei] = np.conj(flux[2*ei:2*ei+2]).T.dot(z.dot(flux[2*ei:2*ei+2]))
+            edge_mean[ei] = np.conj(flux[2*ei:2*ei+2]).T.dot(z.dot(flux[2*ei:2*ei+2])) #BUG flux est du mauvais type je crois, type(flux[2*ei:2*ei+2]): <class 'scipy.sparse.csc.csc_matrix'>
     
         return edge_mean
     
@@ -637,6 +640,127 @@ class NAQ(object):
                 print('did not find a solution!')
             return np.array([0,])
         
+        
+        
+    def find_mode2(self, k_0, params, max_s, step_Alpha, disp = False, save_traj = False): 
+        """
+        Find the frequency and dissipation of the network, given an initial condition k
+        
+        """
+        s_min = params['s_min']
+        s_size = np.array(params['s_size'])
+        max_steps = params['max_steps']
+        reduc = params['reduc']
+
+        k = k_0.copy()
+        if save_traj: 
+            K = []
+            K.append(k.copy())
+
+        self.update_chi(k)
+        s = self.test_laplacian()
+        #the singular value is then normalized
+        alpha=k[1]
+        p=alpha/step_Alpha-int(alpha/step_Alpha)
+        s=s/((1-p)*max_s[int(alpha/step_Alpha)-1]+p*max_s[int(alpha/step_Alpha)]) #linear approximation of the normalisation coefficient
+        s_0 = s
+        s_new=s
+        n_wrong = 0
+        N_steps = 0
+        alpha_sensibility=s_size[1]
+        real_sensibility=s_size[0]       
+        while s > s_min: #while the current singular value is larger then s_min, update
+            dk = alpha_sensibility * s/s_0 
+            k_list_alpha=[k+[0,dk],k+[0,-dk],k]
+            result_alpha=[0,0,s]
+            
+            for i in range (2):      
+                #update theta
+                k=k_list_alpha[i]
+                if disp:
+                    print("Singular value:", s, "Step size:", s_size, k-dk,  k)
+    
+                self.update_chi(k)
+                s_new = self.test_laplacian()
+                alpha=k[1]
+                p=alpha/step_Alpha-int(alpha/step_Alpha)
+                if (alpha<0):
+                    s_new=s_new/max_s[0]
+                elif (int(alpha/step_Alpha)>=len(max_s)-1): #if alpha goes beyond the range the range of alpha used to measure the matrix s, the normalisation coeff is taken at the limit
+                    s_new=s_new/max_s[-1]
+                else: 
+                    s_new=s_new/((1-p)*max_s[int(alpha/step_Alpha)]+p*max_s[int(alpha/step_Alpha)+1]) #linear approximation of the normalisation coefficient
+    #             keep the update if the s_min is improved
+                result_alpha[i]=s_new
+            s=result_alpha[np.where(result_alpha==min(result_alpha))[0][0]]
+            if (s==result_alpha[2]): #if the best singular value did not change
+                alpha_sensibility=alpha_sensibility/2
+                n_wrong+=1
+            k=np.array(k_list_alpha[np.where(result_alpha==min(result_alpha))[0][0]]) #keep the value of k at which the singular value is the lowest
+           
+            dk = real_sensibility * s/s_0 
+            k_list_real=[k+[dk,0],k+[-dk,0],k]
+            result_real=[0,0,s]
+
+            for i in range (2):      
+                #update theta
+                k=k_list_real[i]
+                if disp:
+                    print("Singular value:", s, "Step size:", s_size, k-dk,  k)
+    
+                self.update_chi(k)
+                s_new = self.test_laplacian()
+                alpha=k[1]
+                p=alpha/step_Alpha-int(alpha/step_Alpha)
+                if (alpha<0):
+                    s_new=s_new/max_s[0]
+                elif (int(alpha/step_Alpha)>=len(max_s)-1): #if alpha goes beyond the range the range of alpha used to measure the matrix s, the normalisation coeff is taken at the limit    
+                    s_new=s_new/max_s[-1]
+                else: 
+                    s_new=s_new/((1-p)*max_s[int(alpha/step_Alpha)]+p*max_s[int(alpha/step_Alpha)+1]) #linear approximation of the normalisation coefficient
+    #             keep the update if the s_min is improved
+                result_real[i]=s_new
+            s=result_real[np.where(result_real==min(result_real))[0][0]]
+            
+            if (s==result_alpha[2]): #if the best singular value did not change
+                real_sensibility=real_sensibility/2
+                n_wrong+=1
+            k=np.array(k_list_real[np.where(result_real==min(result_real))[0][0]]) #keep the value of k at which the singular value is the lowest
+            
+            if s_new < s:
+                n_wrong = 0 
+                    
+                if save_traj: 
+                    K.append(k.copy()) #save the Ks
+            # if not, reset K to the previous step
+            
+            
+            #if no improvements after 20 iteration, multiply the steps by reduc
+            if n_wrong > 20:
+                s_size *= reduc
+                n_wrong = 0 
+            
+            #if the steps are too small, exit the loop
+            if s_size[0] < 1e-5:
+                break 
+                    
+            #if number of steps is too large, exit the loop
+            N_steps +=1
+            if N_steps > max_steps:
+                k   -= dk 
+                break 
+            
+
+        if s < s_min:
+            #if the main loop exited normally, save the value
+            if save_traj: 
+                return np.array(K)
+            else:
+                return k
+        else:
+            if disp:
+                print('did not find a solution!')
+            return np.array([0,])    
 
   
     def update_modes(self, modes, params):
@@ -684,6 +808,40 @@ class NAQ(object):
         modes = self.clean_modes(np.asarray(modes), th) #remove duplicates
 
         return modes[np.argsort(np.array(modes)[:,1])] #return sorted modes (by lossyness)
+    
+    
+    
+    
+    def find_modes2(self, Ks, Alphas,s,max_s, params, th= 0.01): #this function uses the result from the scanning to optimize mode search
+        """
+        Scan the singular values for solutions in K and A
+        """
+        self.params = params 
+        Ks_list = []
+        for i, k in enumerate(Ks):
+            for j, alpha in enumerate(Alphas):
+                if (s[i,j]<0.3): #zone of interest
+                    Ks_list.append(np.array([k,alpha,s[i,j]]))
+        Ks_list=sorted(Ks_list, key=lambda x: x[2]) #sorting point of interest by their singular value
+        for j in range (len(Ks_list)):
+            Ks_list[j]=Ks_list[j][:2] #now that the list is sorted the information about s can be deleted
+        Ks_list = self.clean_interest_points(Ks_list, params) #the list is sorted before it is cleaned so that the if multiple interest points are found to close to each others, the one with the smallest singular value is kept 
+#        with Pool(processes = self.n_processes_scan) as p_find:  #initialise the parallel computation
+#            out = p_find.map(self.f_find2,Ks_list) #run them 
+        out = [self.find_mode2(k_0, self.params, max_s, Alphas[1]-Alphas[0]) for k_0 in Ks_list]
+        modes = []
+        for m in out:
+            if m[0] != 0:
+                modes.append(m)
+
+
+
+
+
+        modes = self.clean_modes(np.asarray(modes), params) #remove duplicates
+
+        return modes[np.argsort(np.array(modes)[:,1])] #return sorted modes (by lossyness)
+    
    
     
     def f_find(self,  k):
@@ -691,11 +849,11 @@ class NAQ(object):
         return self.find_mode(k, self.params, disp = False, save_traj = False)
 
 
-    def clean_modes(self, modes, th):
+    def clean_modes(self, modes, params):
         """
         Clean the modes obtained randomly to get rid of duplicates, with threshold th
         """
-
+        s_size=params['s_size']
         id_selec  = [] #id of duplicated modes
         id_remove = [] #id of selected modes
         for i, m_all in enumerate(modes):
@@ -704,17 +862,43 @@ class NAQ(object):
                 for j, m_selec in enumerate(modes[i+1:]):
                     j+=(i+1) #if j not in id_remove: #to not remove all the modes
                     if j not in id_remove: #to not remove all the modes
-                        if np.linalg.norm(m_all-m_selec) < th: #test if the same, and add the first mode to the list
+                        if (abs((m_all-m_selec)[0]) < s_size[0]) and (abs((m_all-m_selec)[1]) <s_size[1]): #test if the same, and add the first mode to the list
                             id_remove.append(j)
 
         id_remove_unique = np.unique(id_remove)
         id_selec_unique, duplicates = np.unique(id_selec, return_index=False, return_counts=True)
+
         modes_clean = modes[id_selec_unique]
 
         print(len(modes_clean), "modes out of", len(modes), "attempts")
 
         return modes_clean
-     
+    
+    
+    def clean_interest_points(self, Ks_list, params):
+        """
+        Same function a clean_modes but for interest points
+        """
+        s_size=params['s_size']
+        finesse=params['finesse']
+        id_selec  = [] #id of duplicated mode
+        id_remove = [] #id of selected modes
+        for i, m_all in enumerate(Ks_list):
+            if i not in id_remove:
+                id_selec.append(i)
+                for j, m_selec in enumerate(Ks_list[i+1:]):
+                    j+=(i+1) #if j not in id_remove: #to not remove all the modes
+                    if j not in id_remove: #to not remove all the modes
+                        if (abs((m_all-m_selec)[0]) < finesse*s_size[0]) and (abs((m_all-m_selec)[1]) < finesse*s_size[1]): #test if the same, and add the first mode to the list
+                            id_remove.append(j)
+
+        id_remove_unique = np.unique(id_remove)
+        id_selec_unique, duplicates = np.unique(id_selec, return_index=False, return_counts=True)
+        Ks_list_clean=[]
+        for j in  id_selec_unique:
+            Ks_list_clean.append(Ks_list[j])
+
+        return Ks_list_clean
 
 
     def pump_linear(self, mode, D0_0, D0_1):
