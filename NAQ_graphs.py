@@ -1157,8 +1157,8 @@ class NAQ(object):
                 
             else: #if not, try until the end of times
                 att = 0 
+                print('Start running many attempts (threshold search)')
                 while len(k_new)==1:
-                    print(att, D0_th, D0_th_orig)
                     att +=1
                     k_new = self.find_mode_brownian_ratchet(new_mode_init, params, disp = False, save_traj = False)
                 new_modes.append(k_new) #compute the real wavenumber
