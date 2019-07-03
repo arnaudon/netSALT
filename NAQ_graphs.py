@@ -34,7 +34,7 @@ class NAQ(object):
     This is the main class describing non-abelian quantum graphs
     """
 
-    def __init__(self, G , positions = None, lengths = None, chi = None , group = 'U1', open_graph = False, transport_graph = False):
+    def __init__(self, G , positions = None, lengths = None, tot_len = 0, chi = None , group = 'U1', open_graph = False, transport_graph = False):
         
         #type method for finding the spectrum:
         # svd: use smallest singular value
@@ -51,7 +51,9 @@ class NAQ(object):
             
         self.n = len(self.graph.nodes()) #number of nodes
         self.m = len(self.graph.edges()) #number of edges
-                       
+
+        self.tot_len = tot_len #total length of inner edges, if 0, the lengths won't be rescaled
+
         self.group = group #set the group type
         self.open_graph = open_graph
 
@@ -80,6 +82,14 @@ class NAQ(object):
             print('Which group? I do not know this one!')
 
 
+        #pre-compute the mask for inner edges 
+        self.in_mask = sc.sparse.lil_matrix((2*self.m, 2*self.m))
+        for ei, e in enumerate(list(self.graph.edges())):
+            if len(self.graph[e[0]])>1 and len(self.graph[e[1]])>1:
+                self.in_mask[2*ei,2*ei] = 1
+                self.in_mask[2*ei+1,2*ei+1] = 1
+                  
+
         #if we know the position, we can set the corresponding lengths
         if positions:
             self.pos = positions
@@ -101,14 +111,7 @@ class NAQ(object):
         else:
             self.set_lengths(np.one(self.m))
 
- 
-        self.in_mask = sc.sparse.lil_matrix((2*self.m, 2*self.m))
-        for ei, e in enumerate(list(self.graph.edges())):
-            if len(self.graph[e[0]])>1 and len(self.graph[e[1]])>1:
-                self.in_mask[2*ei,2*ei] = 1
-                self.in_mask[2*ei+1,2*ei+1] = 1
-                  
-        #set the chi wavenumber of matrix
+        #set the chi wavenumber 
         if chi is not None:
             self.set_chi(chi)
             self.chi0 = self.chi.copy() #save the original chi for later
@@ -117,13 +120,28 @@ class NAQ(object):
 
     def set_lengths(self, lengths):
         #set the lengths of the edges
-        self.tot_len = 0 #may be used later
+        
+        #if a total length has be set, rescale the lengths accordingly 
+        actual_tot_len = self.in_mask.todense()[::2,::2].dot(lengths).sum()
+        n_inner = np.shape(np.where( np.diag(self.in_mask.todense()[::2,::2])>0) )[1]
+
+
+        if self.tot_len > 0:
+            lengths = list(np.array(lengths)*self.tot_len/actual_tot_len)
+            print("Total lenght:",  self.tot_len)
+            print("Average lenght:",  self.tot_len/n_inner)
+        else:
+            print("Total lenght:",  actual_tot_len)
+            print("Average lenght:",  actual_tot_len/n_inner)
+
+
+
         self.lengths  = lengths
         for ei, e in enumerate(list(self.graph.edges())):
             (u, v) = e[:2]
             self.graph[u][v]['L']  = lengths[ei]
-            self.tot_len += self.graph[u][v]['L']
 
+    
 
     def set_chi(self, chi):
         #set the chi variable on the edges
@@ -564,7 +582,7 @@ class NAQ(object):
             z[1, 1] = z[0, 0]
             
             #then compute the norm
-            edge_mean[ei] = np.conj(flux[2*ei:2*ei+2]).T.dot(z.dot(flux[2*ei:2*ei+2])) #BUG flux est du mauvais type je crois, type(flux[2*ei:2*ei+2]): <class 'scipy.sparse.csc.csc_matrix'>
+            edge_mean[ei] = np.real(np.conj(flux[2*ei:2*ei+2]).T.dot(z.dot(flux[2*ei:2*ei+2]))) #BUG flux est du mauvais type je crois, type(flux[2*ei:2*ei+2]): <class 'scipy.sparse.csc.csc_matrix'>
     
         return edge_mean
     
@@ -785,7 +803,7 @@ class NAQ(object):
         Ks_list = []
                 
         with Pool(processes = self.n_processes_scan) as p_find:  #initialise the parallel computation
-            out = p_find.map(self.f_find, modes) #run them 
+            out = p_find.map(self.f_find_brownian_ratchet, modes) #run them 
         
         #if we could not find a new mode, use the same as before
         new_modes = []
@@ -842,8 +860,10 @@ class NAQ(object):
         #the one with the smallest singular value is kept 
         Ks_list = self.clean_interest_points(Ks_list, params) 
 
-        out = [self.find_mode(k_0, self.params, max_s, Alphas[1]-Alphas[0]) for k_0 in Ks_list]
-        
+        find_modef = partial(self.f_find, max_s, Alphas[1]-Alphas[0]) 
+        with Pool(processes = self.n_processes_scan) as p_find:  #initialise the parallel computation
+            out = list(tqdm(p_find.imap(find_modef, Ks_list), total = len(Ks_list))) #run them 
+
         modes = []
         for m in out:
             if m[0] != 0:
@@ -859,6 +879,9 @@ class NAQ(object):
         #inner function to find modes in parallel
         return self.find_mode_brownian_ratchet(k, self.params, disp = False, save_traj = False)
 
+    def f_find(self, max_s, step_alpha,  k):
+        #inner function to find modes in parallel
+        return self.find_mode(k, self.params, max_s, step_alpha, disp = False, save_traj = False)
 
     def clean_modes(self, modes, params):
         """
@@ -1062,7 +1085,7 @@ class NAQ(object):
                         self.pump_params['D0'] = self.D0s[iD0+1]
                         params['reduc'] = 0.7
                         
-                        k_new = self.find_mode(new_mode_init, params, disp = False, save_traj = False)
+                        k_new = self.find_mode_brownian_ratchet(new_mode_init, params, disp = False, save_traj = False)
 
                         #check if it has been found
                         if len(k_new)>1:
@@ -1074,7 +1097,7 @@ class NAQ(object):
                             att = 0 
                             while len(k_new)==1:
                                 att +=1
-                                k_new = self.find_mode(new_mode_init, params, disp = False, save_traj = False)
+                                k_new = self.find_mode_brownian_ratchet(new_mode_init, params, disp = False, save_traj = False)
                             new_modes.append(k_new) #compute the real wavenumber
                 
                             print(att, 'attempts to find a mode, think of fine tuning parameters! (linear increments)')
@@ -1126,7 +1149,7 @@ class NAQ(object):
             params['s_size']    = (1e-3 + 1e-1*abs((D0_th -  D0_th_previous)/D0_th))*s_size_0 
 
             self.pump_params['D0'] = D0_th #set the estimated pump
-            k_new = self.find_mode(new_mode_init, params, disp = False, save_traj = False) #find the new mode
+            k_new = self.find_mode_brownian_ratchet(new_mode_init, params, disp = False, save_traj = False) #find the new mode
             
             #check if it has been found
             if len(k_new)>1:
@@ -1137,7 +1160,7 @@ class NAQ(object):
                 while len(k_new)==1:
                     print(att, D0_th, D0_th_orig)
                     att +=1
-                    k_new = self.find_mode(new_mode_init, params, disp = False, save_traj = False)
+                    k_new = self.find_mode_brownian_ratchet(new_mode_init, params, disp = False, save_traj = False)
                 new_modes.append(k_new) #compute the real wavenumber
                 
                 print(att, 'attempts to find a mode, think of fine tuning parameters! (threshold search)')

@@ -14,7 +14,8 @@ SM:
         s_size: [0.1, 0.1] #size of random steps (smaller it will converge slowly, larger it will never accept steps)
         max_steps: 1000 #max number of steps before it gives up
         reduc: 1. #if it does not improve after 20 steps, multiply by this number (not really needed)
-
+        s_interest: 0.3 #threshold for selecting possible mode candidates from the grid scan
+        finesse: 2. #should be larger than 1, used to clean up duplicate modes
 SBM:
         sizes: [200, 50, 200]
         probs: [[10., 1.0, 0.0],
