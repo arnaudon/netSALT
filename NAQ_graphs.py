@@ -509,7 +509,7 @@ class NAQ(object):
         """
         plt.figure(figsize=(10,5))
 
-        plt.imshow(np.log(S.T), extent= (ks[0], ks[-1], alphas[0], alphas[-1]), aspect='auto', origin='lower')
+        plt.imshow(np.log(S.T), extent= (ks[0], ks[-1], alphas[0], alphas[-1]), aspect='auto', origin='lower', vmax = 0, vmin = -3)
 
         cbar = plt.colorbar()
         cbar.set_label('smallest singular value')
@@ -1008,15 +1008,27 @@ class NAQ(object):
     def plot_pump_traj(self, Ks, Alphas, s, modes, new_modes, estimate = False):
         self.plot_scan(Ks,Alphas,s, modes)
 
+        if modes is not None:
+            plt.plot(modes[:,0], modes[:,1],'ro')
+
         for i in range(len(modes)):
             D_th = self.linear_lasing_threshold(modes[i], self.D0s[0])
             
-            if D_th < self.D0s[-1] and D_th>0:
-                plt.plot(new_modes[:,i,0],new_modes[:,i,1],'r-+')
-            else:
-                plt.plot(new_modes[:,i,0],new_modes[:,i,1],'b-+')
+            #if D_th < self.D0s[-1] and D_th>0:
+            #    plt.plot(new_modes[:,i,0],new_modes[:,i,1],'r-.')
+            #else:
+            plt.plot(new_modes[:,i,0],new_modes[:,i,1],'k-', lw=2)
 
-        plt.plot(new_modes[-1,:,0],new_modes[-1,:,1],'b+')
+        #plt.plot(new_modes[-1,:,0],new_modes[-1,:,1],'k+')
+
+        ax = plt.gca()
+        for i in range(len(modes)):
+            dx = new_modes[-1,i,0]-new_modes[-2,i,0]
+            dy = new_modes[-1,i,1]-new_modes[-2,i,1]
+
+            #plt.arrow(new_modes[-1,i,0], new_modes[-1,i,1], dx, dy, head_width=0.005, head_length=0.01, fc='k', ec='k')
+            ax.annotate("", xy=(new_modes[-1,i,0], new_modes[-1,i,1]), xytext=(new_modes[-2,i,0], new_modes[-2,i,1]), arrowprops=dict(facecolor='black', shrink=0.05))
+
 
         if estimate:
             for m in range(len(modes)):
@@ -1083,7 +1095,7 @@ class NAQ(object):
                         new_mode_init[1] -= np.imag(k_shift)
                         
                         self.pump_params['D0'] = self.D0s[iD0+1]
-                        params['reduc'] = 0.7
+                        params['reduc'] = 0.5
                         
                         k_new = self.find_mode_brownian_ratchet(new_mode_init, params, disp = False, save_traj = False)
 
