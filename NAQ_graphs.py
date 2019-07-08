@@ -103,13 +103,30 @@ class NAQ(object):
 
             self.set_lengths(lengths)
 
+        else: #otherwise just use force atlas for plotting the graphs 
+            print("Using force atlas to set node positions")
+            from fa2 import ForceAtlas2
+            forceatlas2 = ForceAtlas2(
+                        # Tuning
+                        scalingRatio=2.,
+                        strongGravityMode=False,
+                        gravity=1.0,
+                        outboundAttractionDistribution=False,  # Dissuade hubs
+                        # Log
+                        verbose=False)
+
+            self.pos = forceatlas2.forceatlas2_networkx_layout(self.graph, pos=None, iterations=2000)
+
+            for u in self.graph.nodes():
+                self.graph.node[u]['pos'] = self.pos[u] #set the position to the networkx graph
+
         #if we know the lengths, we set it directly
-        elif lengths:
+        if lengths:
             self.set_lengths(lengths)
             
         #if none are set, just set lengths to 1
         else:
-            self.set_lengths(np.one(self.m))
+            self.set_lengths(np.ones(self.m))
 
         #set the chi wavenumber 
         if chi is not None:
