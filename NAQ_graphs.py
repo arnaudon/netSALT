@@ -120,13 +120,13 @@ class NAQ(object):
             for u in self.graph.nodes():
                 self.graph.node[u]['pos'] = self.pos[u] #set the position to the networkx graph
 
-        #if we know the lengths, we set it directly
-        if lengths:
-            self.set_lengths(lengths)
+            #if we know the lengths, we set it directly
+            if lengths:
+                self.set_lengths(lengths)
             
-        #if none are set, just set lengths to 1
-        else:
-            self.set_lengths(np.ones(self.m))
+            #if none are set, just set lengths to 1
+            else:
+                self.set_lengths(np.ones(self.m))
 
         #set the chi wavenumber 
         if chi is not None:
