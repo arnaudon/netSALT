@@ -589,7 +589,7 @@ class NAQ(object):
             if abs(np.real(self.graph[u][v]['chi']))>0: #if k has a complex part (recall \chi = ik)
                 z[0, 0] = 1.
             else: #we recast to real because it is real
-                z[0, 0] = np.real((np.exp( self.graph[u][v]['L']*(self.graph[u][v]['chi'] + np.conj(self.graph[u][v]['chi'])) ) - 1.)/self.graph[u][v]['L']*(self.graph[u][v]['chi'] + np.conj(self.graph[u][v]['chi'])) )
+                z[0, 0] = np.real((np.exp( self.graph[u][v]['L']*(self.graph[u][v]['chi'] + np.conj(self.graph[u][v]['chi'])) ) - 1.)/ (self.graph[u][v]['L']*(self.graph[u][v]['chi'] + np.conj(self.graph[u][v]['chi'])) ) )
 
             #no issue here if im(k)=0, and just recast to real 
             z[0, 1] =  np.real(( np.exp( self.graph[u][v]['L']*self.graph[u][v]['chi'] ) - np.exp( self.graph[u][v]['L']*np.conj(self.graph[u][v]['chi'])) ) / (self.graph[u][v]['L']*( self.graph[u][v]['chi'] - np.conj(self.graph[u][v]['chi']) ) ))
@@ -958,20 +958,19 @@ class NAQ(object):
 
     def pump_linear(self, mode, D0_0, D0_1):
             """
-            Construct the L_0 Laplacian, from nodes to nodes
+            find the linear approximation of the new wavenumber, for an original pump mode with D0_0, to a new pump D0_1
             """
                     
-            #update the laplacian
+            #update the laplacian with this pump
             self.pump_params['D0'] = D0_0
             self.update_chi(mode)
             self.update_laplacian()
-            
             
             #compute the node field
             phi = self.compute_solution()
             
             self.Z_matrix_U1() #compute the Z matrix
-            edge_norm = self.Winv.dot(self.Z).dot(self.Winv) #compute the correct weight matrix
+            edge_norm = self.Winv.dot(self.Z).dot(self.Winv) #compute the weight matrix for \int E^2
             
             #compute the inner sum
             L0_in = self.BT.dot(edge_norm.dot(self.in_mask)).dot(self.B).asformat('csc')
