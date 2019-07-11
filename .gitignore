@@ -102,3 +102,11 @@ venv.bak/
 
 # mypy
 .mypy_cache/
+
+*.svg
+
+*.pkl
+
+*.swo
+
+*.png
