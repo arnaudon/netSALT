@@ -84,11 +84,12 @@ class NAQ(object):
 
         #pre-compute the mask for inner edges 
         self.in_mask = sc.sparse.lil_matrix((2*self.m, 2*self.m))
+        self.in_mask_list = []
         for ei, e in enumerate(list(self.graph.edges())):
             if len(self.graph[e[0]])>1 and len(self.graph[e[1]])>1:
                 self.in_mask[2*ei,2*ei] = 1
                 self.in_mask[2*ei+1,2*ei+1] = 1
-                  
+                self.in_mask_list.append(ei)
 
         #if we know the position, we can set the corresponding lengths
         if positions:
@@ -182,9 +183,10 @@ class NAQ(object):
             self.gamma = self.pump_params['gamma_perp'] / ( k - self.pump_params['k_a'] + 1.j * self.pump_params['gamma_perp'])
             self.pump_mask = sc.sparse.lil_matrix((2*self.m, 2*self.m))
             for e in self.pump_params['edges']:
-                chi[e] *= np.sqrt(1. + self.gamma * self.pump_params['D0'])
-                self.pump_mask[2*e,2*e] = 1.
-                self.pump_mask[2*e+1,2*e+1] = 1.
+                if e in self.in_mask_list: #make sure we don't pump outgoing edges
+                    chi[e] *= np.sqrt(1. + self.gamma * self.pump_params['D0'])
+                    self.pump_mask[2*e,2*e] = 1.
+                    self.pump_mask[2*e+1,2*e+1] = 1.
 
         self.set_chi(k*chi) #set the new chi
 
