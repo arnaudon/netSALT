@@ -1035,7 +1035,7 @@ class NAQ(object):
             #if D_th < self.D0s[-1] and D_th>0:
             #    plt.plot(new_modes[:,i,0],new_modes[:,i,1],'r-.')
             #else:
-            plt.plot(new_modes[:,i,0],new_modes[:,i,1],'k-', lw=2)
+            plt.scatter(new_modes[:,i,0],new_modes[:,i,1],s=20,c='k')
 
         #plt.plot(new_modes[-1,:,0],new_modes[-1,:,1],'k+')
 
@@ -1057,14 +1057,269 @@ class NAQ(object):
                     k_shift = self.pump_linear(new_modes[iD0][m], self.D0s[iD0], self.D0s[iD0+1])
                     
                     if D_th < self.D0s[-1]-self.D0s[iD0] and D_th>0:
-                        plt.scatter(new_modes[iD0][m][0]+np.real(k_shift), new_modes[iD0][m][1]- np.imag(k_shift), s=30, c='r')
+                        plt.scatter(new_modes[iD0][m][0]+np.real(k_shift), new_modes[iD0][m][1]- np.imag(k_shift), s=10, c='b')
                     else:
-                        plt.scatter(new_modes[iD0][m][0]+np.real(k_shift), new_modes[iD0][m][1]- np.imag(k_shift), s=30, c='k')
+                        plt.scatter(new_modes[iD0][m][0]+np.real(k_shift), new_modes[iD0][m][1]- np.imag(k_shift), s=10, c='b')
+
+                    plt.plot([new_modes[iD0][m][0], new_modes[iD0][m][0]+np.real(k_shift)], [new_modes[iD0][m][1], new_modes[iD0][m][1] - np.imag(k_shift)], c='k', lw = 0.8)
+                    
+               
+    def plot_pump_traj_reduced(self, Ks, Alphas, s, modes, new_modes, estimate = False):
+        #self.plot_scan(Ks,Alphas,s, modes)
+
+        if modes is not None:
+            plt.plot(modes[:,0], modes[:,1],'ro')
+
+        for i in range(len(modes)):
+            D_th = self.linear_lasing_threshold(modes[i], self.D0s[0])
+            
+            #if D_th < self.D0s[-1] and D_th>0:
+            #    plt.plot(new_modes[:,i,0],new_modes[:,i,1],'r-.')
+            #else:
+            plt.scatter(new_modes[:,i,0],new_modes[:,i,1],s=5,c='k')
+
+        #plt.plot(new_modes[-1,:,0],new_modes[-1,:,1],'k+')
+
+        ax = plt.gca()
+        for i in range(len(modes)):
+            dx = new_modes[-1,i,0]-new_modes[-2,i,0]
+            dy = new_modes[-1,i,1]-new_modes[-2,i,1]
+
+            #plt.arrow(new_modes[-1,i,0], new_modes[-1,i,1], dx, dy, head_width=0.005, head_length=0.01, fc='k', ec='k')
+            ax.annotate("", xy=(new_modes[-1,i,0], new_modes[-1,i,1]), xytext=(new_modes[-2,i,0], new_modes[-2,i,1]), arrowprops=dict(facecolor='black', shrink=0.05))
+
+
+        if estimate:
+            for m in range(len(modes)):
+
+                for iD0 in range(len(self.D0s)-1):
+                    D_th = self.linear_lasing_threshold(new_modes[iD0][m], self.D0s[iD0])
+
+                    k_shift = self.pump_linear(new_modes[iD0][m], self.D0s[iD0], self.D0s[iD0+1])
+                    
+                    if D_th < self.D0s[-1]-self.D0s[iD0] and D_th>0:
+                        plt.scatter(new_modes[iD0][m][0]+np.real(k_shift), new_modes[iD0][m][1]- np.imag(k_shift), s=5, c='b')
+                    else:
+                        plt.scatter(new_modes[iD0][m][0]+np.real(k_shift), new_modes[iD0][m][1]- np.imag(k_shift), s=5, c='b')
 
                     plt.plot([new_modes[iD0][m][0], new_modes[iD0][m][0]+np.real(k_shift)], [new_modes[iD0][m][1], new_modes[iD0][m][1] - np.imag(k_shift)], c='k', lw = 0.8)
                     
                     
+    def compute_E2(self):
+        """
+        Compute the norm \int|E|^2 on each edge for normalisation later
+        """
+        
+        phi = self.compute_solution()
+        flux = self.Winv.dot(self.BT.T).dot(phi) #we use BT.T as we need to make sure the the in-fluxes vanish
+        
+        edge_mean = np.zeros(self.m)
+        for ei, e in enumerate(list(self.graph.edges())):
+            (u, v) = e[:2]
+            if len(self.graph[u])>1 and len(self.graph[v])>1:
+
+                z = np.zeros([2,2])
+                if abs(np.real(self.graph[u][v]['chi']))>0: #if k has a complex part (recall \chi = ik)
+                    z[0, 0] = 1.
+                else: #we recast to real because it is real
+                    z[0, 0] = np.real((np.exp( self.graph[u][v]['L']*(self.graph[u][v]['chi'] + np.conj(self.graph[u][v]['chi'])) ) - 1.)/self.graph[u][v]['L']*(self.graph[u][v]['chi'] + np.conj(self.graph[u][v]['chi'])) )
+
+                #no issue here if im(k)=0, and just recast to real 
+                z[0, 1] =  np.real(( np.exp( self.graph[u][v]['L']*self.graph[u][v]['chi'] ) - np.exp( self.graph[u][v]['L']*np.conj(self.graph[u][v]['chi'])) ) / (self.graph[u][v]['L']*( self.graph[u][v]['chi'] - np.conj(self.graph[u][v]['chi']) ) ))
+            
+                #other matrix elements
+                z[1, 0] = z[0, 1]
+                z[1, 1] = z[0, 0]
+            
+                #then compute the norm
+                edge_mean[ei] = self.graph[u][v]['L']*np.real(np.conj(flux[2*ei:2*ei+2]).T.dot(z.dot(flux[2*ei:2*ei+2]))) #BUG flux est du mauvais type je crois, type(flux[2*ei:2*ei+2]): <class 'scipy.sparse.csc.csc_matrix'>
+        
+        #return the sqrt of the norm, i.e. \sqrt{ \int |E|^2 dx}
+        return np.sqrt(edge_mean.sum())             
                  
+        
+    def T_matrix(self, th_modes, D0_th, linear_approx= False):
+            """
+            Compute the T_{\mu\nu} matrix for nonlinear SALT
+            """
+
+            #first extract the flux vectors and Gammas
+            fluxes = []
+            gammas = []
+            pump_norms = [] #collect the \int \delta_I E^2 for later
+            n_modes = len(D0_th) #number of modes
+            for i in range(n_modes):
+                
+                if linear_approx:
+                    self.pump_params['D0'] = 0 
+                else:
+                    self.pump_params['D0'] = D0_th[i]
+                
+                self.update_chi(th_modes[i])
+                self.update_laplacian()
+                phi = self.compute_solution()
+    
+                #normalize the modes first
+                L0_in_norm = self.compute_E2()
+                phi /= L0_in_norm
+                
+                #compute the pump norm
+                self.Z_matrix_U1() #compute the Z matrix
+                edge_norm = self.Winv.dot(self.Z).dot(self.Winv) #compute the correct weight matrix
+                L0_pump = self.BT.dot(edge_norm.dot(self.pump_mask)).dot(self.B).asformat('csc')
+                L0_pump_norm = phi.T.dot(L0_pump.dot(phi))
+                
+                
+                pump_norms.append(L0_pump_norm)
+                
+                #compute the edge solution with correct normalisation
+                flux = self.Winv.dot(self.BT.T).dot(phi)
+
+                fluxes.append(flux)
+                gammas.append(self.gamma)
+                
+            #populate the matrix, entry by entry (not a symmetric matrix!)
+            T = np.zeros([n_modes, n_modes], dtype=np.complex64)
+            for mu in range(n_modes):
+                for nu in range(n_modes):
+                    
+                    #first set shorthand notations (following the notes)
+                    lamb_mu = fluxes[mu]
+                    lamb_nu = fluxes[nu]
+                    
+                    k_mu = (th_modes[mu][0]-1.j*th_modes[mu][1])*np.sqrt(1. + gammas[mu] * D0_th[mu])
+                    k_nu = (th_modes[nu][0]-1.j*th_modes[nu][1])*np.sqrt(1. + gammas[nu] * D0_th[nu]) 
+                    
+                    Delta = k_nu - np.conj(k_nu)
+                    Lamb  = k_nu + np.conj(k_nu)
+                    
+                    #compute the matrix element looping only on the pumped edges
+                    for ei, e in enumerate(list(self.graph.edges())):
+                        if ei in self.pump_params['edges']:
+                            (u, v) = e[:2]
+
+                            #shortand notation (as in the notes)
+                            lamb_nu_plus = lamb_nu[2*ei]
+                            lamb_nu_minus = lamb_nu[2*ei+1]
+                            lamb_mu_plus = lamb_mu[2*ei]
+                            lamb_mu_minus = lamb_mu[2*ei+1]
+                            l = self.graph[u][v]['L']
+                            
+                            exp_term_1 = ( np.exp(1.j*(2*k_mu+Delta)*l) - 1. ) / (1.j*(2*k_mu+Delta))
+
+                            T[mu, nu] += exp_term_1 * ( abs(lamb_nu_plus)**2*lamb_mu_plus**2  + 
+                                                        abs(lamb_nu_minus)**2*lamb_mu_minus**2
+                                                       )
+                            
+                            exp_term_2 = ( np.exp(2.j*k_mu*l) - np.exp(1.j*Delta*l) ) / (1.j*(2*k_mu-Delta))
+
+                            T[mu, nu] += exp_term_2 * ( abs(lamb_nu_plus)**2*lamb_mu_minus**2 +
+                                                        abs(lamb_nu_minus)**2*lamb_mu_plus**2 
+                                                       )
+                            
+                            exp_term_3 = np.exp(1.j*k_mu*l)*(np.exp(1.j*Delta*l) - 1.) / (1.j*Delta) 
+                            
+                            T[mu, nu] += 2*exp_term_3 * ( abs(lamb_nu_plus)**2*lamb_mu_plus*lamb_mu_minus +
+                                                          abs(lamb_nu_minus)**2*lamb_mu_plus*lamb_mu_minus
+                                                        )
+                            
+                            exp_term_4 = ( np.exp(1.j*(2.*k_mu+k_nu)*l) 
+                                          - np.exp(-1.j*np.conj(k_nu)*l) ) / (1.j*(2*k_nu+Lamb))
+                            
+                            T[mu, nu] += exp_term_4 * ( lamb_nu_plus*np.conj(lamb_nu_minus)*lamb_mu_plus**2 +
+                                                        np.conj(lamb_nu_plus)*lamb_nu_minus*lamb_mu_minus**2
+                                                      )
+                            
+                            exp_term_5 = ( np.exp(1.j*(2.*k_mu-np.conj(k_nu))*l) 
+                                          - np.exp(1.j*k_nu*l) ) / (1.j*(2*k_nu-Lamb))
+                            
+                            T[mu, nu] += exp_term_5 * ( lamb_nu_plus*np.conj(lamb_nu_minus)*lamb_mu_minus**2 +
+                                                       np.conj(lamb_nu_plus)*lamb_nu_minus*lamb_mu_plus**2
+                                                      )
+                        
+                            exp_term_6 =   np.exp(1.j*k_mu*l) * ( np.exp(1.j*k_nu*l) 
+                                                - np.exp(-1.j*np.conj(k_nu)*l) ) / (1.j*Lamb)
+                                
+                            T[mu, nu] += 2*exp_term_6 * ( lamb_nu_plus*np.conj(lamb_nu_minus)*lamb_mu_minus*lamb_mu_plus +
+                                                        np.conj(lamb_nu_plus)*lamb_nu_minus*lamb_mu_minus*lamb_mu_plus
+                                                      )
+                    T[mu, nu] /= pump_norms[mu] #divide by the other integral \int \delta_i E^2
+                    T[mu, nu] *= np.imag(-gammas[nu]) #finally multiply by \Gamma_\nu and use only the real part of T
+
+            T = np.diag(np.diag(T)) #only consider the diagonal (mode interaction don't work...)
+
+            return np.real(T.T) #convert it to a array with real numbers
+        
+        
+    def modal_intensities(self, D0_max, D0_steps, th_modes, D0_th, linear_approx= False):
+        """
+        compute the modal intensities of the modes up to D0, with D0_steps
+        """
+        D0_th = np.array(D0_th)
+        th_modes = np.array(th_modes)
+
+        n_modes = len(D0_th)
+
+        D0s = np.linspace(0, D0_max, D0_steps)
+
+        D0_th_min = np.min(D0_th) #smallest lasing threshold
+        th_mode_first = th_modes[np.argmin(D0_th)] #first lasing mode
+
+        D0_th_inv = 1./D0_th #inverse of lasing thresholds
+
+        I = np.zeros([n_modes, D0_steps]) #collect the modal intensities
+        lasing_modes = [] #ordered list of lasing modes ids
+
+        next_D0 = D0_th_min #set the next lasing threshold to the minimum one 
+        next_lasing_mode  = np.argmin(D0_th) #set the next lasing mode as the first to possibly lase
+
+        for i in tqdm(range(len(D0s))):
+            D0 = D0s[i]
+            #print('D0', D0, 'next', next_D0)
+            if D0 > D0_th_min: #before the first mode lases, nothing happens
+
+                #while we can add new lasing modes, add them 
+                search_new_lasing_modes = True 
+                while search_new_lasing_modes:
+
+                    if D0 > next_D0: #if the next mode can be lased, add it and search the next one
+                        lasing_modes += [next_lasing_mode,]
+                        #print('lasing modes', lasing_modes)
+
+
+                        #if needed, compute all the interacting thresholds for the non-lasing modes
+                        D0_ints = np.ones(n_modes)*1e5 #to collect the interacting thresholds, set them to large for later search of smallest
+                        for mu in range(n_modes):
+                            if mu not in lasing_modes:
+
+                                #first compute the larger T matrix (including the mode m)
+                                T_mu = self.T_matrix( th_modes[lasing_modes + [mu,]], D0_th[lasing_modes + [mu,]], linear_approx= linear_approx)
+                                T_mu_inv = np.linalg.inv(T_mu)
+
+                                #compute the interacting threshold of mode m
+                                D0_ints[mu] = 1./ ( T_mu_inv[-1].dot(D0_th_inv[lasing_modes + [mu,]]) / T_mu_inv[-1].dot( np.ones(len(lasing_modes)+1)) )
+
+                                D0_ints[mu] = np.real(D0_ints[mu])
+
+                        #print(D0_ints, D0)
+                        #next interacting threshold
+                        next_D0 = np.min(np.real(D0_ints) )
+                        next_lasing_mode = np.argmin(D0_ints)
+
+                    else: #if the next mode does not lase, stop the search and compute the modal intensities
+                        search_new_lasing_modes = False
+
+                #update the T^{-1} matrix with new the new mode
+                T_inv = np.linalg.inv(self.T_matrix( th_modes[lasing_modes], D0_th[lasing_modes], linear_approx= linear_approx))
+
+                #compute the modal intensities
+                I[lasing_modes, i] = ( D0*T_inv.dot(D0_th_inv[lasing_modes]) - T_inv.sum(1) )
+                
+        return I
+
+        
+        
+        
     def full_lasing_threshold(self, modes, params, tol, D0_max, D0_steps):
             """
             For a sequence of D0, find the mode positions, of the modes modes. 
