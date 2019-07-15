@@ -80,7 +80,8 @@ class NAQ(object):
 
         else:
             print('Which group? I do not know this one!')
-
+        
+        self.eps = 1.+0.002j
 
         #pre-compute the mask for inner edges 
         self.in_mask = sc.sparse.lil_matrix((2*self.m, 2*self.m))
@@ -174,7 +175,7 @@ class NAQ(object):
         chi = self.chi0.copy()
 
         if isinstance(mode, (list, np.ndarray) ):  #complex wavenumber 
-            k = mode[0]-1.j*mode[1]
+            k = np.sqrt(self.eps )* (mode[0]-1.j*mode[1])
         else:  #real wavenumber
             k = mode
 
@@ -184,7 +185,7 @@ class NAQ(object):
             self.pump_mask = sc.sparse.lil_matrix((2*self.m, 2*self.m))
             for e in self.pump_params['edges']:
                 if e in self.in_mask_list: #make sure we don't pump outgoing edges
-                    chi[e] *= np.sqrt(1. + self.gamma * self.pump_params['D0'])
+                    chi[e] *= np.sqrt(self.eps + self.gamma * self.pump_params['D0'])/np.sqrt(self.eps)
                     self.pump_mask[2*e,2*e] = 1.
                     self.pump_mask[2*e+1,2*e+1] = 1.
 
