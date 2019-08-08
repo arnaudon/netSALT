@@ -81,7 +81,7 @@ class NAQ(object):
         else:
             print('Which group? I do not know this one!')
         
-        self.eps = 1.+0.002j
+        self.eps = 1.+0*0.002j
 
         #pre-compute the mask for inner edges 
         self.in_mask = sc.sparse.lil_matrix((2*self.m, 2*self.m))
@@ -136,6 +136,13 @@ class NAQ(object):
             self.chi0 = self.chi.copy() #save the original chi for later
         else:
             print('Please provide an edge generator')
+            
+            
+        if refr_index is None:
+            self.set_OPL([1 for i in range (self.m)])
+        else:
+            self.set_OPL(refr_index)
+            
 
     def set_lengths(self, lengths):
         #set the lengths of the edges
@@ -160,6 +167,14 @@ class NAQ(object):
             (u, v) = e[:2]
             self.graph[u][v]['L']  = lengths[ei]
 
+
+
+    def set_OPL(self, refr_index):
+        #set the optical path lengths of the edges
+
+        for ei, e in enumerate(list(self.graph.edges())):
+            (u, v) = e[:2]
+            self.graph[u][v]['OPL']  = refr_index[ei]*self.graph[u][v]['L']
     
 
     def set_chi(self, chi):
@@ -190,6 +205,30 @@ class NAQ(object):
                     self.pump_mask[2*e+1,2*e+1] = 1.
 
         self.set_chi(k*chi) #set the new chi
+
+
+#        if eps is not None:
+#            self.set_eps(eps)
+#
+#
+#    def set_eps(self,eps):
+#        self.eps = eps
+#        for ei, e in enumerate(list(self.graph.edges())):
+#            (u, v) = e[:2]
+#            self.graph[u][v]['eps']  = eps[ei]
+
+
+
+    def get_info_edges(self):
+        
+        matrix=[]
+        for ei, e in enumerate(list(self.graph.edges())):
+            self.set_chi(self.chi0)
+            (u, v) = e[:2]
+            matrix.append({'edges':(u,v),"number":ei, "chi":self.graph[u][v]['chi']})
+        return matrix
+
+
 
     def Winv_matrix(self):
         """
@@ -525,7 +564,6 @@ class NAQ(object):
     def plot_scan(self, ks, alphas, S, modes = None):
         """
         plot the scan with the mode found
-
         """
         plt.figure(figsize=(10,5))
 
@@ -563,9 +601,9 @@ class NAQ(object):
                 s = np.min(abs(w))
                 v = v[:,np.argmin(abs(w))]
 
-            if s > s_min:
-                print('Laplacian not singular!', s)
-                return 0
+#            if s > s_min:
+#                print('Laplacian not singular!', s)
+#                return 0
 
             return np.array(v.conj()).flatten()
 
@@ -605,6 +643,148 @@ class NAQ(object):
             edge_mean[ei] = np.real(np.conj(flux[2*ei:2*ei+2]).T.dot(z.dot(flux[2*ei:2*ei+2]))) #BUG flux est du mauvais type je crois, type(flux[2*ei:2*ei+2]): <class 'scipy.sparse.csc.csc_matrix'>
     
         return edge_mean
+    
+ 
+    
+    def sinc(self,x):
+        return np.sinc(x/np.pi)    
+    
+
+    
+    def compute_edge_E2(self,k):
+        """
+        Compute the average |E|^2 on each edge
+        """
+        
+        phi = self.compute_solution()
+        flux = self.Winv.dot(self.BT.T).dot(phi) #we use BT.T as we need to make sure the the in-fluxes vanish
+        
+        edge_mean = np.zeros(self.m)
+        for ei, e in enumerate(list(self.graph.edges())):
+            (u, v) = e[:2]
+          
+            l=self.graph[u][v]['L']
+            Delta=k-np.conj(k)
+            Gamma=k+np.conj(k)
+            lambda_plus=flux[2*ei]
+            lambda_minus=flux[2*ei+1]
+            
+#           calculation of int/|E|**2 on the edge e:
+            integral1=(abs(lambda_plus)**2+abs(lambda_minus)**2)*(np.exp(1.j*Delta*l/2)*l*self.sinc(Delta*l/2))
+            integral2=(lambda_minus*np.conj(lambda_plus)+lambda_plus*np.conj(lambda_minus))*(np.exp(1.j*Delta*l/2)*l*self.sinc(Gamma*l/2))
+            
+            edge_mean[ei] = (integral1+integral2)
+        
+        return edge_mean
+   
+    
+    
+    
+    
+    
+    def compute_IPR(self,k,occupation=True):
+        """
+        Compute the average |E|^2 on each edge
+        
+        """
+        self.update_laplacian()
+        phi = self.compute_solution()
+        flux = self.Winv.dot(self.BT.T).dot(phi) #we use BT.T as we need to make sure the the in-fluxes vanish
+        E4_tot=0
+        E2_tot=0
+        for ei, e in enumerate(list(self.graph.edges())):
+            (u, v) = e[:2]
+#            k=-1.j*self.graph[u][v]['chi']
+            l=self.graph[u][v]['L']
+            Delta=k-np.conj(k)
+            Gamma=k+np.conj(k)
+            lambda_plus=flux[2*ei]
+            lambda_minus=flux[2*ei+1]
+            
+#           calculation of int/|E|**2 on the edge e:
+#            integral1=(abs(lambda_plus)**2+abs(lambda_minus)**2)*(np.exp(1.j*Delta*l)-1)/(1.j*Delta)
+#            integral2=(lambda_minus*np.conj(lambda_plus)+lambda_plus*np.conj(lambda_minus))*(np.exp(1.j*k*l)-np.exp(-1.j*np.conj(k)*l))/(1.j*Gamma)
+            integral1=(abs(lambda_plus)**2+abs(lambda_minus)**2)*(np.exp(1.j*Delta*l/2)*l*self.sinc(Delta*l/2))
+            integral2=(lambda_minus*np.conj(lambda_plus)+lambda_plus*np.conj(lambda_minus))*(np.exp(1.j*Delta*l/2)*l*self.sinc(Gamma*l/2))
+            E2_tot+=(integral1+integral2)
+                       
+            
+            factor1=(abs(lambda_plus)**4+abs(lambda_minus)**4)*self.sinc(Delta*l)
+            factor2=((lambda_minus*np.conj(lambda_plus))**2+(lambda_plus*np.conj(lambda_minus))**2)*self.sinc(Gamma*l)
+            factor3=4*((abs(lambda_plus)*abs(lambda_minus))**2)
+            factor4=2*(np.conj(lambda_plus)*lambda_minus*abs(lambda_plus)**2+np.conj(lambda_minus)*lambda_plus*abs(lambda_minus)**2)*self.sinc(k*l)
+            factor5=2*(np.conj(lambda_minus)*lambda_plus*abs(lambda_plus)**2+np.conj(lambda_plus)*lambda_minus*abs(lambda_minus)**2)*self.sinc(np.conj(k)*l)
+            E4=np.exp(1.j*Delta*l)*l*(factor1+factor2+factor3+factor4+factor5)
+            E4_tot+=E4  
+        IPR=abs((E4_tot/E2_tot**2))
+        if occupation: #if occupation ==True, then the expected result is the occupation length and not the IPR
+            tot_len = self.in_mask.todense()[::2,::2].dot(self.lengths).sum()
+            IPR=1/(tot_len*IPR)
+        return IPR
+    
+
+
+    
+    def compute_overlap(self,k_nu,k_mu):
+        fluxes=[]
+        IPRs=[]
+        E2_means=[]
+        for i in [k_nu,k_mu]:
+            self.update_chi(i)
+            self.update_laplacian()
+            phi = self.compute_solution()
+            fluxes.append(self.Winv.dot(self.BT.T).dot(phi))
+            IPRs.append(self.compute_IPR(i,occupation=False))
+            E2_means.append(sum(self.compute_edge_E2(i)))
+        Delta_nu=k_nu-np.conj(k_nu)
+        Gamma_nu=k_nu+np.conj(k_nu)
+        Delta_mu=k_mu-np.conj(k_mu)
+        Gamma_mu=k_mu+np.conj(k_mu)
+        overlap=0
+        for ei, e in enumerate(list(self.graph.edges())):
+            (u, v) = e[:2]
+            l=self.graph[u][v]['L']
+            lambda_nu_plus=fluxes[0][2*ei]
+            lambda_nu_minus=fluxes[0][2*ei+1]
+            lambda_mu_plus=fluxes[1][2*ei]
+            lambda_mu_minus=fluxes[1][2*ei+1]
+            sinc1=((abs(lambda_mu_plus)*abs(lambda_nu_plus))**2+(abs(lambda_mu_minus)*abs(lambda_nu_minus))**2)*self.sinc((Delta_mu+Delta_nu)*l/2)
+            sinc2=((abs(lambda_mu_plus)*abs(lambda_nu_minus))**2+(abs(lambda_mu_minus)*abs(lambda_nu_plus))**2)*self.sinc((Delta_mu-Delta_nu)*l/2)
+            sinc3=(lambda_nu_minus*np.conj(lambda_nu_plus)*abs(lambda_mu_plus)**2+lambda_nu_plus*np.conj(lambda_nu_minus)*abs(lambda_mu_minus)**2)*self.sinc((Delta_mu-Gamma_nu)*l/2)
+            sinc4=(lambda_nu_plus*np.conj(lambda_nu_minus)*abs(lambda_mu_plus)**2+lambda_nu_minus*np.conj(lambda_nu_plus)*abs(lambda_mu_minus)**2)*self.sinc((Delta_mu+Gamma_nu)*l/2)
+            sinc5=(lambda_mu_minus*np.conj(lambda_mu_plus)*abs(lambda_nu_plus)**2+lambda_mu_plus*np.conj(lambda_mu_minus)*abs(lambda_nu_minus)**2)*self.sinc((Delta_nu-Gamma_mu)*l/2)
+            sinc6=(lambda_mu_plus*np.conj(lambda_mu_minus)*abs(lambda_nu_plus)**2+lambda_mu_minus*np.conj(lambda_mu_plus)*abs(lambda_nu_minus)**2)*self.sinc((Delta_nu+Gamma_mu)*l/2)  
+            sinc7=(np.real(lambda_mu_minus*np.conj(lambda_mu_plus)*lambda_nu_minus*np.conj(lambda_nu_plus)+np.conj(lambda_mu_minus)*lambda_mu_plus*np.conj(lambda_nu_minus)*lambda_nu_plus))*self.sinc((Gamma_mu+Gamma_nu)*l/2)   #we have to take the real part because while the coefficient before the sinc is in the form a+conj(a), due to python error calculation we are getting an imaginary part
+            sinc8=(np.real(lambda_mu_plus*np.conj(lambda_mu_minus)*lambda_nu_minus*np.conj(lambda_nu_plus)+lambda_mu_minus*np.conj(lambda_mu_plus)*lambda_nu_plus*np.conj(lambda_nu_minus)))*self.sinc((Gamma_mu-Gamma_nu)*l/2)
+            overlap+=np.exp(1.j*(Delta_nu+Delta_mu)*l/2)*l*(sinc1+sinc2+sinc3+sinc4+sinc5+sinc6+sinc7+sinc8)
+        normalisation_factor=E2_means[0]*E2_means[1]
+        return abs(overlap)/(normalisation_factor*IPRs[0]),abs(overlap)/(normalisation_factor*IPRs[1]),overlap/(normalisation_factor*IPRs[0]*IPRs[1])
+    
+    def compute_overlap_mean(self,k_nu,k_mu):
+        E2_means=[]
+        for i in [k_nu,k_mu]:
+            self.update_chi(i)
+            self.update_laplacian()
+            E2_means.append(self.compute_edge_mean_E2(i))
+        E_nu_normalisation=0
+        E_mu_normalisation=0
+        E_product=0
+        for ei, e in enumerate(list(self.graph.edges())):
+            (u, v) = e[:2]
+            l=self.graph[u][v]['L']
+            E_nu_normalisation+=E2_means[0][ei]*l
+            E_mu_normalisation+=E2_means[1][ei]*l
+            E_product+=np.sqrt(E2_means[0][ei]*E2_means[1][ei])*l
+        normalisation=np.sqrt(E_nu_normalisation*E_mu_normalisation)
+        overlap=E_product/normalisation
+        return overlap,overlap    
+    
+    
+    
+    
+    
+    
+    
     
     def find_mode_brownian_ratchet(self, k_0, params, disp = True, save_traj = False):
         """
@@ -679,8 +859,7 @@ class NAQ(object):
                 print('did not find a solution!')
             return np.array([0,])
         
-        
-        
+
     def find_mode(self, k_0, params, max_s, step_Alpha, disp = False, save_traj = False): 
         """
         Find the frequency and dissipation of the network, given an initial condition k
@@ -711,7 +890,7 @@ class NAQ(object):
         alpha_sensibility = s_size[1]
         real_sensibility  = s_size[0]       
         while s > s_min: #while the current singular value is larger then s_min, update
-            dk = alpha_sensibility * s/s_0 
+            dk = alpha_sensibility * (s/s_0)
             k_list_alpha = [k+[0,dk], k+[0,-dk], k] #up, down, original value
             result_alpha = [0, 0, s] 
             
@@ -746,7 +925,7 @@ class NAQ(object):
             #k = np.array(k_list_alpha[np.where(result_alpha == min(result_alpha))[0][0]]) #keep the value of k at which the singular value is the lowest
             k = np.array(k_list_alpha[np.argmin(result_alpha)]) #keep the value of k at which the singular value is the lowest
 
-            dk = real_sensibility * s/s_0 
+            dk = real_sensibility * (s/s_0)  
             k_list_real = [k+[dk,0], k+[-dk,0],k]
             result_real = [0, 0, s]
 
@@ -792,8 +971,8 @@ class NAQ(object):
                 n_wrong = 0 
             
             #if the steps are too small, exit the loop
-            if s_size[0] < 1e-5:
-                break 
+#            if s_size[0] < 1e-5:
+#                break 
                     
             #if number of steps is too large, exit the loop
             N_steps +=1
@@ -812,6 +991,7 @@ class NAQ(object):
             if disp:
                 print('did not find a solution!')
             return np.array([0,])    
+
 
   
     def update_modes(self, modes, params):
@@ -893,7 +1073,9 @@ class NAQ(object):
 
         return modes[np.argsort(np.array(modes)[:,1])] #return sorted modes (by lossyness)
     
-   
+     
+    
+    
     
     def f_find_brownian_ratchet(self,  k):
         #inner function to find modes in parallel
@@ -902,6 +1084,8 @@ class NAQ(object):
     def f_find(self, max_s, step_alpha,  k):
         #inner function to find modes in parallel
         return self.find_mode(k, self.params, max_s, step_alpha, disp = False, save_traj = False)
+
+
 
     def clean_modes(self, modes, params):
         """
@@ -1133,7 +1317,7 @@ class NAQ(object):
                 z[1, 1] = z[0, 0]
             
                 #then compute the norm
-                edge_mean[ei] = self.graph[u][v]['L']*np.real(np.conj(flux[2*ei:2*ei+2]).T.dot(z.dot(flux[2*ei:2*ei+2]))) #BUG flux est du mauvais type je crois, type(flux[2*ei:2*ei+2]): <class 'scipy.sparse.csc.csc_matrix'>
+                edge_mean[ei] = self.graph[u][v]['L']*np.real(np.conj(flux[2*ei:2*ei+2]).T.dot(z.dot(flux[2*ei:2*ei+2])))
         
         #return the sqrt of the norm, i.e. \sqrt{ \int |E|^2 dx}
         return np.sqrt(edge_mean.sum())             
@@ -1499,3 +1683,5 @@ class NAQ(object):
             D_th = 1./(Q*np.imag(-gamma)*np.real(f))
 
             return D_th
+
+
