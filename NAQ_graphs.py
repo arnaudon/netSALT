@@ -34,7 +34,7 @@ class NAQ(object):
     This is the main class describing non-abelian quantum graphs
     """
 
-    def __init__(self, G , positions = None, lengths = None, tot_len = 0, chi = None , group = 'U1', open_graph = False, transport_graph = False):
+    def __init__(self, G , positions = None, lengths = None, tot_len = 100, chi = None , refr_index = None, group = 'U1', open_graph = False, transport_graph = False):
         
         #type method for finding the spectrum:
         # svd: use smallest singular value
@@ -172,9 +172,11 @@ class NAQ(object):
     def set_OPL(self, refr_index):
         #set the optical path lengths of the edges
 
+        self.eps = refr_index #save it for the pump later
+
         for ei, e in enumerate(list(self.graph.edges())):
             (u, v) = e[:2]
-            self.graph[u][v]['OPL']  = refr_index[ei]*self.graph[u][v]['L']
+            self.graph[u][v]['OPL']  = self.eps[ei]*self.graph[u][v]['L']
     
 
     def set_chi(self, chi):
@@ -190,7 +192,7 @@ class NAQ(object):
         chi = self.chi0.copy()
 
         if isinstance(mode, (list, np.ndarray) ):  #complex wavenumber 
-            k = np.sqrt(self.eps )* (mode[0]-1.j*mode[1])
+            k = np.sqrt(self.eps) * (mode[0]-1.j*mode[1])
         else:  #real wavenumber
             k = mode
 
@@ -205,18 +207,6 @@ class NAQ(object):
                     self.pump_mask[2*e+1,2*e+1] = 1.
 
         self.set_chi(k*chi) #set the new chi
-
-
-#        if eps is not None:
-#            self.set_eps(eps)
-#
-#
-#    def set_eps(self,eps):
-#        self.eps = eps
-#        for ei, e in enumerate(list(self.graph.edges())):
-#            (u, v) = e[:2]
-#            self.graph[u][v]['eps']  = eps[ei]
-
 
 
     def get_info_edges(self):
