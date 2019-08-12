@@ -34,7 +34,7 @@ class NAQ(object):
     This is the main class describing non-abelian quantum graphs
     """
 
-    def __init__(self, G , positions = None, lengths = None, tot_len = 0, chi = None , refr_index = None, group = 'U1', open_graph = False, transport_graph = False):
+    def __init__(self, G , positions = None, lengths = None, tot_len = 0, chi = None , refr_index = [1.] , group = 'U1', open_graph = False, transport_graph = False):
         
         #type method for finding the spectrum:
         # svd: use smallest singular value
@@ -138,8 +138,8 @@ class NAQ(object):
             print('Please provide an edge generator')
             
             
-        if refr_index is None:
-            self.set_OPL([1 for i in range (self.m)])
+        if len(refr_index) == 1 :
+            self.set_OPL([refr_index[0] for i in range (self.m)])
         else:
             self.set_OPL(refr_index)
             
@@ -191,20 +191,30 @@ class NAQ(object):
 
         chi = self.chi0.copy()
 
+        #get the mode
         if isinstance(mode, (list, np.ndarray) ):  #complex wavenumber 
-            k = np.sqrt(self.eps) * (mode[0]-1.j*mode[1])
+            k = mode[0]-1.j*mode[1]
         else:  #real wavenumber
             k = mode
+
 
         #if a pump is set
         if self.open_graph and self.pump_params is not None:
             self.gamma = self.pump_params['gamma_perp'] / ( k - self.pump_params['k_a'] + 1.j * self.pump_params['gamma_perp'])
             self.pump_mask = sc.sparse.lil_matrix((2*self.m, 2*self.m))
-            for e in self.pump_params['edges']:
-                if e in self.in_mask_list: #make sure we don't pump outgoing edges
-                    chi[e] *= np.sqrt(self.eps + self.gamma * self.pump_params['D0'])/np.sqrt(self.eps)
-                    self.pump_mask[2*e,2*e] = 1.
-                    self.pump_mask[2*e+1,2*e+1] = 1.
+
+
+        for ei, e in enumerate(list(self.graph.edges())):
+            (u, v) = e[:2]
+
+            if self.open_graph and self.pump_params is not None:
+                if ei in self.pump_params['edges']:
+                    if ei in self.in_mask_list: #make sure we don't pump outgoing edges
+                        chi[ei] *= np.sqrt(self.eps[ei] + self.gamma * self.pump_params['D0'])
+                        self.pump_mask[2*ei,2*ei] = 1.
+                        self.pump_mask[2*ei+1,2*ei+1] = 1.
+            else:
+                chi[ei] *= np.sqrt(self.eps[ei])
 
         self.set_chi(k*chi) #set the new chi
 
