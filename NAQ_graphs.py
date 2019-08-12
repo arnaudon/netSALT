@@ -34,7 +34,7 @@ class NAQ(object):
     This is the main class describing non-abelian quantum graphs
     """
 
-    def __init__(self, G , positions = None, lengths = None, tot_len = 100, chi = None , refr_index = None, group = 'U1', open_graph = False, transport_graph = False):
+    def __init__(self, G , positions = None, lengths = None, tot_len = 0, chi = None , refr_index = None, group = 'U1', open_graph = False, transport_graph = False):
         
         #type method for finding the spectrum:
         # svd: use smallest singular value
@@ -640,11 +640,7 @@ class NAQ(object):
         return np.sinc(x/np.pi)    
     
 
-    
     def compute_edge_E2(self,k):
-        """
-        Compute the average |E|^2 on each edge
-        """
         
         phi = self.compute_solution()
         flux = self.Winv.dot(self.BT.T).dot(phi) #we use BT.T as we need to make sure the the in-fluxes vanish
@@ -653,125 +649,146 @@ class NAQ(object):
         for ei, e in enumerate(list(self.graph.edges())):
             (u, v) = e[:2]
           
-            l=self.graph[u][v]['L']
-            Delta=k-np.conj(k)
-            Gamma=k+np.conj(k)
-            lambda_plus=flux[2*ei]
-            lambda_minus=flux[2*ei+1]
+            l = self.graph[u][v]['L']
+            Delta = k-np.conj(k)
+            Gamma = k+np.conj(k)
+            lambda_plus = flux[2*ei]
+            lambda_minus = flux[2*ei+1]
             
-#           calculation of int/|E|**2 on the edge e:
-            integral1=(abs(lambda_plus)**2+abs(lambda_minus)**2)*(np.exp(1.j*Delta*l/2)*l*self.sinc(Delta*l/2))
-            integral2=(lambda_minus*np.conj(lambda_plus)+lambda_plus*np.conj(lambda_minus))*(np.exp(1.j*Delta*l/2)*l*self.sinc(Gamma*l/2))
-            
-            edge_mean[ei] = (integral1+integral2)
+            #calculation of int/|E|**2 on the edge e:
+            edge_mean[ei] = (abs(lambda_plus)**2+abs(lambda_minus)**2)*(np.exp(1.j*Delta*l/2)*np.sin(Delta*l/2))/(Delta*l/2)
+            edge_mean[ei] += (lambda_minus*np.conj(lambda_plus)+lambda_plus*np.conj(lambda_minus))*np.exp(1.j*Delta*l/2)*np.sin(Gamma*l/2)/(Gamma*l/2)
+            edge_mean[ei] *= l #multiply by l makes it total intensity on the edge
         
         return edge_mean
-   
     
     
     
-    
-    
-    def compute_IPR(self,k,occupation=True):
+    def compute_IPR(self, k, occupation=True):
         """
-        Compute the average |E|^2 on each edge
+        Compute the IPR of a mode
         
         """
+
         self.update_laplacian()
         phi = self.compute_solution()
         flux = self.Winv.dot(self.BT.T).dot(phi) #we use BT.T as we need to make sure the the in-fluxes vanish
         E4_tot=0
         E2_tot=0
+
         for ei, e in enumerate(list(self.graph.edges())):
+
             (u, v) = e[:2]
-#            k=-1.j*self.graph[u][v]['chi']
-            l=self.graph[u][v]['L']
-            Delta=k-np.conj(k)
-            Gamma=k+np.conj(k)
-            lambda_plus=flux[2*ei]
-            lambda_minus=flux[2*ei+1]
+
+            l = self.graph[u][v]['L']
+            Delta = k-np.conj(k)
+            Gamma = k+np.conj(k)
+            lambda_plus = flux[2*ei]
+            lambda_minus = flux[2*ei+1]
             
-#           calculation of int/|E|**2 on the edge e:
-#            integral1=(abs(lambda_plus)**2+abs(lambda_minus)**2)*(np.exp(1.j*Delta*l)-1)/(1.j*Delta)
-#            integral2=(lambda_minus*np.conj(lambda_plus)+lambda_plus*np.conj(lambda_minus))*(np.exp(1.j*k*l)-np.exp(-1.j*np.conj(k)*l))/(1.j*Gamma)
-            integral1=(abs(lambda_plus)**2+abs(lambda_minus)**2)*(np.exp(1.j*Delta*l/2)*l*self.sinc(Delta*l/2))
-            integral2=(lambda_minus*np.conj(lambda_plus)+lambda_plus*np.conj(lambda_minus))*(np.exp(1.j*Delta*l/2)*l*self.sinc(Gamma*l/2))
-            E2_tot+=(integral1+integral2)
-                       
+            integral1 = (abs(lambda_plus)**2+abs(lambda_minus)**2)*(np.exp(1.j*Delta*l/2)*l*self.sinc(Delta*l/2))
+            integral2 = (lambda_minus*np.conj(lambda_plus)+lambda_plus*np.conj(lambda_minus))*(np.exp(1.j*Delta*l/2)*l*self.sinc(Gamma*l/2))
+
+            E2_tot += integral1+integral2
             
-            factor1=(abs(lambda_plus)**4+abs(lambda_minus)**4)*self.sinc(Delta*l)
-            factor2=((lambda_minus*np.conj(lambda_plus))**2+(lambda_plus*np.conj(lambda_minus))**2)*self.sinc(Gamma*l)
-            factor3=4*((abs(lambda_plus)*abs(lambda_minus))**2)
-            factor4=2*(np.conj(lambda_plus)*lambda_minus*abs(lambda_plus)**2+np.conj(lambda_minus)*lambda_plus*abs(lambda_minus)**2)*self.sinc(k*l)
-            factor5=2*(np.conj(lambda_minus)*lambda_plus*abs(lambda_plus)**2+np.conj(lambda_plus)*lambda_minus*abs(lambda_minus)**2)*self.sinc(np.conj(k)*l)
-            E4=np.exp(1.j*Delta*l)*l*(factor1+factor2+factor3+factor4+factor5)
-            E4_tot+=E4  
-        IPR=abs((E4_tot/E2_tot**2))
+            E4 = (abs(lambda_plus)**4+abs(lambda_minus)**4)*self.sinc(Delta*l)
+            E4 += ((lambda_minus*np.conj(lambda_plus))**2+(lambda_plus*np.conj(lambda_minus))**2)*self.sinc(Gamma*l)
+            E4 += 4*((abs(lambda_plus)*abs(lambda_minus))**2)
+            E4 += 2*(np.conj(lambda_plus)*lambda_minus*abs(lambda_plus)**2+np.conj(lambda_minus)*lambda_plus*abs(lambda_minus)**2)*self.sinc(k*l)
+            E4+= 2*(np.conj(lambda_minus)*lambda_plus*abs(lambda_plus)**2+np.conj(lambda_plus)*lambda_minus*abs(lambda_minus)**2)*self.sinc(np.conj(k)*l)
+
+            E4 *= np.exp(1.j*Delta*l)*l
+            E4_tot += E4  
+
+        IPR = abs((E4_tot/E2_tot**2))
+
         if occupation: #if occupation ==True, then the expected result is the occupation length and not the IPR
             tot_len = self.in_mask.todense()[::2,::2].dot(self.lengths).sum()
-            IPR=1/(tot_len*IPR)
+            IPR = 1/(tot_len*IPR)
+
         return IPR
     
 
+    def compute_overlap(self, k_nu, k_mu):
+        """
+        Compute an mode overlap factor as an IPR, between two given modes
+        """
 
-    
-    def compute_overlap(self,k_nu,k_mu):
         fluxes=[]
         IPRs=[]
         E2_means=[]
-        for i in [k_nu,k_mu]:
-            self.update_chi(i)
+
+        for k in [k_nu, k_mu]:
+            self.update_chi(k)
             self.update_laplacian()
             phi = self.compute_solution()
             fluxes.append(self.Winv.dot(self.BT.T).dot(phi))
-            IPRs.append(self.compute_IPR(i,occupation=False))
+            IPRs.append(self.compute_IPR(k, occupation=False))
             E2_means.append(sum(self.compute_edge_E2(i)))
-        Delta_nu=k_nu-np.conj(k_nu)
-        Gamma_nu=k_nu+np.conj(k_nu)
-        Delta_mu=k_mu-np.conj(k_mu)
-        Gamma_mu=k_mu+np.conj(k_mu)
-        overlap=0
+
+        Delta_nu = k_nu-np.conj(k_nu)
+        Gamma_nu = k_nu+np.conj(k_nu)
+        Delta_mu = k_mu-np.conj(k_mu)
+        Gamma_mu = k_mu+np.conj(k_mu)
+
+        overlap = 0
         for ei, e in enumerate(list(self.graph.edges())):
             (u, v) = e[:2]
-            l=self.graph[u][v]['L']
-            lambda_nu_plus=fluxes[0][2*ei]
-            lambda_nu_minus=fluxes[0][2*ei+1]
-            lambda_mu_plus=fluxes[1][2*ei]
-            lambda_mu_minus=fluxes[1][2*ei+1]
-            sinc1=((abs(lambda_mu_plus)*abs(lambda_nu_plus))**2+(abs(lambda_mu_minus)*abs(lambda_nu_minus))**2)*self.sinc((Delta_mu+Delta_nu)*l/2)
-            sinc2=((abs(lambda_mu_plus)*abs(lambda_nu_minus))**2+(abs(lambda_mu_minus)*abs(lambda_nu_plus))**2)*self.sinc((Delta_mu-Delta_nu)*l/2)
-            sinc3=(lambda_nu_minus*np.conj(lambda_nu_plus)*abs(lambda_mu_plus)**2+lambda_nu_plus*np.conj(lambda_nu_minus)*abs(lambda_mu_minus)**2)*self.sinc((Delta_mu-Gamma_nu)*l/2)
-            sinc4=(lambda_nu_plus*np.conj(lambda_nu_minus)*abs(lambda_mu_plus)**2+lambda_nu_minus*np.conj(lambda_nu_plus)*abs(lambda_mu_minus)**2)*self.sinc((Delta_mu+Gamma_nu)*l/2)
-            sinc5=(lambda_mu_minus*np.conj(lambda_mu_plus)*abs(lambda_nu_plus)**2+lambda_mu_plus*np.conj(lambda_mu_minus)*abs(lambda_nu_minus)**2)*self.sinc((Delta_nu-Gamma_mu)*l/2)
-            sinc6=(lambda_mu_plus*np.conj(lambda_mu_minus)*abs(lambda_nu_plus)**2+lambda_mu_minus*np.conj(lambda_mu_plus)*abs(lambda_nu_minus)**2)*self.sinc((Delta_nu+Gamma_mu)*l/2)  
-            sinc7=(np.real(lambda_mu_minus*np.conj(lambda_mu_plus)*lambda_nu_minus*np.conj(lambda_nu_plus)+np.conj(lambda_mu_minus)*lambda_mu_plus*np.conj(lambda_nu_minus)*lambda_nu_plus))*self.sinc((Gamma_mu+Gamma_nu)*l/2)   #we have to take the real part because while the coefficient before the sinc is in the form a+conj(a), due to python error calculation we are getting an imaginary part
-            sinc8=(np.real(lambda_mu_plus*np.conj(lambda_mu_minus)*lambda_nu_minus*np.conj(lambda_nu_plus)+lambda_mu_minus*np.conj(lambda_mu_plus)*lambda_nu_plus*np.conj(lambda_nu_minus)))*self.sinc((Gamma_mu-Gamma_nu)*l/2)
-            overlap+=np.exp(1.j*(Delta_nu+Delta_mu)*l/2)*l*(sinc1+sinc2+sinc3+sinc4+sinc5+sinc6+sinc7+sinc8)
-        normalisation_factor=E2_means[0]*E2_means[1]
-        return abs(overlap)/(normalisation_factor*IPRs[0]),abs(overlap)/(normalisation_factor*IPRs[1]),overlap/(normalisation_factor*IPRs[0]*IPRs[1])
-    
-    def compute_overlap_mean(self,k_nu,k_mu):
-        E2_means=[]
-        for i in [k_nu,k_mu]:
-            self.update_chi(i)
+            l = self.graph[u][v]['L']
+            lambda_nu_plus = fluxes[0][2*ei]
+            lambda_nu_minus = fluxes[0][2*ei+1]
+            lambda_mu_plus = fluxes[1][2*ei]
+            lambda_mu_minus = fluxes[1][2*ei+1]
+
+            sinc = ((abs(lambda_mu_plus)*abs(lambda_nu_plus))**2+(abs(lambda_mu_minus)*abs(lambda_nu_minus))**2)*self.sinc((Delta_mu+Delta_nu)*l/2)
+
+            sinc += ((abs(lambda_mu_plus)*abs(lambda_nu_minus))**2+(abs(lambda_mu_minus)*abs(lambda_nu_plus))**2)*self.sinc((Delta_mu-Delta_nu)*l/2)
+
+            sinc += (lambda_nu_minus*np.conj(lambda_nu_plus)*abs(lambda_mu_plus)**2+lambda_nu_plus*np.conj(lambda_nu_minus)*abs(lambda_mu_minus)**2)*self.sinc((Delta_mu-Gamma_nu)*l/2)
+
+            sinc += (lambda_nu_plus*np.conj(lambda_nu_minus)*abs(lambda_mu_plus)**2+lambda_nu_minus*np.conj(lambda_nu_plus)*abs(lambda_mu_minus)**2)*self.sinc((Delta_mu+Gamma_nu)*l/2)
+
+            sinc += (lambda_mu_minus*np.conj(lambda_mu_plus)*abs(lambda_nu_plus)**2+lambda_mu_plus*np.conj(lambda_mu_minus)*abs(lambda_nu_minus)**2)*self.sinc((Delta_nu-Gamma_mu)*l/2)
+
+            sinc += (lambda_mu_plus*np.conj(lambda_mu_minus)*abs(lambda_nu_plus)**2+lambda_mu_minus*np.conj(lambda_mu_plus)*abs(lambda_nu_minus)**2)*self.sinc((Delta_nu+Gamma_mu)*l/2)  
+
+            sinc += (np.real(lambda_mu_minus*np.conj(lambda_mu_plus)*lambda_nu_minus*np.conj(lambda_nu_plus)+np.conj(lambda_mu_minus)*lambda_mu_plus*np.conj(lambda_nu_minus)*lambda_nu_plus))*self.sinc((Gamma_mu+Gamma_nu)*l/2)   #we have to take the real part because while the coefficient before the sinc is in the form a+conj(a), due to python error calculation we are getting an imaginary part
+
+            sinc += (np.real(lambda_mu_plus*np.conj(lambda_mu_minus)*lambda_nu_minus*np.conj(lambda_nu_plus)+lambda_mu_minus*np.conj(lambda_mu_plus)*lambda_nu_plus*np.conj(lambda_nu_minus)))*self.sinc((Gamma_mu-Gamma_nu)*l/2)
+
+            overlap += np.exp(1.j*(Delta_nu+Delta_mu)*l/2)*l*sinc
+
+        normalisation_factor = E2_means[0]*E2_means[1]
+
+        return abs(overlap)/(normalisation_factor*IPRs[0]), abs(overlap)/(normalisation_factor*IPRs[1]), overlap/(normalisation_factor*IPRs[0]*IPRs[1])
+   
+
+    def compute_overlap_mean(self, k_nu, k_mu):
+        """
+        Similar to overlapp function, but not IPR based
+        """
+
+        E2_means = []
+        for k in [k_nu,k_mu]:
+            self.update_chi(k)
             self.update_laplacian()
-            E2_means.append(self.compute_edge_mean_E2(i))
-        E_nu_normalisation=0
-        E_mu_normalisation=0
-        E_product=0
+            E2_means.append(self.compute_edge_mean_E2(k))
+
+        E_nu_normalisation = 0
+        E_mu_normalisation = 0
+        E_product = 0
         for ei, e in enumerate(list(self.graph.edges())):
             (u, v) = e[:2]
-            l=self.graph[u][v]['L']
-            E_nu_normalisation+=E2_means[0][ei]*l
-            E_mu_normalisation+=E2_means[1][ei]*l
-            E_product+=np.sqrt(E2_means[0][ei]*E2_means[1][ei])*l
-        normalisation=np.sqrt(E_nu_normalisation*E_mu_normalisation)
-        overlap=E_product/normalisation
+            l = self.graph[u][v]['L']
+            E_nu_normalisation += E2_means[0][ei]*l
+            E_mu_normalisation += E2_means[1][ei]*l
+            E_product += np.sqrt(E2_means[0][ei]*E2_means[1][ei])*l
+
+        normalisation = np.sqrt(E_nu_normalisation*E_mu_normalisation)
+
+        overlap = E_product/normalisation
+
         return overlap,overlap    
-    
-    
-    
-    
     
     
     
