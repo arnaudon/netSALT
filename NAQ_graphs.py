@@ -188,7 +188,7 @@ class NAQ(object):
 
     def update_chi(self, mode):
         #set edge wavenumbers
-
+        
         chi = self.chi0.copy()
 
         #get the mode
@@ -196,7 +196,6 @@ class NAQ(object):
             k = mode[0]-1.j*mode[1]
         else:  #real wavenumber
             k = mode
-
 
         #if a pump is set
         if self.open_graph and self.pump_params is not None:
@@ -207,9 +206,7 @@ class NAQ(object):
         for ei, e in enumerate(list(self.graph.edges())):
             (u, v) = e[:2]
 
-            if self.open_graph and self.pump_params is not None:
-                if ei in self.pump_params['edges']:
-                    if ei in self.in_mask_list: #make sure we don't pump outgoing edges
+            if self.open_graph and self.pump_params is not None and ei in self.pump_params['edges'] and ei in self.in_mask_list: #make sure we don't pump outgoing edges
                         chi[ei] *= np.sqrt(self.eps[ei] + self.gamma * self.pump_params['D0'])
                         self.pump_mask[2*ei,2*ei] = 1.
                         self.pump_mask[2*ei+1,2*ei+1] = 1.
@@ -552,7 +549,7 @@ class NAQ(object):
         max_s = np.zeros(len(Alphas))        
         for j in range(len(Alphas)):
             max_s[j] = np.max(s[:,j])
-            s[:,j] = s[:,j] / max_s[j] #normalized by the largest singular value accross all real(k)
+            s[:,j] = s[:,j] / max_s[j] #normalized by the largest singular value across all real(k)
             
         return s, max_s #return the singular values and the normalisations
 
@@ -567,7 +564,7 @@ class NAQ(object):
         """
         plt.figure(figsize=(10,5))
 
-        plt.imshow(np.log(S.T), extent= (ks[0], ks[-1], alphas[0], alphas[-1]), aspect='auto', origin='lower', vmax = 0, vmin = -3)
+        plt.imshow(np.log(S.T), extent= (ks[0], ks[-1], alphas[0], alphas[-1]), aspect='auto', origin='lower', vmax = 0, vmin = -4)
 
         cbar = plt.colorbar()
         cbar.set_label('smallest singular value')
@@ -601,9 +598,9 @@ class NAQ(object):
                 s = np.min(abs(w))
                 v = v[:,np.argmin(abs(w))]
 
-#            if s > s_min:
-#                print('Laplacian not singular!', s)
-#                return 0
+            if s > s_min:
+                print('Laplacian not singular!', s)
+                return 0
 
             return np.array(v.conj()).flatten()
 
@@ -1071,7 +1068,9 @@ class NAQ(object):
                 if s[i,j] < self.params['s_interest']: #zone of interest
                     Ks_list.append([k, alpha])
                     s_list.append(s[i,j])
-                    
+
+        print('Searching with ', len(Ks_list), 'initial conditions.' )            
+
         Ks_list = np.array(Ks_list)[np.argsort(s_list)] #now that the list is sorted the information about s can be deleted
         #the list is sorted before it is cleaned so that the if multiple interest points are found to close to each others, 
         #the one with the smallest singular value is kept 
@@ -1339,8 +1338,171 @@ class NAQ(object):
         #return the sqrt of the norm, i.e. \sqrt{ \int |E|^2 dx}
         return np.sqrt(edge_mean.sum())             
                  
+
+
+
+
+    def Dinvs(self, modes):
+        """
+        for each edge, compute the 1/D_th for each mode in a matrix
+        """
         
-    def T_matrix(self, th_modes, D0_th, linear_approx= False):
+        D_invs = np.zeros([len(modes),len(self.graph.edges)])
+        for m in tqdm(range(len(modes))): #loop over all modes
+            mode = modes[m]
+            self.pump_params['edges'] = np.arange(len(self.graph.edges))  #set all edges to pump
+            self.pump_params['D0']         = 0 
+
+            self.update_chi(modes[m])
+            self.update_laplacian()
+            phi = self.compute_solution()
+            self.Z_matrix_U1() #compute the Z matrix
+            
+            edge_norm = self.Winv.dot(self.Z).dot(self.Winv) #compute the correct weight matrix
+            
+            #compute the inner sum
+            L0_in = self.BT.dot(edge_norm.dot(self.in_mask)).dot(self.B).asformat('csc')
+            L0_in_norm = phi.T.dot(L0_in.dot(phi))
+                
+            
+            for e in range(len(self.graph.edges)): #loop over all edges
+                #create the pump mask
+                pump_mask = np.zeros(2*len(self.graph.edges)) 
+                pump_mask[2*e] = 1  
+                pump_mask[2*e+1] = 1  
+
+                #compute the field on the pump
+                L0_I = self.BT.dot(edge_norm.dot(sc.sparse.diags(pump_mask).dot(self.in_mask))).dot(self.B).asformat('csc')
+                L0_I_norm = phi.T.dot(L0_I.dot(phi))
+            
+                #overlapping factor
+                f = L0_I_norm/L0_in_norm
+
+                #complex wavenumber
+                k = mode[0]-1.j*mode[1]
+                
+                #gamma factor
+                gamma = self.pump_params['gamma_perp'] / ( k - self.pump_params['k_a'] + 1.j * self.pump_params['gamma_perp'])
+                
+                #Q-value
+                Q = mode[0]/(2*mode[1])
+                #estimated D_th
+                D_th = 1./(Q*np.imag(-gamma)*np.real(f))
+
+                #compute the lasing threshold and invert it
+                D_invs[m,e] = 1./D_th
+                
+        return D_invs
+
+
+
+
+    def optimal_pump(self, mu, D_invs, tpe = 'diff'):
+
+        D_invs_minus_mu = np.delete(D_invs, mu, axis = 0) #remove the mode mu
+
+        out_mask = (np.argwhere(np.diag(self.in_mask.todense())[::2]==0)).flatten()
+        D_invs_minus_mu[:,out_mask] = 100 #set the values on the mask large, so that they are always last in the sort
+
+        D_invs_max = np.max(D_invs_minus_mu, axis = 0) #for each edge, find the max across modes
+        #D_invs_max = (np.sort(D_invs_minus_mu, axis = 0)[-1:]).mean(axis=0) #for each edge, find the max across modes
+
+        if tpe == 'diff':
+            mu_sort = np.argsort((D_invs[mu] - D_invs_max))[::-1] #sort by the difference with the max
+
+        elif tpe == 'ratio':
+            mu_sort = np.argsort((D_invs[mu] / D_invs_max))[::-1] #sort by the difference with the max
+
+        f_mu_sort = D_invs[:, mu_sort]
+
+        f_mu_cumsum = f_mu_sort.cumsum(axis=1)
+        n_edges = len(np.argwhere(np.argmax(f_mu_cumsum, axis=0)==mu))
+
+        #print(n_edges)
+        #print(np.argmax(f_mu_cumsum, axis=0))
+
+        return f_mu_cumsum, mu_sort
+
+
+
+    def plot_pump_optimisation(self,modes, mu, f_mu_cumsum, mu_sort, folder = 'images_ratio'):
+
+
+        ratio = f_mu_cumsum[mu] / np.max(np.delete(f_mu_cumsum, mu, axis=0), axis=0)
+
+        len_pump = np.argmax(ratio)+1
+        if np.max(ratio)<1:
+            len_pump = 0
+
+        plt.figure(figsize=(5,3))
+
+        for m in range(len(modes)):
+            plt.plot( 1./f_mu_cumsum[m], lw=0.1, c='k')
+
+        plt.plot( 1./f_mu_cumsum[m], lw=0.1, c='k',label='other modes')
+
+        plt.plot( 1./f_mu_cumsum[mu], lw=2, label='single lasing threshold')
+        plt.plot( 1./np.max(np.delete(f_mu_cumsum, mu, axis=0), axis=0), label='second lasing threshold')
+
+        n_edges = len(np.argwhere(np.argmax(f_mu_cumsum, axis=0)==mu))
+        plt.axis([0,len(self.graph.edges), np.min(1./abs(f_mu_cumsum)), np.max(1./f_mu_cumsum[mu])])
+
+        plt.legend(loc ='best')
+        #plt.axvline(n_edges-1, c='C1')
+        plt.axvline(len_pump, label='number of edges used',c='C2')
+        plt.xlabel('Number of edges in the pump')
+        plt.ylabel('Lasing threshold $D_{0,th}$')
+        plt.savefig(folder + '/lasing_thresholds_'+str(mu)+'.svg', bbox_inches = 'tight')
+
+
+        plt.figure(figsize=(5,3))
+        plt.axvline(len_pump, label='number of edges used',c='C2')
+        plt.axhline(1., c='k', ls='--', lw=0.5)
+        plt.plot(1./ratio)#[diff>0])
+        #plt.axis([0,len(diff), -np.max(diff)-1, np.max(diff)+1])
+
+        plt.ylabel(r'$\frac{D_{0,th,\mu}}{max_\nu(D_{0,th,\mu})}$')
+        plt.xlabel('number of edges in the pump')
+        plt.title('Max diff: ' + str(np.round(np.max(1./ratio),2)))
+        plt.savefig(folder+'/lasing_thresholds_diff_'+str(mu)+'.svg', bbox_inches = 'tight')
+
+
+        self.update_chi(modes[mu])
+        self.update_laplacian()
+        phi = self.compute_solution()
+        edge_color = self.compute_edge_mean_E2()
+        in_mask = (np.argwhere(np.diag(self.in_mask.todense())[::2]==1)).flatten()
+
+        plt.figure(figsize=(5,5))
+
+        pump_edges = []
+        for i, e in enumerate(self.graph.edges):
+            if i in mu_sort[:len_pump] and i in in_mask:
+                pump_edges.append(e)
+
+        edges_pump = nx.draw_networkx_edges(self.graph, pos = self.pos, edgelist = pump_edges, edge_color = 'r', width = 15)
+
+        nodes = nx.draw_networkx_nodes(self.graph, pos = self.pos, node_color = 'k', node_size = 5)# np.abs(phi)**2, cmap='plasma')
+        edges_k = nx.draw_networkx_edges(self.graph, pos = self.pos, edge_color = '0.5', width = 2)
+
+        #plot the edge with large field last (or on top)
+        order_edges = np.argsort(edge_color)
+        edge_color /= np.max(edge_color)
+        for i in order_edges:
+            for ei, e in enumerate(self.graph.edges):
+                if ei == i and edge_color[i]>.05:
+                    edges = nx.draw_networkx_edges(self.graph, pos = self.pos, edgelist = [e,], edge_color = [edge_color[i],], edge_cmap=plt.get_cmap('Greens'), width=8, alpha=0.7, edge_vmin=0, edge_vmax = np.max(edge_color))
+
+        #plt.axis([-1.8,1.8,-1.8,1.8])
+        plt.axis('off')
+        plt.savefig(folder + '/lasing_pump_'+str(mu)+'.svg', bbox_inches = 'tight')
+
+        return 1./np.max(ratio), 1./f_mu_cumsum[mu][np.argmax(ratio)]
+
+
+
+
+    def T_matrix(self, th_modes, D0_th, linear_approx = False):
             """
             Compute the T_{\mu\nu} matrix for nonlinear SALT
             """
@@ -1351,50 +1513,51 @@ class NAQ(object):
             pump_norms = [] #collect the \int \delta_I E^2 for later
             n_modes = len(D0_th) #number of modes
             for i in range(n_modes):
-                
+
                 if linear_approx:
-                    self.pump_params['D0'] = 0 
+                    self.pump_params['D0'] = 0
                 else:
                     self.pump_params['D0'] = D0_th[i]
-                
+
                 self.update_chi(th_modes[i])
                 self.update_laplacian()
                 phi = self.compute_solution()
-    
+
                 #normalize the modes first
                 L0_in_norm = self.compute_E2()
                 phi /= L0_in_norm
-                
+
                 #compute the pump norm
                 self.Z_matrix_U1() #compute the Z matrix
                 edge_norm = self.Winv.dot(self.Z).dot(self.Winv) #compute the correct weight matrix
                 L0_pump = self.BT.dot(edge_norm.dot(self.pump_mask)).dot(self.B).asformat('csc')
                 L0_pump_norm = phi.T.dot(L0_pump.dot(phi))
-                
-                
+
                 pump_norms.append(L0_pump_norm)
-                
+
                 #compute the edge solution with correct normalisation
                 flux = self.Winv.dot(self.BT.T).dot(phi)
 
                 fluxes.append(flux)
-                gammas.append(self.gamma)
-                
+
+                gamma = self.pump_params['gamma_perp'] / ( th_modes[i][0] - self.pump_params['k_a'] + 1.j * self.pump_params['gamma_perp'])
+                gammas.append(gamma)
+
             #populate the matrix, entry by entry (not a symmetric matrix!)
             T = np.zeros([n_modes, n_modes], dtype=np.complex64)
             for mu in range(n_modes):
                 for nu in range(n_modes):
-                    
                     #first set shorthand notations (following the notes)
                     lamb_mu = fluxes[mu]
                     lamb_nu = fluxes[nu]
-                    
-                    k_mu = (th_modes[mu][0]-1.j*th_modes[mu][1])*np.sqrt(1. + gammas[mu] * D0_th[mu])
-                    k_nu = (th_modes[nu][0]-1.j*th_modes[nu][1])*np.sqrt(1. + gammas[nu] * D0_th[nu]) 
-                    
+
+                    k_mu = th_modes[mu][0]*np.sqrt(self.eps[0] + gammas[mu] * D0_th[mu])
+                    k_nu = th_modes[nu][0]*np.sqrt(self.eps[0] + gammas[nu] * D0_th[nu])
+
+
                     Delta = k_nu - np.conj(k_nu)
                     Lamb  = k_nu + np.conj(k_nu)
-                    
+
                     #compute the matrix element looping only on the pumped edges
                     for ei, e in enumerate(list(self.graph.edges())):
                         if ei in self.pump_params['edges']:
@@ -1406,57 +1569,58 @@ class NAQ(object):
                             lamb_mu_plus = lamb_mu[2*ei]
                             lamb_mu_minus = lamb_mu[2*ei+1]
                             l = self.graph[u][v]['L']
-                            
+
                             exp_term_1 = ( np.exp(1.j*(2*k_mu+Delta)*l) - 1. ) / (1.j*(2*k_mu+Delta))
 
-                            T[mu, nu] += exp_term_1 * ( abs(lamb_nu_plus)**2*lamb_mu_plus**2  + 
+
+                            T[mu, nu] += exp_term_1 * ( abs(lamb_nu_plus)**2*lamb_mu_plus**2  +
                                                         abs(lamb_nu_minus)**2*lamb_mu_minus**2
                                                        )
-                            
+
                             exp_term_2 = ( np.exp(2.j*k_mu*l) - np.exp(1.j*Delta*l) ) / (1.j*(2*k_mu-Delta))
 
                             T[mu, nu] += exp_term_2 * ( abs(lamb_nu_plus)**2*lamb_mu_minus**2 +
-                                                        abs(lamb_nu_minus)**2*lamb_mu_plus**2 
+                                                        abs(lamb_nu_minus)**2*lamb_mu_plus**2
                                                        )
-                            
-                            exp_term_3 = np.exp(1.j*k_mu*l)*(np.exp(1.j*Delta*l) - 1.) / (1.j*Delta) 
-                            
+
+                            exp_term_3 = np.exp(1.j*k_mu*l)*(np.exp(1.j*Delta*l) - 1.) / (1.j*Delta)
+
                             T[mu, nu] += 2*exp_term_3 * ( abs(lamb_nu_plus)**2*lamb_mu_plus*lamb_mu_minus +
                                                           abs(lamb_nu_minus)**2*lamb_mu_plus*lamb_mu_minus
                                                         )
-                            
-                            exp_term_4 = ( np.exp(1.j*(2.*k_mu+k_nu)*l) 
+
+                            exp_term_4 = ( np.exp(1.j*(2.*k_mu+k_nu)*l)
                                           - np.exp(-1.j*np.conj(k_nu)*l) ) / (1.j*(2*k_nu+Lamb))
-                            
+
                             T[mu, nu] += exp_term_4 * ( lamb_nu_plus*np.conj(lamb_nu_minus)*lamb_mu_plus**2 +
                                                         np.conj(lamb_nu_plus)*lamb_nu_minus*lamb_mu_minus**2
                                                       )
-                            
-                            exp_term_5 = ( np.exp(1.j*(2.*k_mu-np.conj(k_nu))*l) 
+
+                            exp_term_5 = ( np.exp(1.j*(2.*k_mu-np.conj(k_nu))*l)
                                           - np.exp(1.j*k_nu*l) ) / (1.j*(2*k_nu-Lamb))
-                            
+
                             T[mu, nu] += exp_term_5 * ( lamb_nu_plus*np.conj(lamb_nu_minus)*lamb_mu_minus**2 +
                                                        np.conj(lamb_nu_plus)*lamb_nu_minus*lamb_mu_plus**2
                                                       )
-                        
-                            exp_term_6 =   np.exp(1.j*k_mu*l) * ( np.exp(1.j*k_nu*l) 
+
+                            exp_term_6 =   np.exp(1.j*k_mu*l) * ( np.exp(1.j*k_nu*l)
                                                 - np.exp(-1.j*np.conj(k_nu)*l) ) / (1.j*Lamb)
-                                
+
                             T[mu, nu] += 2*exp_term_6 * ( lamb_nu_plus*np.conj(lamb_nu_minus)*lamb_mu_minus*lamb_mu_plus +
                                                         np.conj(lamb_nu_plus)*lamb_nu_minus*lamb_mu_minus*lamb_mu_plus
                                                       )
+
                     T[mu, nu] /= pump_norms[mu] #divide by the other integral \int \delta_i E^2
                     T[mu, nu] *= np.imag(-gammas[nu]) #finally multiply by \Gamma_\nu and use only the real part of T
 
-            T = np.diag(np.diag(T)) #only consider the diagonal (mode interaction don't work...)
+            return np.real(T) #convert it to a array with real numbers
 
-            return np.real(T.T) #convert it to a array with real numbers
-        
-        
-    def modal_intensities(self, D0_max, D0_steps, th_modes, D0_th, linear_approx= False):
+                
+    def modal_intensities(self, D0_max, D0_steps, th_modes, D0_th, linear_approx = True):
         """
         compute the modal intensities of the modes up to D0, with D0_steps
         """
+
         D0_th = np.array(D0_th)
         th_modes = np.array(th_modes)
 
@@ -1464,7 +1628,7 @@ class NAQ(object):
 
         D0s = np.linspace(0, D0_max, D0_steps)
 
-        D0_th_min = np.min(D0_th) #smallest lasing threshold
+        D0_th_min = D0_th[0] #smallest lasing threshold
         th_mode_first = th_modes[np.argmin(D0_th)] #first lasing mode
 
         D0_th_inv = 1./D0_th #inverse of lasing thresholds
@@ -1472,54 +1636,55 @@ class NAQ(object):
         I = np.zeros([n_modes, D0_steps]) #collect the modal intensities
         lasing_modes = [] #ordered list of lasing modes ids
 
-        next_D0 = D0_th_min #set the next lasing threshold to the minimum one 
-        next_lasing_mode  = np.argmin(D0_th) #set the next lasing mode as the first to possibly lase
+        next_D0 = D0_th_min #set the next lasing threshold to the minimum one
+        next_lasing_mode  = 0 #set the next lasing mode as the first to possibly lase
 
-        for i in tqdm(range(len(D0s))):
+        T_mu_all = self.T_matrix( th_modes, D0_th, linear_approx = linear_approx)
+        next_D0s = [] #to collect the kinks positions
+        for i in range(len(D0s)):
             D0 = D0s[i]
+
             #print('D0', D0, 'next', next_D0)
             if D0 > D0_th_min: #before the first mode lases, nothing happens
 
-                #while we can add new lasing modes, add them 
-                search_new_lasing_modes = True 
+                #while we can add new lasing modes, add them
+                search_new_lasing_modes = True
                 while search_new_lasing_modes:
 
                     if D0 > next_D0: #if the next mode can be lased, add it and search the next one
                         lasing_modes += [next_lasing_mode,]
-                        #print('lasing modes', lasing_modes)
-
 
                         #if needed, compute all the interacting thresholds for the non-lasing modes
-                        D0_ints = np.ones(n_modes)*1e5 #to collect the interacting thresholds, set them to large for later search of smallest
+                        D0_ints = np.ones(n_modes)*1e10 #to collect the interacting thresholds, set them to large for later search of smallest
                         for mu in range(n_modes):
                             if mu not in lasing_modes:
+                                #first compute the larger T matrix (including the mode mu)
+                                T_mu = T_mu_all[np.ix_(lasing_modes + [mu,],lasing_modes + [mu,])]
 
-                                #first compute the larger T matrix (including the mode m)
-                                T_mu = self.T_matrix( th_modes[lasing_modes + [mu,]], D0_th[lasing_modes + [mu,]], linear_approx= linear_approx)
                                 T_mu_inv = np.linalg.inv(T_mu)
 
                                 #compute the interacting threshold of mode m
-                                D0_ints[mu] = 1./ ( T_mu_inv[-1].dot(D0_th_inv[lasing_modes + [mu,]]) / T_mu_inv[-1].dot( np.ones(len(lasing_modes)+1)) )
+                                D0_ints[mu] = 1. / ( T_mu_inv[-1].dot(D0_th_inv[lasing_modes + [mu,]]) / T_mu_inv[-1].dot( np.ones(len(lasing_modes)+1)) )
 
-                                D0_ints[mu] = np.real(D0_ints[mu])
+                        D0_ints[D0_ints<D0_th_min] = 1e10 #if a D0_int is smaller than current D0, it means it won't lase (negative slope)
 
-                        #print(D0_ints, D0)
                         #next interacting threshold
-                        next_D0 = np.min(np.real(D0_ints) )
+                        next_D0 = np.min(D0_ints)
+                        next_D0s.append(next_D0)
                         next_lasing_mode = np.argmin(D0_ints)
 
                     else: #if the next mode does not lase, stop the search and compute the modal intensities
                         search_new_lasing_modes = False
 
                 #update the T^{-1} matrix with new the new mode
-                T_inv = np.linalg.inv(self.T_matrix( th_modes[lasing_modes], D0_th[lasing_modes], linear_approx= linear_approx))
+                T_inv = np.linalg.inv(T_mu_all[np.ix_(lasing_modes,lasing_modes)])
 
                 #compute the modal intensities
-                I[lasing_modes, i] = ( D0*T_inv.dot(D0_th_inv[lasing_modes]) - T_inv.sum(1) )
-                
-        return I
+                I[lasing_modes, i] = D0*T_inv.dot(D0_th_inv[lasing_modes]) - T_inv.dot( np.ones(len(lasing_modes)) )
 
-        
+        return D0s, I, next_D0s
+
+
         
         
     def full_lasing_threshold(self, modes, params, tol, D0_max, D0_steps):
