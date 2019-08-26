@@ -1666,7 +1666,7 @@ class NAQ(object):
                                 #compute the interacting threshold of mode m
                                 D0_ints[mu] = 1. / ( T_mu_inv[-1].dot(D0_th_inv[lasing_modes + [mu,]]) / T_mu_inv[-1].dot( np.ones(len(lasing_modes)+1)) )
 
-                        D0_ints[D0_ints<D0_th_min] = 1e10 #if a D0_int is smaller than current D0, it means it won't lase (negative slope)
+                        D0_ints[D0_ints<D0] = 1e10 #if a D0_int is smaller than current D0, it means it won't lase (negative slope)
 
                         #next interacting threshold
                         next_D0 = np.min(D0_ints)
