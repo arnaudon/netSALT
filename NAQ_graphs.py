@@ -34,13 +34,15 @@ class NAQ(object):
     This is the main class describing non-abelian quantum graphs
     """
 
-    def __init__(self, G , positions = None, lengths = None, tot_len = 0, chi = None , refr_index = [1.] , group = 'U1', open_graph = False, transport_graph = False):
+    def __init__(self, G, positions = None, lengths = None, params = None, chi = None, group = 'U1', transport_graph = False):
+
+        self.params = params
 
         #type method for finding the spectrum:
         # svd: use smallest singular value
         # eig: use smallest eigenvalue
         # cond: use condition number
-        self.cond_type = 'svd'
+        self.cond_type = 'eig'
 
         self.n_processes_scan = 2
 
@@ -52,13 +54,16 @@ class NAQ(object):
         self.n = len(self.graph.nodes()) #number of nodes
         self.m = len(self.graph.edges()) #number of edges
 
-        self.tot_len = tot_len #total length of inner edges, if 0, the lengths won't be rescaled
+        self.tot_len = self.params['tot_len'] #total length of inner edges, if 0, the lengths won't be rescaled
 
         self.group = group #set the group type
-        self.open_graph = open_graph
+        self.open_graph = self.params['open']
 
-        if self.open_graph:
+        if self.open_graph > 0:
             self.pump_params = None
+
+        if self.open_graph == 2:
+           self.open_nodes = self.params['open_nodes']
 
         self.transport_graph = transport_graph
         if self.transport_graph:
@@ -81,19 +86,23 @@ class NAQ(object):
         else:
             print('Which group? I do not know this one!')
 
-        self.eps = 1.+0*0.002j
-
         #pre-compute the mask for inner edges
         self.in_mask = sc.sparse.lil_matrix((2*self.m, 2*self.m))
         self.in_mask_list = []
         for ei, e in enumerate(list(self.graph.edges())):
-            if len(self.graph[e[0]])>1 and len(self.graph[e[1]])>1:
-                self.in_mask[2*ei,2*ei] = 1
-                self.in_mask[2*ei+1,2*ei+1] = 1
-                self.in_mask_list.append(ei)
+            if self.open_graph == 2:
+                if e[0] not in self.open_nodes and e[1] not in self.open_nodes:
+                    self.in_mask[2*ei,2*ei] = 1
+                    self.in_mask[2*ei+1,2*ei+1] = 1
+                    self.in_mask_list.append(ei)
+            else:
+                if len(self.graph[e[0]])>1 and len(self.graph[e[1]])>1:
+                    self.in_mask[2*ei,2*ei] = 1
+                    self.in_mask[2*ei+1,2*ei+1] = 1
+                    self.in_mask_list.append(ei)
 
         #if we know the position, we can set the corresponding lengths
-        if positions:
+        if positions is not None:
             self.pos = positions
             for u in self.graph.nodes():
                 self.graph.nodes[u]['pos'] = self.pos[u] #set the position to the networkx graph
@@ -133,16 +142,25 @@ class NAQ(object):
         #set the chi wavenumber
         if chi is not None:
             self.set_chi(chi)
-            self.chi0 = self.chi.copy() #save the original chi for later
         else:
-            print('Please provide an edge generator')
+            self.set_chi(1.j*np.ones(self.m))
 
+        self.chi0 = self.chi.copy() #save the original chi for later
 
-        if len(refr_index) == 1 :
-            self.set_OPL([refr_index[0] for i in range (self.m)])
+        refr_index_params = self.params['refr_index_params']
+        if refr_index_params :
+            #set the constant 
+            if refr_index_params['type'] == 'in_out':
+                refr_index = refr_index_params['refr_index_out']*np.ones(self.m, dtype='complex64')  #set the out index on all edges
+                refr_index[self.in_mask_list] = refr_index_params['refr_index_in'] + 1j*refr_index_params['refr_index_loss'] #change the index for innner edges
+
+            else:
+               #we should allow here for random index, or prescribed by hand from outside
+               print('other type of index of refraction not implemented!')
+                
+            self.eps = refr_index**2 #save the dielectric constant
         else:
-            self.set_OPL(refr_index)
-
+            self.eps = np.ones(self.m)
 
     def set_lengths(self, lengths):
         #set the lengths of the edges
@@ -153,31 +171,20 @@ class NAQ(object):
 
 
         if self.tot_len > 0:
-            lengths = list(np.array(lengths)*self.tot_len/actual_tot_len)
+            rescale_factor = self.tot_len/actual_tot_len
+            lengths = list(np.array(lengths)*rescale_factor)
+            self.pos *=  rescale_factor
+
             print("Total lenght:",  self.tot_len)
             print("Average lenght:",  self.tot_len/n_inner)
         else:
             print("Total lenght:",  actual_tot_len)
             print("Average lenght:",  actual_tot_len/n_inner)
 
-
-
         self.lengths  = lengths
         for ei, e in enumerate(list(self.graph.edges())):
             (u, v) = e[:2]
             self.graph[u][v]['L']  = lengths[ei]
-
-
-
-    def set_OPL(self, refr_index):
-        #set the optical path lengths of the edges
-
-        self.eps = refr_index #save it for the pump later
-
-        for ei, e in enumerate(list(self.graph.edges())):
-            (u, v) = e[:2]
-            self.graph[u][v]['OPL']  = self.eps[ei]*self.graph[u][v]['L']
-
 
     def set_chi(self, chi):
         #set the chi variable on the edges
@@ -193,20 +200,18 @@ class NAQ(object):
 
         #get the mode
         if isinstance(mode, (list, np.ndarray) ):  #complex wavenumber
-            k = mode[0]-1.j*mode[1]
+            k = mode[0] - 1.j*mode[1]
         else:  #real wavenumber
             k = mode
 
         #if a pump is set
-        if self.open_graph and self.pump_params is not None:
-            self.gamma = self.pump_params['gamma_perp'] / ( k - self.pump_params['k_a'] + 1.j * self.pump_params['gamma_perp'])
+        if self.open_graph > 0 and self.pump_params is not None:
+            self.gamma = self.pump_params['gamma_perp'] / ( np.real(k) - self.pump_params['k_a'] + 1.j * self.pump_params['gamma_perp'])
             self.pump_mask = sc.sparse.lil_matrix((2*self.m, 2*self.m))
-
 
         for ei, e in enumerate(list(self.graph.edges())):
             (u, v) = e[:2]
-
-            if self.open_graph and self.pump_params is not None and ei in self.pump_params['edges'] and ei in self.in_mask_list: #make sure we don't pump outgoing edges
+            if self.open_graph > 0  and self.pump_params is not None and ei in self.pump_params['edges'] and ei in self.in_mask_list: #make sure we don't pump outgoing edges
                         chi[ei] *= np.sqrt(self.eps[ei] + self.gamma * self.pump_params['D0'])
                         self.pump_mask[2*ei,2*ei] = 1.
                         self.pump_mask[2*ei+1,2*ei+1] = 1.
@@ -214,7 +219,6 @@ class NAQ(object):
                 chi[ei] *= np.sqrt(self.eps[ei])
 
         self.set_chi(k*chi) #set the new chi
-
 
     def get_info_edges(self):
 
@@ -255,7 +259,7 @@ class NAQ(object):
         else:
             print('not yet implemented')
     
-    def Winv_matrix_U1(self):
+    def Winv_matrix_U1(self, with_chi=True):
         """
         Construct the matrix W^{-1} for U1
         """
@@ -268,11 +272,18 @@ class NAQ(object):
             row.append(2*ei) 
             row.append(2*ei+1) 
 
-            w = self.graph[u][v]['chi'] / ( np.exp( 2.* self.graph[u][v]['L'] * self.graph[u][v]['chi'] ) - 1. )
+            if with_chi:
+                w = self.graph[u][v]['chi'] / ( np.exp( 2.* self.graph[u][v]['L'] * self.graph[u][v]['chi'] ) - 1. )
+            else:
+                w = 1. / ( np.exp( 2.* self.graph[u][v]['L'] * self.graph[u][v]['chi'] ) - 1. )
+
             data.append(w)
             data.append(w)
 
-        self.Winv =  sc.sparse.coo_matrix((data, (row, row)), shape=(2*self.m, 2*self.m)).asformat('csc')
+        if with_chi:
+            self.Winv =  sc.sparse.coo_matrix((data, (row, row)), shape=(2*self.m, 2*self.m)).asformat('csc')
+        else:
+            self.Winv_nochi =  sc.sparse.coo_matrix((data, (row, row)), shape=(2*self.m, 2*self.m)).asformat('csc')
        
     def Winv_matrix_U1_slow(self):
         """
@@ -404,18 +415,30 @@ class NAQ(object):
             data.append(-1)
 
         B =  sc.sparse.coo_matrix((data, (row, col)), shape=(2*self.m, self.n)).asformat('csc')
-        if self.open_graph or self.transport_graph:
+        if self.open_graph > 0 or self.transport_graph:
             self.BT = (B.T).asformat('csc').copy()
             for ei, e in enumerate(list(self.graph.edges())):
                 (u, v) = e[:2]
           
-                if len(self.graph[u]) == 1:
-                    B[2 * ei , v]     = 0.
-                    B[2 * ei + 1 , u] = 0.
-                        
-                if len(self.graph[v]) == 1:
-                    B[2 * ei + 1 , u] = 0.
-                    B[2 * ei, v]      = 0.
+                if self.open_graph == 2:
+                    if u in self.open_nodes:
+                        if len(self.graph[u]) == 1:
+                            B[2 * ei , v]     = 0.
+                            B[2 * ei + 1 , u] = 0.
+
+                    if v in self.open_nodes:
+                        if len(self.graph[v]) == 1:
+                            B[2 * ei + 1 , u] = 0.
+                            B[2 * ei  , v] = 0.
+                else:
+                    if len(self.graph[u]) == 1:
+                        B[2 * ei , v]     = 0.
+                        B[2 * ei + 1 , u] = 0.
+
+                    if len(self.graph[v]) == 1:
+                        B[2 * ei + 1 , u] = 0.
+                        B[2 * ei  , v] = 0.
+
             self.B = B.asformat('csc')
 
         else:
@@ -684,7 +707,8 @@ class NAQ(object):
         """
 
         phi = self.compute_solution()
-        flux = self.Winv.dot(self.BT.T).dot(phi) #we use BT.T as we need to make sure the the in-fluxes vanish
+        self.Winv_matrix_U1(with_chi=False)
+        flux = self.Winv_nochi.dot(self.BT.T).dot(phi) #we use BT.T as we need to make sure the the in-fluxes vanish
 
         edge_mean = np.zeros(self.m)
         for ei, e in enumerate(list(self.graph.edges())):
@@ -717,15 +741,15 @@ class NAQ(object):
     def compute_edge_E2(self,k):
 
         phi = self.compute_solution()
-        flux = self.Winv.dot(self.BT.T).dot(phi) #we use BT.T as we need to make sure the the in-fluxes vanish
+        flux = self.Winv.dot(self.B).dot(phi) #we use BT.T as we need to make sure the the in-fluxes vanish
 
         edge_mean = np.zeros(self.m)
         for ei, e in enumerate(list(self.graph.edges())):
             (u, v) = e[:2]
 
             l = self.graph[u][v]['L']
-            Delta = k-np.conj(k)
-            Gamma = k+np.conj(k)
+            Delta = k - np.conj(k)
+            Gamma = k + np.conj(k)
             lambda_plus = flux[2*ei]
             lambda_minus = flux[2*ei+1]
 
@@ -925,7 +949,7 @@ class NAQ(object):
             #if number of steps is too large, exit the loop
             N_steps +=1
             if N_steps > max_steps:
-                k   -= dk
+                k -= dk
                 break
 
 
@@ -1080,7 +1104,6 @@ class NAQ(object):
         Scan the new modes from a set of known modes, (for pump trajectories)
         """
 
-        self.params = params
         Ks_list = []
 
         with Pool(processes = self.n_processes_scan) as p_find:  #initialise the parallel computation
@@ -1122,7 +1145,66 @@ class NAQ(object):
         return modes[np.argsort(np.array(modes)[:,1])] #return sorted modes (by lossyness)
 
 
-    def find_modes(self, Ks, Alphas, s, max_s, params, th= 0.01): #this function uses the result from the scanning to optimize mode search
+    def lorentzian(self, k):
+        """ return a lorentzian with the pump parameters """
+
+        return self.pump_params['gamma_perp']**2 / ( ( k-self.pump_params['k_a'])**2 + self.pump_params['gamma_perp']**2 ) 
+
+
+    def find_modes(self, s, neighborhood_size = 3, threshold = 0.01):
+        """use scipy.ndimage algorithms to detect minima in the scan"""
+
+        import scipy.ndimage as ndimage
+        import scipy.ndimage.filters as filters
+        import matplotlib.pyplot as plt
+
+        data = 1. / (1e-10 + s)
+
+        data_max = filters.maximum_filter(data, neighborhood_size)
+        maxima = (data == data_max)
+        data_min = filters.minimum_filter(data, neighborhood_size)
+        diff = ((data_max - data_min) > threshold)
+        maxima[diff == 0] = 0
+
+        labeled, num_objects = ndimage.label(maxima)
+        slices = ndimage.find_objects(labeled)
+        modes = []
+        for dy,dx in slices:
+            modes.append([dx.start, dy.start])
+
+        return np.array(modes)
+
+    def refine_mode(self, dk, da, s_min, k, radius_max = 20, random = 0.02):
+        """ given a mode k, refine it within a box dk da, until singular value is below s_min"""
+
+        def f_opt(k):
+            self.update_chi(k)
+            s = self.test_laplacian()
+            return s
+
+        radius = 0.01
+        f = 1.
+        while f > s_min and radius < radius_max:
+            bounds = [(k[0]-radius*dk, k[0]+radius*dk),(k[1]-radius*da, k[1]+radius*da)],
+
+            out = opt.minimize(f_opt, k, bounds = [(k[0]-radius*dk, k[0]+radius*dk),(k[1]-radius*da, k[1]+radius*da)], method='L-BFGS-B', options={'ftol': s_min})
+
+            k = out.x 
+            
+            #add some noise for next try to avoid getting stuck
+            k = [np.random.uniform(k[0]-random*radius*dk, k[0]+random*radius*dk), np.random.uniform(k[1]-random*radius*da, k[1]+random*radius*da) ]
+
+            f = out.fun
+
+            radius += 0.01
+
+        return out.x
+
+
+
+
+
+    def find_modes_old(self, Ks, Alphas, s, max_s, params, th= 0.01): #this function uses the result from the scanning to optimize mode search
         """
         Scan the singular values for solutions in K and A
         """
@@ -1225,6 +1307,37 @@ class NAQ(object):
 
         return Ks_list_clean
 
+    def overlapping_factor(self):
+            """ compute the overlappin factor of a mode with thte pump 
+                assumes that the laplacian is already updated to the desired mode """
+
+            #compute the node field
+            phi = self.compute_solution()
+
+            eps = np.zeros(2*self.m, dtype='complex64')
+
+            eps[::2] = self.eps
+            eps[1::2] = self.eps
+
+            self.Z_matrix_U1() #compute the Z matrix
+            self.Winv_matrix_U1(with_chi=False)
+
+            edge_norm = self.Winv_nochi.dot(self.Z).dot(self.Winv_nochi) #compute the weight matrix for \int E^2
+            edge_norm_eps = sc.sparse.csc_matrix(np.diag(eps)).dot(edge_norm)
+
+            #compute the inner sum
+            L0_in = self.BT.dot(edge_norm_eps.dot(self.in_mask)).dot(self.B).asformat('csc')
+            L0_in_norm = phi.T.dot(L0_in.dot(phi))
+
+            #compute the field on the pump
+            L0_I = self.BT.dot(edge_norm.dot(self.pump_mask.dot(self.in_mask))).dot(self.B).asformat('csc')
+            L0_I_norm = phi.T.dot(L0_I.dot(phi))
+
+            #overlapping factor
+            f = L0_I_norm/L0_in_norm
+            
+            return f
+
 
     def pump_linear(self, mode, D0_0, D0_1):
             """
@@ -1235,34 +1348,21 @@ class NAQ(object):
             self.pump_params['D0'] = D0_0
             self.update_chi(mode)
             self.update_laplacian()
-
-            #compute the node field
-            phi = self.compute_solution()
-
-            self.Z_matrix_U1() #compute the Z matrix
-            edge_norm = self.Winv.dot(self.Z).dot(self.Winv) #compute the weight matrix for \int E^2
-
-            #compute the inner sum
-            L0_in = self.BT.dot(edge_norm.dot(self.in_mask)).dot(self.B).asformat('csc')
-            L0_in_norm = phi.T.dot(L0_in.dot(phi))
-
-            #compute the field on the pump
-            L0_I = self.BT.dot(edge_norm.dot(self.pump_mask.dot(self.in_mask))).dot(self.B).asformat('csc')
-            L0_I_norm = phi.T.dot(L0_I.dot(phi))
-
+ 
             #overlapping factor
-            f = L0_I_norm/L0_in_norm
+            f = self.overlapping_factor()
 
             #complex wavenumber
-            k = mode[0]-1.j*mode[1]
+            k = mode[0] - 1.j*mode[1]
 
             #gamma factor
-            gamma = self.pump_params['gamma_perp'] / ( k - self.pump_params['k_a'] + 1.j * self.pump_params['gamma_perp'])
+            gamma = self.pump_params['gamma_perp'] / ( np.real(k) - self.pump_params['k_a'] + 1.j * self.pump_params['gamma_perp'])
 
             #shift in k
-            k_shift = k*np.sqrt( (1. + gamma*f*D0_0) / (1. + gamma*f*D0_1) ) - k
+            k_new = k*np.sqrt( (1. + gamma*f*D0_0) / (1. + gamma*f*D0_1) ) 
 
-            return k_shift
+            return k_new - k
+
 
     def pump_trajectories(self, modes, params, D0_max, D0_steps):
             """
@@ -1271,31 +1371,32 @@ class NAQ(object):
 
             self.D0s = np.linspace(0., D0_max, D0_steps) #sequence of D0
             new_modes = [modes.copy(), ] #to collect trajectory of modes
+            new_modes_inits = []#[modes.copy(), ] #to collect trajectory of modes
             self.pump_params['D0'] = self.D0s[0]
 
             for iD0 in tqdm(range(D0_steps-1)):
                 #print('D0:', self.D0s[iD0+1], )
 
+                new_modes_init = new_modes[-1].copy()
                 for m in range(len(modes)):
                     #estimate the shift in k
                     k_shift = self.pump_linear(new_modes[-1][m], self.D0s[iD0], self.D0s[iD0+1])
-
                     #shift the mode to estimated position
-                    new_modes_init = new_modes[-1].copy()
-                    new_modes_init[m,0] += np.real(k_shift)
-                    new_modes_init[m,1] -= np.imag(k_shift)
+                    new_modes_init[m, 0] += np.real(k_shift)
+                    new_modes_init[m, 1] -= np.imag(k_shift)
 
                 #set the pump to next step and correct the mode
                 self.pump_params['D0'] = self.D0s[iD0+1]
                 new_modes.append(np.array(self.update_modes(new_modes_init, params)))
+                new_modes_inits.append(np.array(new_modes_init.copy()))
 
-            return np.array(new_modes)
+            return np.array(new_modes), np.array(new_modes_inits)
 
-    def plot_pump_traj(self, Ks, Alphas, s, modes, new_modes, estimate = False):
-        self.plot_scan(Ks,Alphas,s, modes)
+    def plot_pump_traj(self, Ks, Alphas, s, modes, new_modes, estimate = False, c='k', ss=10):
+        #self.plot_scan(Ks,Alphas,s, modes)
 
-        if modes is not None:
-            plt.plot(modes[:,0], modes[:,1],'ro')
+        #if modes is not None:
+        #    plt.plot(modes[:,0], modes[:,1],'ro')
 
         for i in range(len(modes)):
             D_th = self.linear_lasing_threshold(modes[i], self.D0s[0])
@@ -1303,7 +1404,7 @@ class NAQ(object):
             #if D_th < self.D0s[-1] and D_th>0:
             #    plt.plot(new_modes[:,i,0],new_modes[:,i,1],'r-.')
             #else:
-            plt.scatter(new_modes[:,i,0],new_modes[:,i,1],s=20,c='k')
+            plt.scatter(new_modes[:,i,0],new_modes[:,i,1], s=ss, c=c)
 
         #plt.plot(new_modes[-1,:,0],new_modes[-1,:,1],'k+')
 
@@ -1313,7 +1414,7 @@ class NAQ(object):
             dy = new_modes[-1,i,1]-new_modes[-2,i,1]
 
             #plt.arrow(new_modes[-1,i,0], new_modes[-1,i,1], dx, dy, head_width=0.005, head_length=0.01, fc='k', ec='k')
-            ax.annotate("", xy=(new_modes[-1,i,0], new_modes[-1,i,1]), xytext=(new_modes[-2,i,0], new_modes[-2,i,1]), arrowprops=dict(facecolor='black', shrink=0.05))
+            #ax.annotate("", xy=(new_modes[-1,i,0], new_modes[-1,i,1]), xytext=(new_modes[-2,i,0], new_modes[-2,i,1]), arrowprops=dict(facecolor='black', shrink=0.05))
 
 
         if estimate:
