@@ -1698,12 +1698,13 @@ class NAQ(object):
                 phi = self.compute_solution()
 
                 #normalize the modes first
-                L0_in_norm = self.compute_E2()
-                phi /= L0_in_norm
+                #L0_in_norm = self.compute_E2()
+                #phi /= L0_in_norm
 
                 #compute the pump norm
                 self.Z_matrix_U1() #compute the Z matrix
-                edge_norm = self.Winv.dot(self.Z).dot(self.Winv) #compute the correct weight matrix
+                self.Winv_matrix_U1(with_chi=False)
+                edge_norm = self.Winv_nochi.dot(self.Z).dot(self.Winv_nochi) #compute the correct weight matrix
                 L0_pump = self.BT.dot(edge_norm.dot(self.in_mask).dot(self.pump_mask)).dot(self.B).asformat('csc')
                 L0_pump_norm = phi.T.dot(L0_pump.dot(phi))
                 #L0_pump_norm = flux.T.dot(self.pump_mask.dot(self.Z).toarray()).dot(flux)
@@ -1711,7 +1712,7 @@ class NAQ(object):
                 #compute the edge solution with correct normalisation
                 #phi /= np.sqrt(L0_pump_norm)
                 #phi /= np.exp(1.1j) 
-                flux = self.Winv.dot(self.B).dot(phi)
+                flux = self.Winv_nochi.dot(self.B).dot(phi)
                 fluxes.append(flux)#*np.exp(0.1j))#/np.sqrt(L0_pump_norm))
 
                 pump_norms.append(L0_pump_norm)

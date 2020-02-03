@@ -1,0 +1,69 @@
+"""plotting function"""
+import matplotlib.pyplot as plt
+import networkx as nx
+import numpy as np
+
+from .utils import order_edges_by
+
+
+def plot_naq_graph(graph, edge_colors=None, node_colors=None):
+    """plot the graph"""
+    positions = [graph.nodes[u]["position"] for u in graph]
+
+    plt.figure(figsize=(5, 4))
+
+    if node_colors is not None:
+        nx.draw_networkx_nodes(
+            graph,
+            pos=positions,
+            node_size=10,
+            node_color=node_colors,
+            vmin=0,
+            vmax=np.max(node_colors),
+            cmap=plt.get_cmap("plasma"),
+        )
+        nodes = plt.cm.ScalarMappable(
+            norm=plt.cm.colors.Normalize(0, np.max(node_colors)),
+            cmap=plt.get_cmap("plasma"),
+        )
+
+        plt.colorbar(nodes, label=r"node values")
+
+    else:
+        nx.draw_networkx_nodes(graph, pos=positions, node_size=10, node_color="k")
+
+    nx.draw_networkx_edges(graph, pos=positions)
+
+    if edge_colors is not None:
+        for ei, e in enumerate(order_edges_by(graph, edge_colors)):
+            nx.draw_networkx_edges(
+                graph,
+                pos=positions,
+                edgelist=[e,],
+                edge_color=[np.sort(edge_colors)[ei],],
+                edge_cmap=plt.get_cmap("plasma"),
+                width=5,
+                alpha=0.7,
+                edge_vmin=0,
+                edge_vmax=np.max(edge_colors),
+            )
+
+        edges = plt.cm.ScalarMappable(
+            norm=plt.cm.colors.Normalize(0, np.max(edge_colors)),
+            cmap=plt.get_cmap("plasma"),
+        )
+
+        plt.colorbar(edges, label=r"edge values")
+
+    out_nodes = []
+    for e in graph.edges():
+        if not graph[e[0]][e[1]]["inner"]:
+            if len(graph[e[0]]) == 1:
+                out_nodes.append(e[0])
+            if len(graph[e[1]]) == 1:
+                out_nodes.append(e[1])
+
+    nx.draw_networkx_nodes(
+        graph, nodelist=out_nodes, pos=positions, node_color="r", node_size=10
+    )
+    plt.gca().tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)

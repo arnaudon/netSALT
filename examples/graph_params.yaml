@@ -1,0 +1,345 @@
+###################
+## random graphs ##
+###################
+
+line_PRA:
+        #network params
+        n: 20 #11
+        lead_prob: -0.2
+        seed: 2
+        tot_len: 1
+        dialectric_params: 
+            method: 'uniform'
+            inner_value: 1.5
+            outer_value: 1.
+
+        #mode search params
+        k_min: 12 #0.06
+        k_max: 19 #0.15
+        k_n: 100
+        alpha_min: -0.2
+        alpha_max: 1.20 #0.015
+        alpha_n: 100
+        s_min: 0.001 #minimum value for the condition number
+        s_size: [0.07, 0.07] #0.02 size of random steps (smaller it will converge slowly, larger it will never accept steps)
+        max_steps: 2000 #max number of steps before it gives up
+        reduc: 0.90 #if it does not improve after 20 steps, multiply by this number (not really needed)
+        s_interest: 0.15 #svd threshold for selecting possible mode candidates from the grid scan
+        finesse: 1.0 #should be larger than 1, used to clean up duplicate modes
+        pump_edges: 'all' #[8, 9]        
+        D0_max: 1.2 
+        D0_steps: 61
+        open_model: 'open_ends'
+        open_nodes: []
+        pump_params:
+                k_a: 15 #0.1
+                gamma_perp: 3.0 #0.04
+                D0: 0 #May be old variable
+
+line:
+        #network params
+        n: 103
+        lead_prob: -0.2
+        seed: 2
+        tot_len: 1.0
+        refr_index_params:
+            type: 'in_out' #this sets constant index in and different constant out
+            refr_index_in: 1.5
+            refr_index_loss: 0 
+            refr_index_out: 100.0
+        #mode search params
+        k_min: 12
+        k_max: 19
+        k_n: 100
+        alpha_min: -0.2
+        alpha_max: 1.5
+        alpha_n: 100
+        s_min: 0.001 #minimum value for the condition number
+        s_size: [.06, .06] #size of random steps (smaller it will converge slowly, larger it will never accept steps)
+        max_steps: 1000 #max number of steps before it gives up
+        reduc: 0.9 #if it does not improve after 20 steps, multiply by this number (not really needed)
+        pump_edges: 'all'        
+        D0_max: 0.1
+        D0_steps: 11
+        open: 1 
+        open_nodes: []
+        pump_params:
+                k_a: 15
+                gamma_perp: 3
+                D0: 0
+
+SM_small:
+        #network params
+        n: 15 #number of nodes
+        k: 2 #average degree
+        p: 0.2 #probability of a connection
+        lead_prob: 0.2 #options for placement of lossy edges: -1 for all nodes, -2 for specific nodes, between 0 and 1 based on prob
+        seed: 10
+        tot_len: 2 
+        refr_index_params:
+            type: 'in_out' #this sets constant index in and different constant out
+            refr_index_in: 1.5
+            refr_index_loss: 0 
+            refr_index_out: 1.
+        #mode search params
+        k_min: 36
+        k_max: 44
+        k_n: 100
+        alpha_min: -0.1
+        alpha_max: 0.5
+        alpha_n: 100
+        s_min: 0.001 #minimum value for the condition number
+        s_size: [0.0001, 0.0001] #size of random steps (smaller it will converge slowly, larger it will never accept steps)
+        max_steps: 1000 #max number of steps before it gives up
+        reduc: 1.0 #if it does not improve after 20 steps, multiply by this number (not really needed)
+        pump_edges: 'all' #[8, 9]        
+        D0_max: 0.05 #0.0008
+        D0_steps: 10 
+        open: 1 #options: 0 for closed, 1 for all degree 1 nodes open, 2 for specific nodes in open_nodes
+        open_nodes: [0, ]
+        pump_params:
+                k_a: 40
+                gamma_perp: 4
+                D0: 0
+SM_0:
+        #network params
+        n: 10
+        k: 2
+        p: 0.0
+        lead_prob: 0.1
+        seed: 0
+        tot_len: 200
+        open: 0
+        refr_index_params:
+            type: 'in_out' #this sets constant index in and different constant out
+            refr_index_in: 1.5
+            refr_index_loss: 0 
+            refr_index_out: 1.
+
+
+        #mode search params
+        s_min: 0.0001 #minimum value for the condition number
+        s_size: [0.001, 0.001] #size of random steps (smaller it will converge slowly, larger it will never accept steps)
+        max_steps: 500 #max number of steps before it gives up
+        reduc: 1. #if it does not improve after 20 steps, multiply by this number (not really needed)
+        s_interest: 0.2 #threshold for selecting possible mode candidates from the grid scan
+        finesse: 1. #should be larger than 1, used to clean up duplicate modes
+        pump_edges: [8, 9, 10, 11]
+        D0_max: 0.01
+SM_1:
+        #network params
+        n: 40
+        k: 2
+        p: 0.10
+        lead_prob: 0.1
+        seed: 10
+        tot_len: 200
+        
+        #mode search params
+        s_min: 0.0001 #minimum value for the condition number
+        s_size: [0.01, 0.01] #size of random steps (smaller it will converge slowly, larger it will never accept steps)
+        max_steps: 1000 #max number of steps before it gives up
+        reduc: 1. #if it does not improve after 20 steps, multiply by this number (not really needed)
+        s_interest: 0.3 #threshold for selecting possible mode candidates from the grid scan
+        finesse: 1.0 #should be larger than 1, used to clean up duplicate modes
+
+
+SM_2:
+        #network params
+        n: 40
+        k: 2
+        p: 0.15
+        lead_prob: 0.1
+        seed: 10
+        tot_len: 200
+
+        #mode search params
+        s_min: 0.0001 #minimum value for the condition number
+        s_size: [0.01, 0.01] #size of random steps (smaller it will converge slowly, larger it will never accept steps)
+        max_steps: 1000 #max number of steps before it gives up
+        reduc: 1. #if it does not improve after 20 steps, multiply by this number (not really needed)
+        s_interest: 0.3 #threshold for selecting possible mode candidates from the grid scan
+        finesse: 1.0 #should be larger than 1, used to clean up duplicate modes
+
+tree:
+        #network params
+        r: 2
+        h: 4
+        lead_prob: 0.0
+        seed: 0
+        tot_len: 200
+        refr_index_params:
+            type: 'in_out' #this sets constant index in and different constant out
+            refr_index_in: 1.5
+            refr_index_loss: 0 
+            refr_index_out: 1.
+        
+        #mode search params
+        s_min: 0.0001 #minimum value for the condition number
+        s_size: [0.005, 0.005] #size of random steps (smaller it will converge slowly, larger it will never accept steps)
+        max_steps: 1000 #max number of steps before it gives up
+        reduc: 1. #if it does not improve after 20 steps, multiply by this number (not really needed)
+        s_interest: 0.1 #threshold for selecting possible mode candidates from the grid scan
+        finesse: 1.0 #should be larger than 1, used to clean up duplicate modes
+        pump_edges: 'all'
+        D0_max: 0.005
+        D0_steps: 10
+        open: 1 #options: 1 for all degree 1 nodes open, 2 for specific nodes in open_nodes
+        open_nodes: [0, ]
+        pump_params:
+                k_a: 40
+                gamma_perp: 4
+                D0: 0
+
+uniform_delaunay_0:
+        #network params
+        n: 20
+        eps: 0.05
+        lead_prob: -1.
+        seed: 3
+        tot_len: 200
+
+        #mode search params
+        s_min: 0.0001 #minimum value for the condition number
+        s_size: [0.0002, 0.0002] #size of random steps (smaller it will converge slowly, larger it will never accept steps)
+        max_steps: 1000 #max number of steps before it gives up
+        reduc: 1. #if it does not improve after 20 steps, multiply by this number (not really needed)
+        s_interest: 0.1 #threshold for selecting possible mode candidates from the grid scan
+        finesse: 1.0 #should be larger than 1, used to clean up duplicate modes
+
+uniform_delaunay_1:
+        #network params
+        n: 20
+        eps: 0.05
+        lead_prob: .25
+        seed: 3
+        tot_len: 200
+
+        #mode search params
+        s_min: 0.01 #minimum value for the condition number
+        s_size: [0.001, 0.001] #size of random steps (smaller it will converge slowly, larger it will never accept steps)
+        max_steps: 1000 #max number of steps before it gives up
+        reduc: 1. #if it does not improve after 20 steps, multiply by this number (not really needed)
+        s_interest: 0.1 #threshold for selecting possible mode candidates from the grid scan
+        finesse: 1.0 #should be larger than 1, used to clean up duplicate modes
+
+
+uniform_delaunay_2:
+        #network params
+        n: 20
+        eps: 0.05
+        lead_prob: -2.
+        seed: 3
+        tot_len: 200
+
+        #mode search params
+        s_min: 0.0001 #minimum value for the condition number
+        s_size: [0.001, 0.001] #size of random steps (smaller it will converge slowly, larger it will never accept steps)
+        max_steps: 1000 #max number of steps before it gives up
+        reduc: 1. #if it does not improve after 20 steps, multiply by this number (not really needed)
+        s_interest: 0.1 #threshold for selecting possible mode candidates from the grid scan
+        finesse: 1.0 #should be larger than 1, used to clean up duplicate modes
+
+
+delaunay-disk:
+        #network params
+        n: 100
+        eps: 0.0
+        lead_prob: 0.3
+        seed: 3
+        tot_len: 200
+
+        #mode search params
+        s_min: 0.0001 #minimum value for the condition number
+        s_size: [0.001, 0.001] #size of random steps (smaller it will converge slowly, larger it will never accept steps)
+        max_steps: 1000 #max number of steps before it gives up
+        reduc: 1. #if it does not improve after 20 steps, multiply by this number (not really needed)
+        s_interest: 0.1 #threshold for selecting possible mode candidates from the grid scan
+        finesse: 1.0 #should be larger than 1, used to clean up duplicate modes
+
+delaunay-bump:
+        #network params
+        n: 30
+        n_sub: 15
+        lead_prob: 0.5
+        seed: 0
+        tot_len: 200
+
+        #mode search params
+        s_min: 0.0001 #minimum value for the condition number
+        s_size: [0.001, 0.001] #size of random steps (smaller it will converge slowly, larger it will never accept steps)
+        max_steps: 1000 #max number of steps before it gives up
+        reduc: 1. #if it does not improve after 20 steps, multiply by this number (not really needed)
+        s_interest: 0.1 #threshold for selecting possible mode candidates from the grid scan
+        finesse: 1.0 #should be larger than 1, used to clean up duplicate modes
+
+buffon:
+        #network params
+        lead_prob: 0.
+        seed: 0
+        tot_len: 0
+        refr_index_params:
+            type: 'in_out' #this sets constant index in and different constant out
+            refr_index_in: 1.5
+            refr_index_loss: 0 
+            refr_index_out: 1.
+
+        #mode search params
+        k_min: 10.6
+        k_max: 10.76
+        k_n: 1000
+        alpha_min: 0
+        alpha_max: 0.005
+        alpha_n: 250
+        s_min: 0.001 #minimum value for the condition number
+        s_size: [0.0001, 0.0001] # SET BY DEFAULT in 2_ !!! size of random steps (smaller it will converge slowly, larger it will never accept steps)
+        max_steps: 1000 #max number of steps before it gives up
+        reduc: 1.0 #if it does not improve after 20 steps, multiply by this number (not really needed)
+        pump_edges: 'all' #[8, 9]        
+        D0_max: 0.0001
+        D0_steps: 5 
+        open: 1
+        pump_params:
+                k_a: 10.68
+                gamma_perp: 0.55
+                D0: 0
+
+SBM:
+        sizes: [200, 50, 200]
+        probs: [[10., 1.0, 0.0],
+                [1.0, 10., 1.0 ],
+                [ 0.0, 1.0, 10]]
+        seed: 2
+        t_min: -0.5
+        t_max: .3
+        n_t: 200
+
+SBM_2:
+        sizes: [50, 50, 50, 50]
+        probs: [[ 10., 1.0, 0.0, 0.5],
+                [ 1.0, 10., 0.5, 0.0],
+                [ 0.0, 0.5, 10., 1.0],
+                [ 0.5, 0.0, 1.0, 10.]]
+        seed: 1
+        t_min: -2.0
+        t_max: 0.2
+        n_t: 200
+
+ER:
+        n: 50
+        p: 0.16
+        t_max: 5
+        n_t: 200
+
+grid:
+        n: 20
+        m: 20
+
+powerlaw:
+        n: 80
+        m: 2
+        p: 0.1
+
+geometric:
+        n: 50
+        p: 0.3
