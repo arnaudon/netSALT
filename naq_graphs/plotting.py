@@ -6,6 +6,29 @@ import numpy as np
 from .utils import order_edges_by
 
 
+def plot_scan(ks, alphas, qualities, modes=None):
+    """plot the scan with the mode found"""
+    plt.figure(figsize=(10, 5))
+
+    plt.imshow(
+        np.log(qualities.T),
+        extent=(ks[0], ks[-1], alphas[0], alphas[-1]),
+        aspect="auto",
+        origin="lower",
+    )  # , vmax = 0, vmin = -4)
+
+    cbar = plt.colorbar()
+    cbar.set_label("smallest singular value")
+
+    plt.xlabel(r"$Real(k)$")
+    plt.ylabel(r"$\alpha = -Im(k)$")
+
+    if modes is not None:
+        plt.plot(modes[:, 0], modes[:, 1], "r+")
+
+    plt.axis([ks[0], ks[-1], alphas[-1], alphas[0]])
+
+
 def plot_naq_graph(graph, edge_colors=None, node_colors=None):
     """plot the graph"""
     positions = [graph.nodes[u]["position"] for u in graph]
