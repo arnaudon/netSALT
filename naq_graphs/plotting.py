@@ -24,7 +24,8 @@ def plot_scan(ks, alphas, qualities, modes=None):
     plt.ylabel(r"$\alpha = -Im(k)$")
 
     if modes is not None:
-        plt.plot(modes[:, 0], modes[:, 1], "r+")
+        for mode in modes:
+            plt.plot(mode[0], mode[1], "r+")
 
     plt.axis([ks[0], ks[-1], alphas[-1], alphas[0]])
 

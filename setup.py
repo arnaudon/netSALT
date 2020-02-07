@@ -20,6 +20,7 @@ setup(
         'scipy>=1.2.0',
         'networkx',
         'matplotlib',
+        'scikit-image',
     ],
     packages=find_packages(),
 )

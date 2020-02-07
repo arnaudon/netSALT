@@ -4,7 +4,28 @@ import multiprocessing
 import numpy as np
 import scipy as sc
 
-from .graph_construction import construct_laplacian
+from .modes import (
+    find_rough_modes_from_scan,
+    clean_duplicate_modes,
+    mode_quality,
+    refine_mode_brownian_ratchet,
+)
+from .utils import _to_complex
+
+
+class WorkerModes:
+    """worker to refine modes"""
+
+    def __init__(self, graph, dispersion_relation, params):
+        self.graph = graph
+        self.dispersion_relation = dispersion_relation
+        self.params = params
+
+    def __call__(self, mode):
+        return refine_mode_brownian_ratchet(
+            mode, self.graph, self.dispersion_relation, self.params
+        )
+
 
 class WorkerScan:
     """worker to scan complex frequency"""
@@ -14,11 +35,7 @@ class WorkerScan:
         self.dispersion_relation = dispersion_relation
 
     def __call__(self, freq):
-        return mode_quality(
-            construct_laplacian(
-                freq[0] - 1.0j * freq[1], self.graph, self.dispersion_relation
-            )
-        )
+        return mode_quality(_to_complex(freq), self.graph, self.dispersion_relation)
 
 
 def scan_frequencies(graph, dispersion_relation, params, n_workers=1):
@@ -30,6 +47,7 @@ def scan_frequencies(graph, dispersion_relation, params, n_workers=1):
     worker_scan = WorkerScan(graph, dispersion_relation)
     pool = multiprocessing.Pool(n_workers)
     qualities_list = pool.map(worker_scan, freqs)
+    pool.close()
 
     id_k = [k_i for k_i in range(len(ks)) for a_i in range(len(alphas))]
     id_a = [a_i for k_i in range(len(ks)) for a_i in range(len(alphas))]
@@ -40,18 +58,15 @@ def scan_frequencies(graph, dispersion_relation, params, n_workers=1):
     return ks, alphas, qualities
 
 
-def mode_quality(laplacian, method="eigenvalue"):
-    """return the quality of a mode encoded in the naq laplacian,
-       either with smallest eigenvalue, or smallest singular value"""
-    if method == "eigenvalue":
-        return abs(
-            sc.sparse.linalg.eigs(laplacian, k=1, sigma=0, return_eigenvectors=False)
-        )[0]
-    if method == "singularvalue":
-        return sc.sparse.linalg.svds(
-            laplacian, k=1, which="SM", return_singular_vectors=False
-        )[0]
+def find_modes(ks, alphas, qualities, graph, dispersion_relation, params, n_workers=1):
+    """find the modes from a scan"""
+    rough_modes = find_rough_modes_from_scan(
+        ks, alphas, qualities, min_distance=2, threshold_abs=1.
+    )
 
-    return 0.
+    worker_modes = WorkerModes(graph, dispersion_relation, params)
+    pool = multiprocessing.Pool(n_workers)
+    refined_modes = pool.map(worker_modes, rough_modes)
+    pool.close()
 
-
+    return clean_duplicate_modes(refined_modes, ks[1] - ks[0], alphas[1] - alphas[0])

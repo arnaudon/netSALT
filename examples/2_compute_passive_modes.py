@@ -27,9 +27,11 @@ io.create_naq_graph(graph, params, positions=positions)
 dispersion_relations.set_dialectric_constant(graph, params)
 dispersion_relation = partial(dispersion_relations.dispersion_relation_dielectric, params=params)
 
-ks, alphas, qualities = scan_frequencies(graph, dispersion_relation, params, n_workers=4)
+ks, alphas, qualities = pickle.load(open('scan.pkl', 'rb')) #save it for later
 
-pickle.dump([ks, alphas, qualities], open('scan.pkl', 'wb'))
+modes = find_modes(ks, alphas, qualities, graph, dispersion_relation, params)
+plotting.plot_scan(ks, alphas, qualities, modes)
 
-plotting.plot_scan(ks, alphas, qualities, np.array([[0,0],]))
-plt.savefig('scan_nomodes.svg')
+print('Found', len(modes), 'mode(s)')
+plt.savefig('scan_with_modes.svg')
+plt.show()

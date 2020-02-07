@@ -1,6 +1,12 @@
 """small additiomal functions"""
 import numpy as np
 
+def _to_complex(mode):
+    """convert mode array to complex number"""
+    if isinstance(mode, complex):
+        return mode
+    return mode[0] - 1.0j * mode[1]
+
 
 def get_total_length(graph):
     """get the total lenght of the graph"""
