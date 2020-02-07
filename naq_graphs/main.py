@@ -9,6 +9,7 @@ from .modes import (
     clean_duplicate_modes,
     mode_quality,
     refine_mode_brownian_ratchet,
+    construct_laplacian
 )
 from .utils import _to_complex
 
@@ -16,35 +17,33 @@ from .utils import _to_complex
 class WorkerModes:
     """worker to refine modes"""
 
-    def __init__(self, graph, dispersion_relation, params):
+    def __init__(self, graph, params):
         self.graph = graph
-        self.dispersion_relation = dispersion_relation
         self.params = params
 
     def __call__(self, mode):
         return refine_mode_brownian_ratchet(
-            mode, self.graph, self.dispersion_relation, self.params
+            mode, self.graph, self.params
         )
 
 
 class WorkerScan:
     """worker to scan complex frequency"""
 
-    def __init__(self, graph, dispersion_relation):
+    def __init__(self, graph):
         self.graph = graph
-        self.dispersion_relation = dispersion_relation
 
     def __call__(self, freq):
-        return mode_quality(_to_complex(freq), self.graph, self.dispersion_relation)
+        return mode_quality(_to_complex(freq), self.graph)
 
 
-def scan_frequencies(graph, dispersion_relation, params, n_workers=1):
+def scan_frequencies(graph, params, n_workers=1):
     """scan a range of complex frequencies and return mode qualities"""
     ks = np.linspace(params["k_min"], params["k_max"], params["k_n"])
     alphas = np.linspace(params["alpha_min"], params["alpha_max"], params["alpha_n"])
     freqs = [[k, a] for k in ks for a in alphas]
 
-    worker_scan = WorkerScan(graph, dispersion_relation)
+    worker_scan = WorkerScan(graph)
     pool = multiprocessing.Pool(n_workers)
     qualities_list = pool.map(worker_scan, freqs)
     pool.close()
@@ -58,15 +57,30 @@ def scan_frequencies(graph, dispersion_relation, params, n_workers=1):
     return ks, alphas, qualities
 
 
-def find_modes(ks, alphas, qualities, graph, dispersion_relation, params, n_workers=1):
+def find_modes(ks, alphas, qualities, graph, params, n_workers=1):
     """find the modes from a scan"""
     rough_modes = find_rough_modes_from_scan(
         ks, alphas, qualities, min_distance=2, threshold_abs=1.
     )
 
-    worker_modes = WorkerModes(graph, dispersion_relation, params)
+    worker_modes = WorkerModes(graph, params)
     pool = multiprocessing.Pool(n_workers)
     refined_modes = pool.map(worker_modes, rough_modes)
     pool.close()
 
-    return clean_duplicate_modes(refined_modes, ks[1] - ks[0], alphas[1] - alphas[0])
+    modes = clean_duplicate_modes(refined_modes, ks[1] - ks[0], alphas[1] - alphas[0])
+    return modes[np.argsort(modes[:, 1])]
+
+
+def mode_on_nodes(mode, graph, eigenvalue_max=1e-2):
+    """compute the mode solution on the nodes of the graph""" 
+    laplacian = construct_laplacian(_to_complex(mode), graph)
+
+    min_eigenvalue, node_solution = sc.sparse.linalg.eigs(laplacian, k=1, sigma=0)
+
+    if abs(min_eigenvalue) > eigenvalue_max:
+        raise Exception('Laplacian not singular: ' + str(min_eigenvalue))
+
+    return node_solution[:, 0]
+
+

@@ -8,7 +8,8 @@ import matplotlib.pyplot as plt
 from functools import partial
 
 from graph_generator import generate_graph
-from naq_graphs import io, utils, plotting, dispersion_relations
+from naq_graphs import io, utils, plotting
+from naq_graphs.dispersion_relations import set_dialectric_constant, set_dispersion_relation, dispersion_relation_dielectric
 from naq_graphs.main import *
 
 if len(sys.argv)>1:
@@ -24,10 +25,10 @@ os.chdir(graph_tpe)
 
 io.create_naq_graph(graph, params, positions=positions)
 
-dispersion_relations.set_dialectric_constant(graph, params)
-dispersion_relation = partial(dispersion_relations.dispersion_relation_dielectric, params=params)
+set_dialectric_constant(graph, params)
+set_dispersion_relation(graph, dispersion_relation_dielectric, params)
 
-ks, alphas, qualities = scan_frequencies(graph, dispersion_relation, params, n_workers=4)
+ks, alphas, qualities = scan_frequencies(graph, params, n_workers=4)
 
 pickle.dump([ks, alphas, qualities], open('scan.pkl', 'wb'))
 

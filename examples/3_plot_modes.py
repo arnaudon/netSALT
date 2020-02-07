@@ -5,12 +5,12 @@ import numpy as np
 import yaml as yaml
 import pickle as pickle
 import matplotlib.pyplot as plt
-from functools import partial
+import networkx as nx
 
 from graph_generator import generate_graph
-from naq_graphs import io, utils, plotting, dispersion_relations
-from naq_graphs.main import *
+from naq_graphs import io, utils, plotting
 from naq_graphs.dispersion_relations import set_dialectric_constant, set_dispersion_relation, dispersion_relation_dielectric
+from naq_graphs.main import *
 
 if len(sys.argv)>1:
     graph_tpe = sys.argv[-1]
@@ -28,14 +28,19 @@ io.create_naq_graph(graph, params, positions=positions)
 set_dialectric_constant(graph, params)
 set_dispersion_relation(graph, dispersion_relation_dielectric, params)
 
-ks, alphas, qualities = pickle.load(open('scan.pkl', 'rb')) #save it for later
 
-modes = find_modes(ks, alphas, qualities, graph, params)
-print('Found', len(modes), 'mode(s)')
+modes = io.load_modes()
 
-io.save_modes(modes)
+if not os.path.isdir('modes'):
+    os.mkdir('modes')
 
-plotting.plot_scan(ks, alphas, qualities, modes)
+for i, mode in enumerate(modes): 
+    node_solution = mode_on_nodes(mode, graph) 
 
-plt.savefig('scan_with_modes.svg')
-plt.show()
+    plt.figure(figsize=(6,4))
+    nodes = nx.draw_networkx_nodes(graph, pos=positions, node_color = abs(node_solution), node_size=20)
+    plt.colorbar(nodes)
+    edges_k = nx.draw_networkx_edges(graph, pos=positions, edge_color = '0.5', width=2)
+    
+    plt.savefig('modes/mode_' + str(i) + '.png')
+    plt.close()

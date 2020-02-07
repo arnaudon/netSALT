@@ -24,9 +24,9 @@ def laplacian_quality(laplacian, method="eigenvalue"):
     return 0.0
 
 
-def mode_quality(mode, graph, dispersion_relation):
+def mode_quality(mode, graph):
     """quality of a mode, small means good quality"""
-    laplacian = construct_laplacian(_to_complex(mode), graph, dispersion_relation)
+    laplacian = construct_laplacian(_to_complex(mode), graph)
     return laplacian_quality(laplacian)
 
 
@@ -42,7 +42,6 @@ def find_rough_modes_from_scan(
 def refine_mode_brownian_ratchet(
     initial_mode,
     graph,
-    dispersion_relation,
     params,
     disp=False,
     save_mode_trajectories=False,
@@ -52,7 +51,7 @@ def refine_mode_brownian_ratchet(
     if save_mode_trajectories:
         mode_trajectories = [current_mode.copy()]
 
-    initial_quality = mode_quality(current_mode, graph, dispersion_relation)
+    initial_quality = mode_quality(current_mode, graph)
     current_quality = initial_quality
 
     search_stepsize = params["search_stepsize"]
@@ -69,7 +68,7 @@ def refine_mode_brownian_ratchet(
             / initial_quality
             * np.random.uniform(-1, 1, 2)
         )
-        new_quality = mode_quality(new_mode, graph, dispersion_relation)
+        new_quality = mode_quality(new_mode, graph)
         if disp:
             print(
                 "New quality:",
@@ -119,4 +118,4 @@ def clean_duplicate_modes(modes, k_size, alpha_size):
     for ids in duplicate_mode_ids:
         del modes[ids]
 
-    return modes
+    return np.array(modes)

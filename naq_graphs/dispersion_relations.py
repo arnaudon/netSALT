@@ -1,5 +1,6 @@
 """collect the dispersion relations"""
 import numpy as np
+from functools import partial
 
 
 def dispersion_relation_linear(freq, edge_index, params=None):
@@ -30,6 +31,10 @@ def dispersion_relation_pump(freq, edge_index, params=None):
         )
     return freq * np.sqrt(params["dialectric_constant"][edge_index])
 
+
+def set_dispersion_relation(graph, dispersion_relation, params):
+    """set the dispersion relation on the graph"""
+    graph.graph['dispersion_relation'] = partial(dispersion_relation, params=params)
 
 def set_dialectric_constant(graph, params, custom_values=None):
     """set dialectric constant in the params file using various methods"""

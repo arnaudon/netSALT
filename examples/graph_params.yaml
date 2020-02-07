@@ -4,7 +4,7 @@
 
 line_PRA:
         #network params
-        n: 20 #11
+        n: 200 #11
         lead_prob: -0.2
         seed: 2
         dialectric_params: 

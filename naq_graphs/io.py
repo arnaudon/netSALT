@@ -1,6 +1,18 @@
 """input/output functions"""
+import pickle
+
 import networkx as nx
 import numpy as np
+
+
+def save_modes(modes, filename='passive_modes.pkl'):
+    """save modes in a pickle"""
+    pickle.dump(modes, open(filename, 'wb'))
+
+
+def load_modes(filename='passive_modes.pkl'):
+    """return modes in a pickle"""
+    return pickle.load(open(filename, 'rb'))
 
 
 def create_naq_graph(graph, params, positions=None, lengths=None):

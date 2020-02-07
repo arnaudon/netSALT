@@ -2,18 +2,18 @@
 import numpy as np
 import scipy as sc
 
-def construct_laplacian(freq, graph, dispersion_relation):
+def construct_laplacian(freq, graph):
     """construct naq laplacian from a graph"""
-    set_wavenumber(graph, freq, dispersion_relation)
+    set_wavenumber(graph, freq)
     BT, Bout = construct_incidence_matrix(graph)
     Winv = construct_weight_matrix(graph)
     return BT.dot(Winv).dot(Bout)
 
 
-def set_wavenumber(graph, freq, dispersion_relation):
+def set_wavenumber(graph, freq):
     """set edge wavenumbers from frequency and dispersion relation"""
     for ei, e in enumerate(list(graph.edges())):
-        graph[e[0]][e[1]]["k"] = dispersion_relation(freq, ei)
+        graph[e[0]][e[1]]["k"] = graph.graph['dispersion_relation'](freq, ei)
 
 
 def construct_incidence_matrix(graph):

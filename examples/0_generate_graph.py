@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 
 from graph_generator import generate_graph
 from naq_graphs import io, utils, plotting, dispersion_relations
+from naq_graphs.dispersion_relations import set_dialectric_constant
 
 if len(sys.argv)>1:
     graph_tpe = sys.argv[-1]
@@ -24,7 +25,7 @@ os.chdir(graph_tpe)
 
 io.create_naq_graph(graph, params, positions=positions)
 
-dispersion_relations.set_dialectric_constant(graph, params)
+set_dialectric_constant(graph, params)
 
 plotting.plot_naq_graph(graph, edge_colors=params['dialectric_constant'])
 
