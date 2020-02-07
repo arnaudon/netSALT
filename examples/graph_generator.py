@@ -2,7 +2,6 @@ import networkx as nx
 import numpy as np
 
 def generate_graph(tpe='SM', params= {}):
-    print(tpe)
 
     pos = [] 
     np.random.seed(params['seed'])

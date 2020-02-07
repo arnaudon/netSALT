@@ -29,8 +29,7 @@ io.create_naq_graph(graph, params, positions=positions)
 dispersion_relations.set_dialectric_constant(graph, params)
 
 freq = 1.
-dispersion_params = {'c': len(graph.edges) * [1.]}
-dispersion_relation = partial(dispersion_relations.dispersion_relation_linear, params=dispersion_params)
+dispersion_relation = partial(dispersion_relations.dispersion_relation_dielectric, params=params)
 laplacian = construct_laplacian(freq, graph, dispersion_relation)
 ks, alphas, qualities = scan_frequencies(graph, dispersion_relation, params, n_workers=4)
 
@@ -40,7 +39,7 @@ pickle.dump([ks, alphas, qualities], open('scan.pkl', 'wb')) #save it for later
 plotting.plot_scan(ks, alphas, qualities, np.array([[0,0],]))
 
 #plot the gain bandwidth
-plt.twinx()
+#plt.twinx()
 
 #naq_u1.pump_params = params['pump_params']
 #plt.plot(Ks,naq_u1.lorentzian(Ks))
