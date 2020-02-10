@@ -9,7 +9,7 @@ from .modes import (
     clean_duplicate_modes,
     mode_quality,
     refine_mode_brownian_ratchet,
-    construct_laplacian
+    construct_laplacian,
 )
 from .utils import _to_complex
 
@@ -22,9 +22,7 @@ class WorkerModes:
         self.params = params
 
     def __call__(self, mode):
-        return refine_mode_brownian_ratchet(
-            mode, self.graph, self.params
-        )
+        return refine_mode_brownian_ratchet(mode, self.graph, self.params)
 
 
 class WorkerScan:
@@ -60,7 +58,7 @@ def scan_frequencies(graph, params, n_workers=1):
 def find_modes(ks, alphas, qualities, graph, params, n_workers=1):
     """find the modes from a scan"""
     rough_modes = find_rough_modes_from_scan(
-        ks, alphas, qualities, min_distance=2, threshold_abs=1.
+        ks, alphas, qualities, min_distance=2, threshold_abs=1.0
     )
 
     worker_modes = WorkerModes(graph, params)
@@ -68,19 +66,27 @@ def find_modes(ks, alphas, qualities, graph, params, n_workers=1):
     refined_modes = pool.map(worker_modes, rough_modes)
     pool.close()
 
-    modes = clean_duplicate_modes(refined_modes, ks[1] - ks[0], alphas[1] - alphas[0])
+    if len(refined_modes) == 0:
+        raise Exception("No modes found!")
+
+    modes = clean_duplicate_modes(
+        refined_modes, ks[1] - ks[0], alphas[1] - alphas[0]
+    )
     return modes[np.argsort(modes[:, 1])]
 
 
 def mode_on_nodes(mode, graph, eigenvalue_max=1e-2):
-    """compute the mode solution on the nodes of the graph""" 
+    """compute the mode solution on the nodes of the graph"""
     laplacian = construct_laplacian(_to_complex(mode), graph)
 
     min_eigenvalue, node_solution = sc.sparse.linalg.eigs(laplacian, k=1, sigma=0)
 
     if abs(min_eigenvalue) > eigenvalue_max:
-        raise Exception('Laplacian not singular: ' + str(min_eigenvalue))
+        raise Exception(
+            "Not a mode, as quality is too high: "
+            + str(np.round(abs(min_eigenvalue[0]), 5))
+            + " > "
+            + str(eigenvalue_max)
+        )
 
     return node_solution[:, 0]
-
-

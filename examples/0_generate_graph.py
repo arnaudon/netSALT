@@ -3,12 +3,14 @@ import sys as sys
 
 import numpy as np
 import yaml as yaml
+
 import pickle as pickle
 import matplotlib.pyplot as plt
 
 from graph_generator import generate_graph
 from naq_graphs import io, utils, plotting, dispersion_relations
 from naq_graphs.dispersion_relations import set_dialectric_constant
+from naq_graphs.graph_construction import create_naq_graph
 
 if len(sys.argv)>1:
     graph_tpe = sys.argv[-1]
@@ -23,10 +25,11 @@ if not os.path.isdir(graph_tpe):
     os.mkdir(graph_tpe)
 os.chdir(graph_tpe)
 
-io.create_naq_graph(graph, params, positions=positions)
+create_naq_graph(graph, params, positions=positions)
 
 set_dialectric_constant(graph, params)
 
 plotting.plot_naq_graph(graph, edge_colors=params['dialectric_constant'])
 
 plt.savefig('original_graph.svg')
+plt.show()

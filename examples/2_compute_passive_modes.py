@@ -11,6 +11,7 @@ from graph_generator import generate_graph
 from naq_graphs import io, utils, plotting, dispersion_relations
 from naq_graphs.main import *
 from naq_graphs.dispersion_relations import set_dialectric_constant, set_dispersion_relation, dispersion_relation_dielectric
+from naq_graphs.graph_construction import create_naq_graph
 
 if len(sys.argv)>1:
     graph_tpe = sys.argv[-1]
@@ -23,14 +24,14 @@ graph, positions  = generate_graph(tpe=graph_tpe, params = params)
 
 os.chdir(graph_tpe)
 
-io.create_naq_graph(graph, params, positions=positions)
+create_naq_graph(graph, params, positions=positions)
 
 set_dialectric_constant(graph, params)
 set_dispersion_relation(graph, dispersion_relation_dielectric, params)
 
 ks, alphas, qualities = pickle.load(open('scan.pkl', 'rb')) #save it for later
 
-modes = find_modes(ks, alphas, qualities, graph, params)
+modes = find_modes(ks, alphas, qualities, graph, params, n_workers=4)
 print('Found', len(modes), 'mode(s)')
 
 io.save_modes(modes)

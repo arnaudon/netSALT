@@ -2,15 +2,56 @@
 ## random graphs ##
 ###################
 
+SM_small:
+        #network params
+        n: 10 #11
+        k: 2
+        p: 0.2
+        lead_prob: 0.3
+        seed: 2
+        dialectric_params: 
+            method: 'uniform'
+            inner_value: 1.
+            outer_value: 1.
+        open_model: 'open_ends'
+        plot_edgesize: 0.01
+        
+        #mode search params
+        k_min: 12 
+        k_max: 19 
+        k_n: 50
+        alpha_min: 0.0
+        alpha_max: 1.00 
+        alpha_n: 50
+        
+        # params for mode search
+        quality_threshold: 0.001
+        search_stepsize: 0.1 
+        max_steps: 1000 
+        max_tries_reduction: 20 
+        reduction_factor: 1.00 
+
+        #WIP params
+        pump_edges: 'all' #[8, 9]        
+        D0_max: 1.2 
+        D0_steps: 61
+        open_nodes: []
+        pump_params:
+                k_a: 15 #0.1
+                gamma_perp: 3.0 #0.04
+                D0: 0 #May be old variable
+
 line_PRA:
         #network params
-        n: 200 #11
+        n: 10 #11
         lead_prob: -0.2
         seed: 2
         dialectric_params: 
             method: 'uniform'
             inner_value: 1.5
             outer_value: 1.
+        open_model: 'open_ends'
+        plot_edgesize: 0.01
 
         #mode search params
         k_min: 12 
@@ -31,9 +72,9 @@ line_PRA:
         pump_edges: 'all' #[8, 9]        
         D0_max: 1.2 
         D0_steps: 61
-        open_model: 'open_ends'
         open_nodes: []
         pump_params:
                 k_a: 15 #0.1
                 gamma_perp: 3.0 #0.04
                 D0: 0 #May be old variable
+
