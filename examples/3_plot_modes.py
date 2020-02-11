@@ -39,11 +39,12 @@ if not os.path.isdir('modes'):
 
 for i, mode in enumerate(modes): 
     node_solution = mode_on_nodes(mode, graph) 
+    edge_solution = mean_mode_on_edges(mode, graph) 
 
     plt.figure(figsize=(6,4))
-    nodes = nx.draw_networkx_nodes(graph, pos=positions, node_color = abs(node_solution)**2, node_size=20, cmap=plt.get_cmap('Blues'))
+    nodes = nx.draw_networkx_nodes(graph, pos=positions, node_color = abs(node_solution)**2, node_size=5, cmap=plt.get_cmap('Blues'))
     plt.colorbar(nodes, label=r'$|E|^2$ (a.u)')
-    edges_k = nx.draw_networkx_edges(graph, pos=positions, edge_color = '0.5', width=2)
+    edges_k = nx.draw_networkx_edges(graph, pos=positions, edge_color = edge_solution, width=5, edge_cmap=plt.get_cmap('Blues'))
      
     plt.savefig('modes/mode_' + str(i) + '.png')
     plt.close()

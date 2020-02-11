@@ -12,6 +12,7 @@ from .modes import (
     construct_laplacian,
 )
 from .utils import _to_complex
+from .graph_construction import construct_incidence_matrix, construct_weight_matrix
 
 
 class WorkerModes:
@@ -69,9 +70,7 @@ def find_modes(ks, alphas, qualities, graph, params, n_workers=1):
     if len(refined_modes) == 0:
         raise Exception("No modes found!")
 
-    modes = clean_duplicate_modes(
-        refined_modes, ks[1] - ks[0], alphas[1] - alphas[0]
-    )
+    modes = clean_duplicate_modes(refined_modes, ks[1] - ks[0], alphas[1] - alphas[0])
     return modes[np.argsort(modes[:, 1])]
 
 
@@ -90,3 +89,45 @@ def mode_on_nodes(mode, graph, eigenvalue_max=1e-2):
         )
 
     return node_solution[:, 0]
+
+
+def flux_on_edges(mode, graph, eigenvalue_max=1e-2):
+    """compute the flux on each edge (in both directions)"""
+
+    node_solution = mode_on_nodes(mode, graph, eigenvalue_max=eigenvalue_max)
+
+    BT, _ = construct_incidence_matrix(graph)
+    Winv = construct_weight_matrix(graph, with_k=False)
+
+    return Winv.dot(BT.T).dot(node_solution)
+
+
+def mean_mode_on_edges(mode, graph, eigenvalue_max=1e-2):
+    """Compute the average |E|^2 on each edge"""
+    edge_flux = flux_on_edges(mode, graph, eigenvalue_max=eigenvalue_max)
+
+    mean_edge_solution = np.zeros(len(graph.edges))
+    for ei, e in enumerate(list(graph.edges)):
+        (u, v) = e[:2]
+
+        z = np.zeros([2, 2], dtype=np.complex)
+
+        l = graph[u][v]["length"]
+        k = graph[u][v]["k"]
+        z[0, 0] = (np.exp(1.0j * l * (k - np.conj(k))) - 1.0) / (
+            1.0j * l * (k - np.conj(k))
+        )
+        z[0, 1] = (np.exp(1.0j * l * k) - np.exp(-1.0j * l * np.conj(k))) / (
+            1.0j * l * (k + np.conj(k))
+        )
+
+        z[1, 0] = z[0, 1]
+        z[1, 1] = z[0, 0]
+
+        mean_edge_solution[ei] = np.real(
+            np.conj(edge_flux[2 * ei : 2 * ei + 2]).T.dot(
+                z.dot(edge_flux[2 * ei : 2 * ei + 2])
+            )
+        )
+
+    return mean_edge_solution

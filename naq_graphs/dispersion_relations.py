@@ -1,6 +1,7 @@
 """collect the dispersion relations"""
-import numpy as np
 from functools import partial
+
+import numpy as np
 
 
 def dispersion_relation_linear(freq, edge_index, params=None):

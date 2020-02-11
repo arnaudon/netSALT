@@ -43,7 +43,7 @@ SM_small:
 
 line_PRA:
         #network params
-        n: 10 #11
+        n: 10
         lead_prob: -0.2
         seed: 2
         dialectric_params: 

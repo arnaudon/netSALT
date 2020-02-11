@@ -98,17 +98,20 @@ def construct_incidence_matrix(graph):
     return B.T.asformat("csc"), Bout.asformat("csc")
 
 
-def construct_weight_matrix(graph):
-    """Construct the matrix W^{-1}"""
+def construct_weight_matrix(graph, with_k=True):
+    """Construct the matrix W^{-1}
+    with_k: multiplies or not by k (needed for graph laplcian, not for edge flux)"""
     row = []
     data = []
     for ei, e in enumerate(list(graph.edges())):
         (u, v) = e[:2]
 
         if abs(graph[u][v]["k"]) > 0.0:
-            w = graph[u][v]["k"] / (
+            w = 1 / (
                 np.exp(2.0j * graph[u][v]["length"] * graph[u][v]["k"]) - 1.0
             )
+            if with_k:
+                w *= graph[u][v]["k"]
         else:
             w = -0.5 * graph[u][v]["length"]
 
