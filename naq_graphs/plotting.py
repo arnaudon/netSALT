@@ -91,3 +91,28 @@ def plot_naq_graph(graph, edge_colors=None, node_colors=None):
         graph, nodelist=out_nodes, pos=positions, node_color="r", node_size=10
     )
     plt.gca().tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+
+
+def plot_pump_traj(modes, new_modes, new_modes_approx=None):
+    """plot pump trajectories"""
+
+    plt.scatter(modes[:, 0], modes[:, 1], s=20, c="r")
+    for i in range(len(modes)):
+        plt.scatter(new_modes[:, i, 0], new_modes[:, i, 1], marker="o", s=10, c="b")
+        plt.plot(new_modes[:, i, 0], new_modes[:, i, 1], c="b")
+    if new_modes_approx is not None:
+        for i in range(len(modes)):
+            for j in range(len(new_modes_approx[:, i, 0])):
+                plt.plot(
+                    [new_modes[j, i, 0], new_modes_approx[j, i, 0]],
+                    [new_modes[j, i, 1], new_modes_approx[j, i, 1]],
+                    c="k",
+                    lw=0.5,
+                )
+            plt.scatter(
+                new_modes_approx[:, i, 0],
+                new_modes_approx[:, i, 1],
+                marker="+",
+                s=10,
+                c="k",
+            )

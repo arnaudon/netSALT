@@ -4,6 +4,18 @@ import scipy as sc
 import networkx as nx
 
 
+def create_naq_graph(graph, params, positions=None, lengths=None):
+    """append a networkx graph with necessary attributes for being a NAQ graph"""
+    set_node_positions(graph, positions)
+
+    if lengths is None:
+        set_edge_lengths(graph)
+    else:
+        set_edge_lengths(graph, lengths=lengths)
+
+    set_inner_edges(graph, params)
+
+
 def oversample_graph(graph, edgesize=1.0e-2):
     """oversample a graph by adding points on edges"""
     oversampled_graph = graph.copy()
@@ -16,10 +28,14 @@ def oversample_graph(graph, edgesize=1.0e-2):
                 oversampled_graph.remove_edge(u, v)
 
                 for node_index in range(n_nodes - 1):
-                    node_position_x = graph.nodes[u]["position"][0] + (node_index + 1) / n_nodes * (
-                        graph.nodes[v]["position"][0] -  graph.nodes[u]["position"][0]
+                    node_position_x = graph.nodes[u]["position"][0] + (
+                        node_index + 1
+                    ) / n_nodes * (
+                        graph.nodes[v]["position"][0] - graph.nodes[u]["position"][0]
                     )
-                    node_position_y = graph.nodes[u]["position"][1] + (node_index + 1) / n_nodes * (
+                    node_position_y = graph.nodes[u]["position"][1] + (
+                        node_index + 1
+                    ) / n_nodes * (
                         graph.nodes[v]["position"][1] - graph.nodes[u]["position"][1]
                     )
                     node_position = np.array([node_position_x, node_position_y])
@@ -107,9 +123,7 @@ def construct_weight_matrix(graph, with_k=True):
         (u, v) = e[:2]
 
         if abs(graph[u][v]["k"]) > 0.0:
-            w = 1 / (
-                np.exp(2.0j * graph[u][v]["length"] * graph[u][v]["k"]) - 1.0
-            )
+            w = 1 / (np.exp(2.0j * graph[u][v]["length"] * graph[u][v]["k"]) - 1.0)
             if with_k:
                 w *= graph[u][v]["k"]
         else:
@@ -126,29 +140,21 @@ def construct_weight_matrix(graph, with_k=True):
     )
 
 
-def create_naq_graph(graph, params, positions=None, lengths=None):
-    """append a networkx graph with necessary attributes for being a NAQ graph"""
-    set_node_positions(graph, positions)
-
-    if lengths is None:
-        set_edge_lengths(graph)
-    else:
-        set_edge_lengths(graph, lengths=lengths)
-
-    set_inner_edges(graph, params)
-
-
 def set_inner_edges(graph, params, outer_edges=None):
     """set the inner edges to True, according to a model"""
+    params["inner"] = []
     for u, v in graph.edges():
         if params["open_model"] == "open_ends" and (
             len(graph[u]) == 1 or len(graph[v]) == 1
         ):
             graph[u][v]["inner"] = False
+            params["inner"].append(False)
         elif params["open_model"] == "custom" and (u, v) in outer_edges:
             graph[u][v]["inner"] = False
+            params["inner"].append(False)
         else:
             graph[u][v]["inner"] = True
+            params["inner"].append(True)
 
 
 def set_node_positions(graph, positions=None):

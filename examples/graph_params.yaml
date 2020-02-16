@@ -9,7 +9,7 @@ SM_small:
         p: 0.2
         lead_prob: 0.3
         seed: 2
-        dialectric_params: 
+        dielectric_params: 
             method: 'uniform'
             inner_value: 1.
             outer_value: 1.
@@ -46,7 +46,7 @@ line_PRA:
         n: 10
         lead_prob: -0.2
         seed: 2
-        dialectric_params: 
+        dielectric_params: 
             method: 'uniform'
             inner_value: 1.5
             outer_value: 1.
@@ -68,13 +68,13 @@ line_PRA:
         max_tries_reduction: 20 
         reduction_factor: 1.00 
 
+        #pumping parameters
+        D0_max: 1.0 
+        D0_steps: 10
+        k_a: 15 #0.1
+        gamma_perp: 3.0 #0.04
+
         #WIP params
         pump_edges: 'all' #[8, 9]        
-        D0_max: 1.2 
-        D0_steps: 61
         open_nodes: []
-        pump_params:
-                k_a: 15 #0.1
-                gamma_perp: 3.0 #0.04
-                D0: 0 #May be old variable
-
+        
