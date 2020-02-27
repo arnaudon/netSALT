@@ -1,6 +1,7 @@
 import os
 import sys
 
+import numpy as np
 import yaml
 import matplotlib.pyplot as plt
 import networkx as nx
@@ -8,9 +9,14 @@ import networkx as nx
 from graph_generator import generate_graph
 
 from naq_graphs import set_dielectric_constant, set_dispersion_relation
-from naq_graphs.dispersion_relations import dispersion_relation_dielectric
-from naq_graphs import create_naq_graph, oversample_graph, load_modes
+from naq_graphs.dispersion_relations import dispersion_relation_pump
+from naq_graphs import (
+    create_naq_graph,
+    load_modes,
+    oversample_graph,
+)
 from naq_graphs import mode_on_nodes, mean_mode_on_edges
+
 
 if len(sys.argv) > 1:
     graph_tpe = sys.argv[-1]
@@ -29,14 +35,17 @@ graph = oversample_graph(graph, edgesize=params["plot_edgesize"])
 positions = [graph.nodes[u]["position"] for u in graph]
 
 set_dielectric_constant(graph, params)
-set_dispersion_relation(graph, dispersion_relation_dielectric, params)
+set_dispersion_relation(graph, dispersion_relation_pump, params)
+params["pump"] = np.ones(len(graph.edges()))
 
-modes = load_modes()
+modes, lasing_thresholds = load_modes(filename='threshold_modes')
 
-if not os.path.isdir("modes"):
-    os.mkdir("modes")
+if not os.path.isdir("theshold_modes"):
+    os.mkdir("theshold_modes")
 
 for i, mode in enumerate(modes):
+    params['D0'] = lasing_thresholds[i]
+
     node_solution = mode_on_nodes(mode, graph)
     edge_solution = mean_mode_on_edges(mode, graph)
 
@@ -57,5 +66,5 @@ for i, mode in enumerate(modes):
         edge_cmap=plt.get_cmap("Blues"),
     )
 
-    plt.savefig("modes/mode_" + str(i) + ".png")
+    plt.savefig("theshold_modes/mode_" + str(i) + ".png")
     plt.close()

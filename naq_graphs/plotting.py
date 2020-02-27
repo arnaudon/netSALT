@@ -15,7 +15,8 @@ def plot_scan(ks, alphas, qualities, modes=None):
         extent=(ks[0], ks[-1], alphas[0], alphas[-1]),
         aspect="auto",
         origin="lower",
-    )  # , vmax = 0, vmin = -4)
+        cmap=plt.get_cmap('Blues')
+    )
 
     cbar = plt.colorbar()
     cbar.set_label("smallest singular value")

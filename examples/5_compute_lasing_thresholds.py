@@ -1,11 +1,10 @@
-import os as os
-import sys as sys
+import os
+import sys
 
-import numpy as np
-import yaml as yaml
 import pickle as pickle
+import numpy as np
+import yaml
 import matplotlib.pyplot as plt
-import networkx as nx
 
 from graph_generator import generate_graph
 
@@ -16,6 +15,7 @@ from naq_graphs import (
     find_threshold_lasing_modes,
     pump_trajectories,
     load_modes,
+    save_modes,
 )
 from naq_graphs.plotting import plot_pump_traj, plot_scan
 
@@ -55,6 +55,8 @@ threshold_lasing_modes, lasing_thresholds = find_threshold_lasing_modes(
     n_workers=4,
     threshold=1e-5,
 )
+
+save_modes(threshold_lasing_modes, lasing_thresholds, filename='threshold_modes')
 
 ks, alphas, qualities = pickle.load(open("scan.pkl", "rb"))
 plot_scan(ks, alphas, qualities, modes)

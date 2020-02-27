@@ -1,11 +1,9 @@
-import os as os
-import sys as sys
+import os
+import sys
 
-import numpy as np
-import yaml as yaml
 import pickle as pickle
+import yaml
 import matplotlib.pyplot as plt
-from functools import partial
 
 from graph_generator import generate_graph
 
