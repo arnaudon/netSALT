@@ -184,6 +184,24 @@ def compute_overlapping_factor(mode, graph, params):  # pylint: disable=too-many
     return pump_norm / in_norm
 
 
+def lasing_threshold_linear(mode, graph, params, D0):
+    """find the linear approximation of the new wavenumber,
+    for an original pump mode with D0_0, to a new pump D0_1"""
+    params["D0"] = D0
+    overlapping_factor = -compute_overlapping_factor(mode, graph, params)
+    return 1.0 / (
+        q_value(mode)
+        * np.imag(_gamma(_to_complex(mode), params))
+        * np.real(overlapping_factor)
+    )
+
+
+def q_value(mode):
+    """compute the q_value of a mode"""
+    mode = _from_complex(mode)
+    return 0.5 * mode[0] / mode[1]
+
+
 def pump_linear(mode, graph, params, D0_0, D0_1):
     """find the linear approximation of the new wavenumber,
     for an original pump mode with D0_0, to a new pump D0_1"""

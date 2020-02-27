@@ -13,7 +13,9 @@ def _from_complex(freq):
     """convert mode array to complex number"""
     if isinstance(freq, list):
         return freq
-    return np.real(freq), -np.imag(freq)
+    if isinstance(freq, np.ndarray):
+        return freq
+    return [np.real(freq), -np.imag(freq)]
 
 
 def get_total_length(graph):

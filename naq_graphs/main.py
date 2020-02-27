@@ -11,6 +11,7 @@ from .modes import (
     mode_quality,
     refine_mode_brownian_ratchet,
     pump_linear,
+    lasing_threshold_linear,
 )
 from .utils import _to_complex
 
@@ -18,12 +19,18 @@ from .utils import _to_complex
 class WorkerModes:
     """worker to refine modes"""
 
-    def __init__(self, graph, params):
+    def __init__(self, modes, graph, params, D0s=None):
         self.graph = graph
         self.params = params
+        self.modes = modes
+        self.D0s = D0s  # to allow for different D0s for each mode
 
-    def __call__(self, mode):
-        return refine_mode_brownian_ratchet(mode, self.graph, self.params)
+    def __call__(self, mode_id):
+        if self.D0s is not None:
+            self.params["D0"] = self.D0s[mode_id]
+        return refine_mode_brownian_ratchet(
+            self.modes[mode_id], self.graph, self.params
+        )
 
 
 class WorkerScan:
@@ -62,9 +69,9 @@ def find_modes(ks, alphas, qualities, graph, params, n_workers=1):
         ks, alphas, qualities, min_distance=2, threshold_abs=1.0
     )
 
-    worker_modes = WorkerModes(graph, params)
+    worker_modes = WorkerModes(rough_modes, graph, params)
     pool = multiprocessing.Pool(n_workers)
-    refined_modes = pool.map(worker_modes, rough_modes)
+    refined_modes = pool.map(worker_modes, range(len(rough_modes)))
     pool.close()
 
     if len(refined_modes) == 0:
@@ -97,8 +104,8 @@ def pump_trajectories(
             new_modes_approx_all.append(new_modes_approx)
 
         params["D0"] = D0s[d + 1]
-        worker_modes = WorkerModes(graph, params)
-        new_modes_tmp = np.array(pool.map(worker_modes, new_modes_approx))
+        worker_modes = WorkerModes(new_modes_approx, graph, params)
+        new_modes_tmp = np.array(pool.map(worker_modes, range(len(new_modes_approx))))
 
         for i, mode in enumerate(new_modes_tmp):
             if mode is None:
@@ -113,3 +120,67 @@ def pump_trajectories(
     if return_approx:
         return np.array(new_modes), np.array(new_modes_approx_all)
     return np.array(new_modes)
+
+
+def find_threshold_lasing_modes(  # pylint: disable=too-many-locals
+    modes, graph, params, D0_max, D0_steps, threshold=1e-2, n_workers=1
+):
+    """find the threshold lasing modes and associated lasing thresholds"""
+    pool = multiprocessing.Pool(n_workers)
+    stepsize = params["search_stepsize"]
+
+    new_modes = modes.copy()
+    threshold_lasing_modes = []
+
+    lasing_thresholds = []
+    new_D0s = np.zeros(len(modes))
+    D0s = np.zeros(len(modes))
+
+    while len(new_modes) > 0:
+
+        print(len(new_modes), "modes left to find")
+
+        new_modes_approx = []
+        for i, new_mode in enumerate(new_modes):
+            new_D0s[i] = D0s[i] + lasing_threshold_linear(
+                new_mode, graph, params, D0s[i]
+            )
+
+            new_D0s[i] = min(D0_steps + D0s[i], new_D0s[i])
+
+            new_modes_approx.append(
+                pump_linear(new_mode, graph, params, D0s[i], new_D0s[i])
+            )
+
+        # this is a trick to reduce the stepsizes as we are near the solution
+        params["search_stepsize"] = (
+            stepsize * np.mean(abs(new_D0s - D0s)) / np.mean(new_D0s)
+        )
+
+        worker_modes = WorkerModes(new_modes_approx, graph, params, D0s=new_D0s)
+        new_modes_tmp = np.array(pool.map(worker_modes, range(len(new_modes_approx))))
+
+        selected_modes = []
+        selected_D0s = []
+        for i, mode in enumerate(new_modes_tmp):
+            if mode is None:
+                print(
+                    "A mode could not be updated, consider changing the search parameters"
+                )
+                selected_modes.append(new_modes[i])
+                selected_D0s.append(D0s[i])
+
+            elif abs(mode[1]) < threshold:
+                threshold_lasing_modes.append(mode)
+                lasing_thresholds.append(new_D0s[i])
+
+            elif new_D0s[i] < D0_max:
+                selected_modes.append(mode)
+                selected_D0s.append(new_D0s[i])
+
+        new_modes = selected_modes.copy()
+        D0s = selected_D0s.copy()
+
+    pool.close()
+
+    return threshold_lasing_modes, lasing_thresholds
