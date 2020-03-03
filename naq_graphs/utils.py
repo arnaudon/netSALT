@@ -43,7 +43,7 @@ def set_total_length(graph, total_length, inner=True, with_position=True):
     else:
         original_total_lenght = get_total_length(graph)
 
-    length_ratio = inner_total_length / original_total_lenght
+    length_ratio = total_length / original_total_lenght
     for u, v in graph.edges:
         graph[u][v]["length"] *= length_ratio
     if with_position:
