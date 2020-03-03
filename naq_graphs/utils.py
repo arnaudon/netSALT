@@ -20,13 +20,13 @@ def _from_complex(freq):
 
 def get_total_length(graph):
     """get the total lenght of the graph"""
-    return sum([graph[u][v]["lenght"] for u, v in graph.edges()])
+    return sum([graph[u][v]["length"] for u, v in graph.edges()])
 
 
 def get_total_inner_length(graph):
     """get the total lenght of the graph"""
     return sum(
-        [graph[u][v]["lenght"] for u, v in graph.edges() if graph[u][v]["inner"]]
+        [graph[u][v]["length"] for u, v in graph.edges() if graph[u][v]["inner"]]
     )
 
 
@@ -34,3 +34,14 @@ def order_edges_by(graph, order_by_values):
     """order edges by using values in a list"""
     edges = [e for e in graph.edges]  # pylint: disable=unnecessary-comprehension
     return [edges[i] for i in np.argsort(order_by_values)]
+
+
+def set_inner_total_length(graph, inner_total_length, with_position=True):
+    """set the inner total lenghts of the graph to a given value"""
+    original_inner_total_lenght = get_total_length(graph)
+    length_ratio = inner_total_length / original_inner_total_lenght
+    for u, v in graph.edges:
+        graph[u][v]["length"] *= length_ratio
+    if with_position:
+        for u in graph:
+            graph.nodes[u]["position"] *= length_ratio

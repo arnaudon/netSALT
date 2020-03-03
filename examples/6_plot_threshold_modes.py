@@ -16,6 +16,7 @@ from naq_graphs import (
     oversample_graph,
 )
 from naq_graphs import mode_on_nodes, mean_mode_on_edges
+from naq_graphs.io import load_graph
 
 
 if len(sys.argv) > 1:
@@ -23,13 +24,9 @@ if len(sys.argv) > 1:
 else:
     print("give me a type of graph please!")
 
-params = yaml.full_load(open("graph_params.yaml", "rb"))[graph_tpe]
-
-graph, positions = generate_graph(tpe=graph_tpe, params=params)
-
 os.chdir(graph_tpe)
 
-create_naq_graph(graph, params, positions=positions)
+graph, params = load_graph()
 
 graph = oversample_graph(graph, edgesize=params["plot_edgesize"])
 positions = [graph.nodes[u]["position"] for u in graph]
@@ -38,13 +35,13 @@ set_dielectric_constant(graph, params)
 set_dispersion_relation(graph, dispersion_relation_pump, params)
 params["pump"] = np.ones(len(graph.edges()))
 
-modes, lasing_thresholds = load_modes(filename='threshold_modes')
+modes, lasing_thresholds = load_modes(filename="threshold_modes")
 
 if not os.path.isdir("theshold_modes"):
     os.mkdir("theshold_modes")
 
 for i, mode in enumerate(modes):
-    params['D0'] = lasing_thresholds[i]
+    params["D0"] = lasing_thresholds[i]
 
     node_solution = mode_on_nodes(mode, graph)
     edge_solution = mean_mode_on_edges(mode, graph)

@@ -18,24 +18,17 @@ from naq_graphs import (
     save_modes,
 )
 from naq_graphs.plotting import plot_pump_traj, plot_scan
+from naq_graphs.io import load_graph
 
 if len(sys.argv) > 1:
     graph_tpe = sys.argv[-1]
 else:
     print("give me a type of graph please!")
 
-params = yaml.full_load(open("graph_params.yaml", "rb"))[graph_tpe]
-
-graph, positions = generate_graph(tpe=graph_tpe, params=params)
-
 os.chdir(graph_tpe)
 
-create_naq_graph(graph, params, positions=positions)
-
+graph, params = load_graph()
 positions = [graph.nodes[u]["position"] for u in graph]
-
-set_dielectric_constant(graph, params)
-set_dispersion_relation(graph, dispersion_relation_pump, params)
 
 modes = load_modes()
 params["pump"] = np.ones(len(graph.edges()))
@@ -56,7 +49,7 @@ threshold_lasing_modes, lasing_thresholds = find_threshold_lasing_modes(
     threshold=1e-5,
 )
 
-save_modes(threshold_lasing_modes, lasing_thresholds, filename='threshold_modes')
+save_modes(threshold_lasing_modes, lasing_thresholds, filename="threshold_modes")
 
 ks, alphas, qualities = pickle.load(open("scan.pkl", "rb"))
 plot_scan(ks, alphas, qualities, modes)

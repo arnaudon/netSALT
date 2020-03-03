@@ -15,7 +15,7 @@ def plot_scan(ks, alphas, qualities, modes=None):
         extent=(ks[0], ks[-1], alphas[0], alphas[-1]),
         aspect="auto",
         origin="lower",
-        cmap=plt.get_cmap('Blues')
+        cmap=plt.get_cmap("Blues"),
     )
 
     cbar = plt.colorbar()
