@@ -36,10 +36,14 @@ def order_edges_by(graph, order_by_values):
     return [edges[i] for i in np.argsort(order_by_values)]
 
 
-def set_inner_total_length(graph, inner_total_length, with_position=True):
+def set_total_length(graph, total_length, inner=True, with_position=True):
     """set the inner total lenghts of the graph to a given value"""
-    original_inner_total_lenght = get_total_length(graph)
-    length_ratio = inner_total_length / original_inner_total_lenght
+    if inner:
+        original_total_lenght = get_total_inner_length(graph)
+    else:
+        original_total_lenght = get_total_length(graph)
+
+    length_ratio = inner_total_length / original_total_lenght
     for u, v in graph.edges:
         graph[u][v]["length"] *= length_ratio
     if with_position:

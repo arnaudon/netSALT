@@ -17,7 +17,7 @@ from naq_graphs import (
     set_dispersion_relation,
 )
 from naq_graphs.dispersion_relations import dispersion_relation_pump
-from naq_graphs.utils import set_inner_total_length
+from naq_graphs.utils import set_total_length
 
 if len(sys.argv) > 1:
     graph_tpe = sys.argv[-1]
@@ -28,14 +28,13 @@ params = yaml.full_load(open("graph_params.yaml", "rb"))[graph_tpe]
 
 graph, positions = generate_graph(tpe=graph_tpe, params=params)
 
-
 if not os.path.isdir(graph_tpe):
     os.mkdir(graph_tpe)
 os.chdir(graph_tpe)
 
 create_naq_graph(graph, params, positions=positions)
 
-set_inner_total_length(graph, 1.0)
+set_total_length(graph, 1.0, inner=True)
 
 set_dielectric_constant(graph, params)
 set_dispersion_relation(graph, dispersion_relation_pump, params)
