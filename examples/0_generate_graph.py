@@ -39,11 +39,11 @@ set_total_length(graph, 1.0, inner=True)
 custom_index = []
 for u, v in graph.edges:
     custom_index.append(1.5)
-custom_index[0] = 1.
-custom_index[-1] = 1.
+custom_index[0] = 1.0
+custom_index[-1] = 1.0
 
-#set_dielectric_constant(graph, params) #use this for 'uniform' index
-set_dielectric_constant(graph, params, custom_values = custom_index)
+# set_dielectric_constant(graph, params) #use this for 'uniform' index
+set_dielectric_constant(graph, params, custom_values=custom_index)
 set_dispersion_relation(graph, dispersion_relation_pump, params)
 
 save_graph(graph, params)

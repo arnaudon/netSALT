@@ -22,11 +22,8 @@ os.chdir(graph_tpe)
 
 graph, params = load_graph()
 
-graph = oversample_graph(graph, edgesize=params["plot_edgesize"])
+graph = oversample_graph(graph, params)
 positions = [graph.nodes[u]["position"] for u in graph]
-
-set_dielectric_constant(graph, params)
-set_dispersion_relation(graph, dispersion_relation_dielectric, params)
 
 modes = load_modes()
 

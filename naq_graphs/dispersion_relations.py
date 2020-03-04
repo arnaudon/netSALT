@@ -49,23 +49,33 @@ def dispersion_relation_pump(freq, edge_index, params=None):
 def set_dielectric_constant(graph, params, custom_values=None):
     """set dielectric constant in the params file using various methods"""
     if params["dielectric_params"]["method"] == "uniform":
-        params["dielectric_constant"] = []
         for u, v in graph.edges:
             if graph[u][v]["inner"]:
-                params["dielectric_constant"].append(
-                    params["dielectric_params"]["inner_value"]
-                )
+                graph[u][v]["dielectric_constant"] = params["dielectric_params"][
+                    "inner_value"
+                ]
             else:
-                params["dielectric_constant"].append(
-                    params["dielectric_params"]["outer_value"]
-                )
+                graph[u][v]["dielectric_constant"] = params["dielectric_params"][
+                    "outer_value"
+                ]
 
     if params["dielectric_params"]["method"] == "random":
-        params["dielectric_constant"] = np.random.normal(
-            params["dielectric_params"]["mean"],
-            params["dielectric_params"]["std"],
-            len(graph.edges),
-        )
+        for u, v in graph.edges:
+            graph[u][v]["dielectric_constant"] = np.random.normal(
+                params["dielectric_params"]["mean"],
+                params["dielectric_params"]["std"],
+                1,
+            )
 
     if params["dielectric_params"]["method"] == "custom":
-        params["dielectric_constant"] = custom_values
+        for ei, e in enumerate(graph.edges):
+            graph[e[0]][e[1]]["dielectric_constant"] = custom_values[ei]
+
+    update_params_dielectric_constant(graph, params)
+
+
+def update_params_dielectric_constant(graph, params):
+    """update the dielectric constant values in the params dictionary"""
+    params["dielectric_constant"] = [
+        graph[u][v]["dielectric_constant"] for u, v in graph.edges
+    ]

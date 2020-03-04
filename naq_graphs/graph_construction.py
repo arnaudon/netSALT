@@ -3,6 +3,8 @@ import numpy as np
 import scipy as sc
 import networkx as nx
 
+from .dispersion_relations import update_params_dielectric_constant
+
 
 def create_naq_graph(graph, params, positions=None, lengths=None):
     """append a networkx graph with necessary attributes for being a NAQ graph"""
@@ -16,15 +18,16 @@ def create_naq_graph(graph, params, positions=None, lengths=None):
     set_inner_edges(graph, params)
 
 
-def oversample_graph(graph, edgesize=1.0e-2):
+def oversample_graph(graph, params):
     """oversample a graph by adding points on edges"""
     oversampled_graph = graph.copy()
     for u, v in graph.edges():
         last_node = len(oversampled_graph)
         if graph[u][v]["inner"]:
 
-            n_nodes = int(graph[u][v]["length"] / edgesize)
+            n_nodes = int(graph[u][v]["length"] / params["plot_edgesize"])
             if n_nodes > 1:
+                dielectric_constant = graph[u][v]["dielectric_constant"]
                 oversampled_graph.remove_edge(u, v)
 
                 for node_index in range(n_nodes - 1):
@@ -46,13 +49,21 @@ def oversample_graph(graph, edgesize=1.0e-2):
                         first, last = last_node + node_index - 1, last_node + node_index
 
                     oversampled_graph.add_node(last, position=node_position)
-                    oversampled_graph.add_edge(first, last, inner=True)
+                    oversampled_graph.add_edge(
+                        first, last, inner=True, dielectric_constant=dielectric_constant
+                    )
 
-                oversampled_graph.add_edge(last_node + node_index, v, inner=True)
+                oversampled_graph.add_edge(
+                    last_node + node_index,
+                    v,
+                    inner=True,
+                    dielectric_constant=dielectric_constant,
+                )
 
+    oversampled_graph = nx.convert_node_labels_to_integers(oversampled_graph)
     set_edge_lengths(oversampled_graph)
-
-    return nx.convert_node_labels_to_integers(oversampled_graph)
+    update_params_dielectric_constant(oversampled_graph, params)
+    return oversampled_graph
 
 
 def construct_laplacian(freq, graph):
