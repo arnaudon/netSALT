@@ -43,9 +43,7 @@ else:
 
 D0s = np.linspace(0, params["D0_max"], params["D0_steps"])
 
-modes_trajectories, modes_trajectories_approx = pump_trajectories(
-    modes, graph, params, D0s, n_workers=32, return_approx=True
-)
+modes_trajectories, modes_trajectories_approx = pickle.load(open("trajectories.pkl", "rb"))
 
 threshold_lasing_modes, lasing_thresholds = find_threshold_lasing_modes(
     modes,
