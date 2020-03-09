@@ -63,14 +63,14 @@ line_PRA:
         
         # params for mode search
         quality_threshold: 0.001
-        search_stepsize: 0.1
+        search_stepsize: 0.01
         max_steps: 1000 
         max_tries_reduction: 20 
-        reduction_factor: 1.00 
+        reduction_factor: 0.80 
 
         #pumping parameters
         D0_max: 1.2
-        D0_steps: 61
+        D0_steps: 11
         k_a: 15 #0.1
         gamma_perp: 3.0 #0.04
 
