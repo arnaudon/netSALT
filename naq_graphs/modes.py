@@ -235,15 +235,6 @@ def mode_on_nodes(mode, graph, eigenvalue_max=1e-2):
     return node_solution[:, 0]
 
 
-def threshold_mode_on_nodes(mode, graph, eigenvalue_max=1e-2):
-    """compute the threshold mode on the nodes of the graph"""
-    laplacian = construct_laplacian(_to_complex(mode), graph)
-
-    min_eigenvalue, node_solution = sc.sparse.linalg.eigs(laplacian, k=1, sigma=0)
-
-    return node_solution[:, 0]
-
-
 def flux_on_edges(mode, graph, eigenvalue_max=1e-2):
     """compute the flux on each edge (in both directions)"""
 
