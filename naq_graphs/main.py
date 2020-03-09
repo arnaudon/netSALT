@@ -133,13 +133,13 @@ def find_threshold_lasing_modes(  # pylint: disable=too-many-locals
     threshold_lasing_modes = []
 
     lasing_thresholds = []
-    new_D0s = np.zeros(len(modes))
     D0s = np.zeros(len(modes))
 
     while len(new_modes) > 0:
 
         print(len(new_modes), "modes left to find")
 
+        new_D0s = np.zeros(len(new_modes))
         new_modes_approx = []
         for i, new_mode in enumerate(new_modes):
             new_D0s[i] = D0s[i] + lasing_threshold_linear(
