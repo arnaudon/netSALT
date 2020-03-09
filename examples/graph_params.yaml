@@ -43,34 +43,34 @@ SM_small:
 
 line_PRA:
         #network params
-        n: 10
+        n: 103 #43 #103
         lead_prob: -0.2
         seed: 2
-        dielectric_params: 
-            method:  'custom' #'uniform'
-            inner_value: 1.5
+        dielectric_params: # Note: this is the dielectric constant, eps = index**2
+            method: 'custom' #'uniform'
+            inner_value: 2.25
             outer_value: 1.
         open_model: 'open_ends'
-        plot_edgesize: 0.01
+        plot_edgesize: 0.001 #0.01 :see also oversample fn
 
         #mode search params
         k_min: 12 
         k_max: 19 
         k_n: 100
         alpha_min: -0.0
-        alpha_max: 2.0 
+        alpha_max: 1.0 
         alpha_n: 100
         
         # params for mode search
         quality_threshold: 0.001
-        search_stepsize: 0.1 
+        search_stepsize: 0.1
         max_steps: 1000 
         max_tries_reduction: 20 
         reduction_factor: 1.00 
 
         #pumping parameters
-        D0_max: 1.0 
-        D0_steps: 10
+        D0_max: 1.2
+        D0_steps: 61
         k_a: 15 #0.1
         gamma_perp: 3.0 #0.04
 

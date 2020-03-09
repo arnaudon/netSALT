@@ -28,12 +28,35 @@ os.chdir(graph_tpe)
 
 graph, params = load_graph()
 
-graph = oversample_graph(graph, edgesize=params["plot_edgesize"])
+graph = oversample_graph(graph, params)
 positions = [graph.nodes[u]["position"] for u in graph]
 
-set_dielectric_constant(graph, params)
+if graph_tpe == 'line_PRA' and params["dielectric_params"]["method"] == "custom":
+    custom_index = [] #line PRA example 
+    for u, v in graph.edges:
+        custom_index.append(3.0**2)
+    custom_index[0] = 1.0**2
+    custom_index[-1] = 1.0**2
+
+    count_inedges = len(graph.edges)-2.;
+    print('Number of inner edges', count_inedges)
+    if count_inedges % 4 == 0:
+        for i in range(round(count_inedges/4)):
+            custom_index[i+1] = 1.5**2
+    else:
+        print('Change number of inner edges to be multiple of 4')
+    set_dielectric_constant(graph, params, custom_values=custom_index)
+else:
+    set_dielectric_constant(graph, params) #for "uniform" and all other graphs
+
 set_dispersion_relation(graph, dispersion_relation_pump, params)
-params["pump"] = np.ones(len(graph.edges()))
+
+#params["pump"] = np.ones(len(graph.edges())) #for uniform pump on all edges 
+#custom pump profile for PRA example:
+pump_edges = round(len(graph.edges())/2)
+nopump_edges = len(graph.edges())-pump_edges
+params["pump"] = np.append(np.ones(pump_edges),np.zeros(nopump_edges))
+params["pump"][0] = 0 #first edge is outside
 
 modes, lasing_thresholds = load_modes(filename="threshold_modes")
 

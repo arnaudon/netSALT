@@ -26,7 +26,15 @@ graph, params = load_graph()
 positions = [graph.nodes[u]["position"] for u in graph]
 
 modes = load_modes()
-params["pump"] = np.ones(len(graph.edges()))
+
+#set pump profile for PRA example
+if graph_tpe == 'line_PRA' and params["dielectric_params"]["method"] == "custom":
+    pump_edges = round(len(graph.edges())/2)
+    nopump_edges = len(graph.edges())-pump_edges
+    params["pump"] = np.append(np.ones(pump_edges),np.zeros(nopump_edges))
+    params["pump"][0] = 0 #first edge is outside
+else:
+    params["pump"] = np.ones(len(graph.edges())) #for uniform pump on all edges (inner and outer) 
 
 D0s = np.linspace(0, params["D0_max"], params["D0_steps"])
 modes_trajectories, modes_trajectories_approx = pump_trajectories(

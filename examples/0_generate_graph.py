@@ -36,14 +36,24 @@ create_naq_graph(graph, params, positions=positions)
 
 set_total_length(graph, 1.0, inner=True)
 
-custom_index = []
-for u, v in graph.edges:
-    custom_index.append(1.5)
-custom_index[0] = 1.0
-custom_index[-1] = 1.0
+if graph_tpe == 'line_PRA' and params["dielectric_params"]["method"] == "custom":
+    custom_index = [] #line PRA example 
+    for u, v in graph.edges:
+        custom_index.append(3.0**2)
+    custom_index[0] = 1.0**2
+    custom_index[-1] = 1.0**2
 
-# set_dielectric_constant(graph, params) #use this for 'uniform' index
-set_dielectric_constant(graph, params, custom_values=custom_index)
+    count_inedges = len(graph.edges)-2.;
+    print('Number of inner edges', count_inedges)
+    if count_inedges % 4 == 0:
+        for i in range(round(count_inedges/4)):
+            custom_index[i+1] = 1.5**2
+    else:
+        print('Change number of inner edges to be multiple of 4')
+    set_dielectric_constant(graph, params, custom_values=custom_index)
+else:
+    set_dielectric_constant(graph, params) #for "uniform" and all other graphs
+
 set_dispersion_relation(graph, dispersion_relation_pump, params)
 
 save_graph(graph, params)

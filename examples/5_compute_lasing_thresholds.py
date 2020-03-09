@@ -31,12 +31,20 @@ graph, params = load_graph()
 positions = [graph.nodes[u]["position"] for u in graph]
 
 modes = load_modes()
-params["pump"] = np.ones(len(graph.edges()))
+
+#set pump profile for PRA example
+if graph_tpe == 'line_PRA' and params["dielectric_params"]["method"] == "custom":
+    pump_edges = round(len(graph.edges())/2)
+    nopump_edges = len(graph.edges())-pump_edges
+    params["pump"] = np.append(np.ones(pump_edges),np.zeros(nopump_edges))
+    params["pump"][0] = 0 #first edge is outside
+else:
+    params["pump"] = np.ones(len(graph.edges())) #for uniform pump on all edges (inner and outer) 
 
 D0s = np.linspace(0, params["D0_max"], params["D0_steps"])
 
 modes_trajectories, modes_trajectories_approx = pump_trajectories(
-    modes, graph, params, D0s, n_workers=4, return_approx=True
+    modes, graph, params, D0s, n_workers=32, return_approx=True
 )
 
 threshold_lasing_modes, lasing_thresholds = find_threshold_lasing_modes(
@@ -45,7 +53,7 @@ threshold_lasing_modes, lasing_thresholds = find_threshold_lasing_modes(
     params,
     D0_max=D0s[-1],
     D0_steps=D0s[1] - D0s[0],
-    n_workers=4,
+    n_workers=32,
     threshold=1e-5,
 )
 
