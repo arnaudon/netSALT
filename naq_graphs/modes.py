@@ -147,41 +147,53 @@ def compute_z_matrix(graph):
     return Z.asformat("csc")
 
 
-def _convert_edges(vector, n_edges):
-    edge_vector = np.zeros(2 * n_edges, dtype=np.complex)
+def _convert_edges(vector):
+    edge_vector = np.zeros(2 * len(vector), dtype=np.complex)
     edge_vector[::2] = vector
     edge_vector[1::2] = vector
     return edge_vector
 
 
+def _get_dielectric_constant_matrix(params):
+    """return sparse diagonal matrix of dielectric constants"""
+    return sc.sparse.diags(_convert_edges(params["dielectric_constant"]))
+
+
+def _get_mask_matrices(params):
+    """return sparse diagonal matrices of pump and inner edge masks"""
+    in_mask = sc.sparse.diags(_convert_edges(np.array(params["inner"])))
+    pump_mask = sc.sparse.diags(_convert_edges(params["pump"])).dot(in_mask)
+    return in_mask, pump_mask
+
+
+def _graph_norm(BT, Bout, Winv, z_matrix, node_solution, mask):
+    """compute the norm of the node solution on the graph"""
+
+    weight_matrix = Winv.dot(z_matrix).dot(Winv)
+    inner_matrix = BT.dot(weight_matrix).dot(mask).dot(Bout)
+    norm = node_solution.T.dot(inner_matrix.dot(node_solution))
+    return norm
+
+
 def compute_overlapping_factor(mode, graph, params):  # pylint: disable=too-many-locals
     """compute the overlappin factor of a mode with the pump"""
-
-    dielectric_constant = sc.sparse.diags(
-        _convert_edges(params["dielectric_constant"], len(graph.edges))
-    )
-    in_mask = sc.sparse.diags(
-        _convert_edges(1 * np.array(params["inner"]), len(graph.edges))
-    )
-    pump_mask = sc.sparse.diags(_convert_edges(params["pump"], len(graph.edges))).dot(
-        in_mask
-    )
+    dielectric_constant = _get_dielectric_constant_matrix(params)
+    in_mask, pump_mask = _get_mask_matrices(params)
+    inner_dielectric_constants = dielectric_constant.dot(in_mask)
 
     node_solution = mode_on_nodes(mode, graph)
 
     z_matrix = compute_z_matrix(graph)
+
     BT, Bout = construct_incidence_matrix(graph)
     Winv = construct_weight_matrix(graph, with_k=False)
 
-    edge_norm = Winv.dot(z_matrix).dot(Winv)
-    pump_matrix = BT.dot(edge_norm).dot(pump_mask).dot(Bout)
-    pump_norm = node_solution.T.dot(pump_matrix.dot(node_solution))
+    pump_norm = _graph_norm(BT, Bout, Winv, z_matrix, node_solution, pump_mask)
+    inner_norm = _graph_norm(
+        BT, Bout, Winv, z_matrix, node_solution, inner_dielectric_constants
+    )
 
-    edge_norm_dielectric = dielectric_constant.dot(edge_norm)
-    in_matrix = BT.dot(edge_norm_dielectric).dot(in_mask).dot(Bout)
-    in_norm = node_solution.T.dot(in_matrix.dot(node_solution))
-
-    return pump_norm / in_norm
+    return pump_norm / inner_norm
 
 
 def lasing_threshold_linear(mode, graph, params, D0):
@@ -275,3 +287,211 @@ def mean_mode_on_edges(mode, graph, eigenvalue_max=1e-2):
         )
 
     return mean_edge_solution
+
+
+def compute_mode_competition_matrix(graph, params, threshold_modes, lasing_thresholds):
+    """compute the mode competition matrix, or T matrix"""
+
+    in_mask, pump_mask = _get_mask_matrices(params)
+
+    edge_fluxes = []
+    pump_norms = []
+    k_mus = []
+    deltas = []
+    lambdas = []
+    gammas = []
+    for mode, threshold in zip(threshold_modes, lasing_thresholds):
+        params["D0"] = threshold
+
+        # save flux on edges
+        edge_fluxes.append(flux_on_edges(mode, graph))
+
+        # save denominator term
+        node_solution = mode_on_nodes(mode, graph)
+        z_matrix = compute_z_matrix(graph)
+        BT, Bout = construct_incidence_matrix(graph)
+        Winv = construct_weight_matrix(graph, with_k=False)
+        pump_norms.append(
+            _graph_norm(BT, Bout, Winv, z_matrix, node_solution, pump_mask)
+        )
+
+        # save wavenumbers
+        k_mu = np.array([graph[u][v]["k"] for u, v in graph.edges])
+        k_mus.append(k_mu)
+        deltas.append(k_mu - np.conj(k_mu))
+        lambdas.append(k_mu + np.conj(k_mu))
+
+        gammas.append(_gamma(_to_complex(mode), params))
+
+    T = np.zeros([len(threshold_modes), len(threshold_modes)], dtype="complex64")
+    lengths = np.array([graph[u][v]["length"] for u, v in graph.edges])
+
+    for mu in range(len(threshold_modes)):
+        for nu in range(len(threshold_modes)):
+            for ei, e in enumerate(graph.edges):
+                if ei in params["pump"] and ei in params["inner"]:
+                    flux_mu_plus = edge_fluxes[mu][2 * ei]
+                    flux_mu_minus = edge_fluxes[mu][2 * ei + 1]
+                    flux_nu_plus = edge_fluxes[nu][2 * ei]
+                    flux_nu_minus = edge_fluxes[nu][2 * ei + 1]
+
+                    k_mu = k_mus[mu][ei]
+                    k_nu = k_mus[nu][ei]
+                    _delta = deltas[nu][ei]
+                    _lambda = lambdas[nu][ei]
+
+                    length = lengths[ei]
+
+                    exp_term_1 = (
+                        np.exp(1.0j * (2.0 * k_mu + _delta) * length) - 1.0
+                    ) / (1.0j * (2.0 * k_mu + _delta))
+
+                    T[mu, nu] += exp_term_1 * (
+                        abs(flux_nu_plus) ** 2 * flux_mu_plus ** 2
+                        + abs(flux_nu_minus) ** 2 * flux_mu_minus ** 2
+                    )
+
+                    exp_term_2 = (
+                        np.exp(2.0j * k_mu * length) - np.exp(1.0j * _delta * length)
+                    ) / (1.0j * (2 * k_mu - _delta))
+
+                    T[mu, nu] += exp_term_2 * (
+                        abs(flux_nu_plus) ** 2 * flux_mu_minus ** 2
+                        + abs(flux_nu_minus) ** 2 * flux_mu_plus ** 2
+                    )
+
+                    exp_term_3 = (
+                        np.exp(1.0j * k_mu * length)
+                        * (np.exp(1.0j * _delta * length) - 1.0)
+                        / (1.0j * _delta)
+                    )
+
+                    T[mu, nu] += (
+                        2
+                        * exp_term_3
+                        * (
+                            abs(flux_nu_plus) ** 2 * flux_mu_plus * flux_mu_minus
+                            + abs(flux_nu_minus) ** 2 * flux_mu_plus * flux_mu_minus
+                        )
+                    )
+
+                    exp_term_4 = (
+                        np.exp(1.0j * (2.0 * k_mu + k_nu) * length)
+                        - np.exp(-1.0j * np.conj(k_nu) * length)
+                    ) / (1.0j * (2 * k_nu + _lambda))
+
+                    T[mu, nu] += exp_term_4 * (
+                        flux_nu_plus * np.conj(flux_nu_minus) * flux_mu_plus ** 2
+                        + np.conj(flux_nu_plus) * flux_nu_minus * flux_mu_minus ** 2
+                    )
+
+                    exp_term_5 = (
+                        np.exp(1.0j * (2.0 * k_mu - np.conj(k_nu)) * length)
+                        - np.exp(1.0j * k_nu * length)
+                    ) / (1.0j * (2 * k_nu - _lambda))
+
+                    T[mu, nu] += exp_term_5 * (
+                        flux_nu_plus * np.conj(flux_nu_minus) * flux_mu_minus ** 2
+                        + np.conj(flux_nu_plus) * flux_nu_minus * flux_mu_plus ** 2
+                    )
+
+                    exp_term_6 = (
+                        np.exp(1.0j * k_mu * length)
+                        * (
+                            np.exp(1.0j * k_nu * length)
+                            - np.exp(-1.0j * np.conj(k_nu) * length)
+                        )
+                        / (1.0j * _lambda)
+                    )
+
+                    T[mu, nu] += (
+                        2
+                        * exp_term_6
+                        * (
+                            flux_nu_plus
+                            * np.conj(flux_nu_minus)
+                            * flux_mu_minus
+                            * flux_mu_plus
+                            + np.conj(flux_nu_plus)
+                            * flux_nu_minus
+                            * flux_mu_minus
+                            * flux_mu_plus
+                        )
+                    )
+            T[mu, nu] /= pump_norms[mu]
+            T[mu, nu] *= -np.imag(gammas[nu])
+
+    return np.real(T)
+
+
+def _find_next_lasing_mode(
+    threshold_modes, lasing_thresholds, lasing_mode_ids, mode_competition_matrix
+):
+    """find next interacting lasing mode"""
+    interacting_lasing_thresholds = np.ones(len(threshold_modes)) * 1e10
+    for mu in range(len(threshold_modes)):
+        if mu not in lasing_mode_ids:
+            sub_mode_comp_matrix_mu = mode_competition_matrix[
+                np.ix_(lasing_mode_ids + [mu,], lasing_mode_ids)
+            ]
+            sub_mode_comp_matrix_inv = np.linalg.inv(
+                mode_competition_matrix[np.ix_(lasing_mode_ids, lasing_mode_ids)]
+            )
+            sub_mode_comp_matrix_mu_inv = sub_mode_comp_matrix_mu[-1, :].dot(
+                sub_mode_comp_matrix_inv
+            )
+
+            factor = (1.0 - sub_mode_comp_matrix_mu_inv.sum()) / (
+                1.0
+                - lasing_thresholds[mu]
+                * sub_mode_comp_matrix_mu_inv.dot(
+                    1.0 / lasing_thresholds[lasing_mode_ids]
+                )
+            )
+            interacting_lasing_thresholds[mu] = lasing_thresholds[mu] * factor
+
+    next_lasing_mode_id = np.argmin(interacting_lasing_thresholds)
+    next_lasing_threshold = interacting_lasing_thresholds[next_lasing_mode_id]
+    return next_lasing_mode_id, next_lasing_threshold
+
+
+def compute_modal_intensities(
+    graph, params, threshold_modes, lasing_thresholds, pump_intensities
+):
+    """compute the modal intensities of the modes up to D0, with D0_steps"""
+
+    lasing_thresholds = np.array(lasing_thresholds)
+
+    mode_competition_matrix = compute_mode_competition_matrix(
+        graph, params, threshold_modes, lasing_thresholds
+    )
+
+    next_lasing_mode_id = np.argmin(lasing_thresholds)
+    next_lasing_threshold = lasing_thresholds[next_lasing_mode_id]
+
+    modal_intensities = np.zeros([len(threshold_modes), len(pump_intensities)])
+
+    lasing_mode_ids = []
+    for i, pump_intensity in enumerate(pump_intensities):
+
+        while pump_intensity > next_lasing_threshold:
+            lasing_mode_ids.append(next_lasing_mode_id)
+            next_lasing_mode_id, next_lasing_threshold = _find_next_lasing_mode(
+                threshold_modes,
+                lasing_thresholds,
+                lasing_mode_ids,
+                mode_competition_matrix,
+            )
+        if len(lasing_mode_ids) > 0:
+            mode_competition_matrix_inv = np.linalg.inv(
+                mode_competition_matrix[np.ix_(lasing_mode_ids, lasing_mode_ids)]
+            )
+            modal_intensities[
+                lasing_mode_ids, i
+            ] = pump_intensity * mode_competition_matrix_inv.dot(
+                1.0 / lasing_thresholds[lasing_mode_ids]
+            ) - mode_competition_matrix_inv.sum(
+                1
+            )
+
+    return modal_intensities

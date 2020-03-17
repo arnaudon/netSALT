@@ -51,7 +51,12 @@ def scan_frequencies(graph, params, n_workers=1):
 
     worker_scan = WorkerScan(graph)
     pool = multiprocessing.Pool(n_workers)
-    qualities_list = list(tqdm(pool.imap(worker_scan, freqs, chunksize=int(0.1 * len(freqs) / n_workers)), total=len(freqs)))
+    qualities_list = list(
+        tqdm(
+            pool.imap(worker_scan, freqs, chunksize=int(0.1 * len(freqs) / n_workers)),
+            total=len(freqs),
+        )
+    )
     pool.close()
 
     id_k = [k_i for k_i in range(len(ks)) for a_i in range(len(alphas))]
