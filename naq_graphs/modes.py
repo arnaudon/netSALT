@@ -289,7 +289,9 @@ def mean_mode_on_edges(mode, graph, eigenvalue_max=1e-2):
     return mean_edge_solution
 
 
-def compute_mode_competition_matrix(graph, params, threshold_modes, lasing_thresholds):
+def compute_mode_competition_matrix_old(
+    graph, params, threshold_modes, lasing_thresholds
+):
     """compute the mode competition matrix, or T matrix"""
 
     in_mask, pump_mask = _get_mask_matrices(params)
@@ -418,6 +420,134 @@ def compute_mode_competition_matrix(graph, params, threshold_modes, lasing_thres
                             * flux_mu_plus
                         )
                     )
+            T[mu, nu] /= pump_norms[mu]
+            T[mu, nu] *= -np.imag(gammas[nu])
+
+    return np.real(T)
+
+
+def compute_mode_competition_matrix(graph, params, threshold_modes, lasing_thresholds):
+    """compute the mode competition matrix, or T matrix"""
+
+    in_mask, pump_mask = _get_mask_matrices(params)
+
+    edge_fluxes = []
+    pump_norms = []
+    k_mus = []
+    deltas = []
+    lambdas = []
+    gammas = []
+    for mode, threshold in zip(threshold_modes, lasing_thresholds):
+        params["D0"] = threshold
+
+        # save flux on edges
+        edge_fluxes.append(flux_on_edges(mode, graph))
+
+        # save denominator term
+        node_solution = mode_on_nodes(mode, graph)
+        z_matrix = compute_z_matrix(graph)
+        BT, Bout = construct_incidence_matrix(graph)
+        Winv = construct_weight_matrix(graph, with_k=False)
+        pump_norms.append(
+            _graph_norm(BT, Bout, Winv, z_matrix, node_solution, pump_mask)
+        )
+
+        # save wavenumbers
+        k_mu = np.array([graph[u][v]["k"] for u, v in graph.edges])
+        k_mus.append(k_mu)
+        gammas.append(_gamma(_to_complex(mode), params))
+
+    T = np.zeros([len(threshold_modes), len(threshold_modes)], dtype="complex64")
+    lengths = np.array([graph[u][v]["length"] for u, v in graph.edges])
+
+    for mu in range(len(threshold_modes)):
+        for nu in range(len(threshold_modes)):
+            for ei, e in enumerate(graph.edges):
+                if ei in params["pump"] and ei in params["inner"]:
+                    k_mu = k_mus[mu][ei]
+                    k_nu = k_mus[nu][ei]
+                    length = lengths[ei]
+
+                    inner_matrix = np.zeros([4, 4], dtype=np.complex128)
+
+                    # A terms
+                    ik_tmp = 1.0j * (k_nu - np.conj(k_nu) + 2.0 * k_mu)
+                    inner_matrix[0, 0] = inner_matrix[3, 3] = (
+                        np.exp(ik_tmp * length) - 1.0
+                    ) / ik_tmp
+
+                    # B terms
+                    ik_tmp = 1.0j * (k_nu - np.conj(k_nu) - 2.0 * k_mu)
+                    inner_matrix[0, 3] = inner_matrix[3, 0] = (
+                        np.exp(2.0j * k_mu * length)
+                        * (np.exp(ik_tmp * length) - 1.0)
+                        / ik_tmp
+                    )
+
+                    # C terms
+                    ik_tmp = 1.0j * (k_nu + np.conj(k_nu) + 2.0 * k_mu)
+                    inner_matrix[0, 1] = inner_matrix[3, 2] = (
+                        np.exp(1.0j * (k_nu + 2.0 * k_mu) * length)
+                        - np.exp(-1.0j * np.conj(k_nu) * length)
+                    ) / ik_tmp
+
+                    # D terms
+                    ik_tmp = 1.0j * (k_nu + np.conj(k_nu) - 2.0 * k_mu)
+                    inner_matrix[0, 2] = inner_matrix[3, 1] = (
+                        np.exp(1.0j * k_nu * length)
+                        - np.exp(1.0j * (2.0 * k_mu - np.conj(k_nu)) * length)
+                    ) / ik_tmp
+
+                    # E terms
+                    ik_tmp = 1.0j * (k_nu - np.conj(k_nu))
+                    inner_matrix[1, 0] = inner_matrix[2, 0] = inner_matrix[
+                        1, 3
+                    ] = inner_matrix[2, 3] = (
+                        np.exp(1.0j * k_mu * length)
+                        * (np.exp(ik_tmp * length) - 1.0)
+                        / ik_tmp
+                    )
+
+                    # F terms
+                    ik_tmp = 1.0j * (k_nu + np.conj(k_nu))
+                    inner_matrix[1, 1] = inner_matrix[1, 2] = inner_matrix[
+                        2, 1
+                    ] = inner_matrix[2, 2] = (
+                        np.exp(1.0j * k_mu * length)
+                        * (
+                            np.exp(1.0j * k_nu * length)
+                            - np.exp(-1.0j * np.conj(k_nu) * length)
+                        )
+                        / ik_tmp
+                    )
+
+                    # left vector
+                    flux_nu_plus = edge_fluxes[nu][2 * ei]
+                    flux_nu_minus = edge_fluxes[nu][2 * ei + 1]
+                    left_vector = np.array(
+                        [
+                            abs(flux_nu_plus) ** 2,
+                            flux_nu_plus * np.conj(flux_nu_minus),
+                            np.conj(flux_nu_plus) * flux_nu_minus,
+                            abs(flux_nu_minus) ** 2,
+                        ]
+                    )
+
+                    # right vector
+                    flux_mu_plus = edge_fluxes[mu][2 * ei]
+                    flux_mu_minus = edge_fluxes[mu][2 * ei + 1]
+                    right_vector = np.array(
+                        [
+                            flux_mu_plus ** 2,
+                            flux_mu_plus * flux_mu_minus,
+                            flux_mu_plus * flux_mu_minus,
+                            flux_mu_minus ** 2,
+                        ]
+                    )
+
+                    # add term to the matrix
+                    T[mu, nu] += left_vector.dot(inner_matrix.dot(right_vector))
+
             T[mu, nu] /= pump_norms[mu]
             T[mu, nu] *= -np.imag(gammas[nu])
 
