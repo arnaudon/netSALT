@@ -63,16 +63,17 @@ else:
 positions = [graph.nodes[u]["position"] for u in graph]
 
 modes, lasing_thresholds = load_modes(filename="threshold_modes")
-
+modes = modes[:2]
+lasing_thresholds = lasing_thresholds[:2]
 T_mu_all = compute_mode_competition_matrix(graph, params, modes, lasing_thresholds)
 
 plt.figure()
-plt.imshow(T_mu_all, origin='auto')
+plt.imshow(T_mu_all)#, origin='auto')
 plt.colorbar()
 plt.savefig('T_matrix.svg')
 #plt.show()
 
-D0_max = 1.
+D0_max = 1.0
 n_points = 100
 pump_intensities = np.linspace(0, D0_max, n_points)
 modal_intensities = compute_modal_intensities(graph, params, modes, lasing_thresholds, pump_intensities)
