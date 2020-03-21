@@ -73,7 +73,7 @@ plt.colorbar()
 plt.savefig('T_matrix.svg')
 #plt.show()
 
-D0_max = 1.0
+D0_max = 2.3
 n_points = 100
 pump_intensities = np.linspace(0, D0_max, n_points)
 modal_intensities = compute_modal_intensities(graph, params, modes, lasing_thresholds, pump_intensities)

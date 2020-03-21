@@ -62,7 +62,7 @@ line_PRA:
         alpha_n: 100
         
         # params for mode search
-        quality_threshold: 0.001
+        quality_threshold: 0.0001
         search_stepsize: 0.01
         max_steps: 1000 
         max_tries_reduction: 20 
