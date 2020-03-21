@@ -319,11 +319,11 @@ def compute_mode_competition_matrix(graph, params, threshold_modes, lasing_thres
         gammas.append(_gamma(_to_complex(mode), params))
 
     lengths = np.array([graph[u][v]["length"] for u, v in graph.edges])
-    T = np.zeros([len(threshold_modes), len(threshold_modes)], dtype="complex64")
+    T = np.zeros([len(threshold_modes), len(threshold_modes)], dtype=np.complex128)
     for mu in range(len(threshold_modes)):
         for nu in range(len(threshold_modes)):
             for ei, e in enumerate(graph.edges):
-                if params["pump"][ei] == 1 and params["inner"][ei]:
+                if params["pump"][ei] > 0.0 and params["inner"][ei]:
                     k_mu = k_mus[mu][ei]
                     k_nu = k_mus[nu][ei]
                     length = lengths[ei]
@@ -346,14 +346,14 @@ def compute_mode_competition_matrix(graph, params, threshold_modes, lasing_thres
 
                     # C terms
                     ik_tmp = 1.0j * (k_nu + np.conj(k_nu) + 2.0 * k_mu)
-                    inner_matrix[0, 1] = inner_matrix[2, 3] = (
+                    inner_matrix[1, 0] = inner_matrix[2, 3] = (
                         np.exp(1.0j * (k_nu + 2.0 * k_mu) * length)
                         - np.exp(-1.0j * np.conj(k_nu) * length)
                     ) / ik_tmp
 
                     # D terms
                     ik_tmp = 1.0j * (k_nu + np.conj(k_nu) - 2.0 * k_mu)
-                    inner_matrix[2, 0] = inner_matrix[1, 3] = (
+                    inner_matrix[1, 3] = inner_matrix[2, 0] = (
                         np.exp(1.0j * k_nu * length)
                         - np.exp(1.0j * (2.0 * k_mu - np.conj(k_nu)) * length)
                     ) / ik_tmp
@@ -404,6 +404,7 @@ def compute_mode_competition_matrix(graph, params, threshold_modes, lasing_thres
                             flux_mu_minus ** 2,
                         ]
                     )
+
                     T[mu, nu] += left_vector.dot(inner_matrix.dot(right_vector))
             T[mu, nu] *= -np.imag(gammas[nu])
     return np.real(T)
@@ -433,7 +434,8 @@ def _find_next_lasing_mode(
                     1.0 / lasing_thresholds[lasing_mode_ids]
                 )
             )
-            interacting_lasing_thresholds[mu] = lasing_thresholds[mu] * factor
+            if factor > 0:  # if negative, it means the mode will never lase
+                interacting_lasing_thresholds[mu] = lasing_thresholds[mu] * factor
 
     next_lasing_mode_id = np.argmin(interacting_lasing_thresholds)
     next_lasing_threshold = interacting_lasing_thresholds[next_lasing_mode_id]
@@ -457,6 +459,7 @@ def compute_modal_intensities(
     modal_intensities = np.zeros([len(threshold_modes), len(pump_intensities)])
 
     lasing_mode_ids = []
+    interacting_lasing_thresholds =[next_lasing_threshold]
     for i, pump_intensity in enumerate(pump_intensities):
         while pump_intensity > next_lasing_threshold:
             lasing_mode_ids.append(next_lasing_mode_id)
@@ -466,6 +469,7 @@ def compute_modal_intensities(
                 lasing_mode_ids,
                 mode_competition_matrix,
             )
+            interacting_lasing_thresholds.append(next_lasing_threshold)
 
         if len(lasing_mode_ids) > 0:
             mode_competition_matrix_inv = np.linalg.inv(
@@ -479,4 +483,4 @@ def compute_modal_intensities(
                 1
             )
 
-    return modal_intensities
+    return modal_intensities, interacting_lasing_thresholds

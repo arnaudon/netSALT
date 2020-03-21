@@ -63,8 +63,8 @@ else:
 positions = [graph.nodes[u]["position"] for u in graph]
 
 modes, lasing_thresholds = load_modes(filename="threshold_modes")
-modes = modes[:2]
-lasing_thresholds = lasing_thresholds[:2]
+modes = np.array(modes)[np.argsort(lasing_thresholds)]
+lasing_thresholds = np.array(lasing_thresholds)[np.argsort(lasing_thresholds)]
 T_mu_all = compute_mode_competition_matrix(graph, params, modes, lasing_thresholds)
 
 plt.figure()
@@ -76,8 +76,8 @@ plt.savefig('T_matrix.svg')
 D0_max = 2.3
 n_points = 100
 pump_intensities = np.linspace(0, D0_max, n_points)
-modal_intensities = compute_modal_intensities(graph, params, modes, lasing_thresholds, pump_intensities)
-
+modal_intensities, interacting_lasing_thresholds = compute_modal_intensities(graph, params, modes, lasing_thresholds, pump_intensities)
+print('Interacting thresholds:', interacting_lasing_thresholds)
 
 #pickle.dump(I, open('modal_intensities_uniform.pkl','wb'))
 
