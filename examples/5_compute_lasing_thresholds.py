@@ -51,7 +51,7 @@ threshold_lasing_modes, lasing_thresholds = find_threshold_lasing_modes(
     params,
     D0_max=D0s[-1],
     D0_steps=D0s[1] - D0s[0],
-    n_workers=32,
+    n_workers=params['n_workers'],
     threshold=1e-5,
 )
 

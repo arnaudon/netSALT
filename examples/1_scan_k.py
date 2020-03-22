@@ -21,7 +21,7 @@ os.chdir(graph_tpe)
 
 graph, params = load_graph()
 
-ks, alphas, qualities = scan_frequencies(graph, params, n_workers=4)
+ks, alphas, qualities = scan_frequencies(graph, params, n_workers=params['n_workers'])
 
 pickle.dump([ks, alphas, qualities], open("scan.pkl", "wb"))
 

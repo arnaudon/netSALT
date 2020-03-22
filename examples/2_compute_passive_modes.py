@@ -22,7 +22,7 @@ graph, params = load_graph()
 
 ks, alphas, qualities = pickle.load(open("scan.pkl", "rb"))  # save it for later
 
-modes = find_modes(ks, alphas, qualities, graph, params, n_workers=4)
+modes = find_modes(ks, alphas, qualities, graph, params, n_workers=params['n_workers'])
 print("Found", len(modes), "mode(s)")
 
 save_modes(modes)
