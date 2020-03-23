@@ -43,7 +43,7 @@ SM_small:
 
 line_PRA:
         #network params
-        n_workers: 4
+        n_workers: 1
         n: 103 #43 #103
         lead_prob: -0.2
         seed: 2

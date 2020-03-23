@@ -459,7 +459,7 @@ def compute_modal_intensities(
     modal_intensities = np.zeros([len(threshold_modes), len(pump_intensities)])
 
     lasing_mode_ids = []
-    interacting_lasing_thresholds =[next_lasing_threshold]
+    interacting_lasing_thresholds = [next_lasing_threshold]
     for i, pump_intensity in enumerate(pump_intensities):
         while pump_intensity > next_lasing_threshold:
             lasing_mode_ids.append(next_lasing_mode_id)

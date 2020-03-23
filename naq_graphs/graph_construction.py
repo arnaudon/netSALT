@@ -82,6 +82,79 @@ def set_wavenumber(graph, freq):
 
 def construct_incidence_matrix(graph):
     """Construct the incidence matrix B"""
+
+    row = np.zeros(4 * len(graph.edges))
+    row[::4] = 2 * np.arange(len(graph.edges))
+    row[1::4] = 2 * np.arange(len(graph.edges))
+    row[2::4] = 2 * np.arange(len(graph.edges)) + 1
+    row[3::4] = 2 * np.arange(len(graph.edges)) + 1
+
+    col_u = np.array([e[0] for e in graph.edges])
+    col_v = np.array([e[1] for e in graph.edges])
+
+    col = np.zeros(4 * len(graph.edges))
+    col[::4] = col_u
+    col[1::4] = col_v
+    col[2::4] = col_u
+    col[3::4] = col_v
+
+    lengths = np.array([graph[u][v]["length"] for u, v in graph.edges])
+    ks = np.array([graph[u][v]["k"] for u, v in graph.edges])
+    k_filter = abs(ks) > 0
+    expl = np.exp(1.0j * lengths * ks)
+    ones = np.ones(len(graph.edges))
+
+    data = np.zeros(4 * len(graph.edges), dtype=np.complex128)
+    data[::4] = -ones
+    data[1::4] = expl
+    data[2::4] = expl
+    data[3::4] = -ones
+
+    deg_u = np.array([len(graph[e[0]]) for e in graph.edges])
+    deg_v = np.array([len(graph[e[1]]) for e in graph.edges])
+    data_out = data.copy()
+    (data_out[1::4])[deg_u == 1] = 0
+    (data_out[1::4])[deg_v == 1] = 0
+    (data_out[2::4])[deg_u == 1] = 0
+    (data_out[2::4])[deg_v == 1] = 0
+
+    m = len(graph.edges)
+    n = len(graph.nodes)
+    B = sc.sparse.coo_matrix((data, (row, col)), shape=(2 * m, n))
+    Bout = sc.sparse.coo_matrix((data_out, (row, col)), shape=(2 * m, n))
+
+    return B.T.asformat("csc"), Bout.asformat("csc")
+
+
+def construct_weight_matrix(graph, with_k=True):
+    """Construct the matrix W^{-1}
+    with_k: multiplies or not by k (needed for graph laplcian, not for edge flux)"""
+    row = np.zeros(2 * len(graph.edges))
+    row[::2] = 2 * np.arange(len(graph.edges))
+    row[1::2] = 2 * np.arange(len(graph.edges)) + 1
+
+    lengths = np.array([graph[u][v]["length"] for u, v in graph.edges])
+    ks = np.array([graph[u][v]["k"] for u, v in graph.edges])
+    k_filter = abs(ks) > 0
+
+    data_tmp = np.zeros(len(graph.edges), dtype=np.complex128)
+    data_tmp[k_filter] = 1.0 / (np.exp(2.0j * lengths[k_filter] * ks[k_filter]) - 1.0)
+    if with_k:
+        data_tmp[k_filter] *= ks[k_filter]
+    data_tmp[~k_filter] = -0.5 * lengths[~k_filter]
+
+    data = np.zeros(2 * len(graph.edges), dtype=np.complex128)
+    data[::2] = data_tmp
+    data[1::2] = data_tmp
+
+    m = len(graph.edges)
+    return sc.sparse.coo_matrix((data, (row, row)), shape=(2 * m, 2 * m)).asformat(
+        "csc"
+    )
+
+
+def construct_incidence_matrix_old(graph):
+    """original function, not vectorized. Construct the incidence matrix B"""
     row = []
     col = []
     data_B = []
@@ -125,8 +198,8 @@ def construct_incidence_matrix(graph):
     return B.T.asformat("csc"), Bout.asformat("csc")
 
 
-def construct_weight_matrix(graph, with_k=True):
-    """Construct the matrix W^{-1}
+def construct_weight_matrix_old(graph, with_k=True):
+    """original function, not vectorized. Construct the matrix W^{-1}
     with_k: multiplies or not by k (needed for graph laplcian, not for edge flux)"""
     row = []
     data = []
