@@ -31,7 +31,7 @@ def plot_scan(ks, alphas, qualities, modes=None):
     plt.axis([ks[0], ks[-1], alphas[-1], alphas[0]])
 
 
-def plot_naq_graph(graph, edge_colors=None, node_colors=None):
+def plot_naq_graph(graph, edge_colors=None, node_colors=None, node_size=1):
     """plot the graph"""
     positions = [graph.nodes[u]["position"] for u in graph]
 
@@ -41,7 +41,7 @@ def plot_naq_graph(graph, edge_colors=None, node_colors=None):
         nx.draw_networkx_nodes(
             graph,
             pos=positions,
-            node_size=10,
+            node_size=node_size,
             node_color=node_colors,
             vmin=0,
             vmax=np.max(node_colors),
@@ -55,7 +55,9 @@ def plot_naq_graph(graph, edge_colors=None, node_colors=None):
         plt.colorbar(nodes, label=r"node values")
 
     else:
-        nx.draw_networkx_nodes(graph, pos=positions, node_size=10, node_color="k")
+        nx.draw_networkx_nodes(
+            graph, pos=positions, node_size=node_size, node_color="k"
+        )
 
     nx.draw_networkx_edges(graph, pos=positions)
 

@@ -84,8 +84,8 @@ line_PRA:
         
 line_semi:
         #network params
-        n_workers: 1
-        n: 103 #43
+        n_workers: 4
+        n: 23 #43
         lead_prob: -0.2
         seed: 2
         innerL: 1

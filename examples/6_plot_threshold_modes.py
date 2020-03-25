@@ -72,7 +72,7 @@ else:
             params["pump"][i] = 1
 
 
-#graph = oversample_graph(graph, params)
+graph = oversample_graph(graph, params)
 positions = [graph.nodes[u]["position"] for u in graph]
 
 modes, lasing_thresholds = load_modes(filename="threshold_modes")

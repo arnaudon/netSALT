@@ -18,16 +18,35 @@ def create_naq_graph(graph, params, positions=None, lengths=None):
     set_inner_edges(graph, params)
 
 
+def _set_pump_on_graph(graph, params):
+    """set the pump values on the graph from params"""
+    if "pump" not in params:
+        params["pump"] = np.zeros(len(graph.edges))
+    for ei, e in enumerate(graph.edges):
+        graph[e[0]][e[1]]["pump"] = params["pump"][ei]
+
+
+def _set_pump_on_params(graph, params):
+    """set the pump values on the graph from params"""
+    params["pump"] = np.zeros(len(graph.edges))
+    for ei, e in enumerate(graph.edges):
+        params["pump"][ei] = graph[e[0]][e[1]]["pump"]
+
+
 def oversample_graph(graph, params):
     """oversample a graph by adding points on edges"""
+
+    _set_pump_on_graph(graph, params)
     oversampled_graph = graph.copy()
-    for u, v in graph.edges():
+    for ei, e in enumerate(graph.edges):
+        (u, v) = e[:2]
         last_node = len(oversampled_graph)
         if graph[u][v]["inner"]:
-
             n_nodes = int(graph[u][v]["length"] / params["plot_edgesize"])
             if n_nodes > 1:
+
                 dielectric_constant = graph[u][v]["dielectric_constant"]
+                pump = graph[u][v]["pump"]
                 oversampled_graph.remove_edge(u, v)
 
                 for node_index in range(n_nodes - 1):
@@ -50,7 +69,11 @@ def oversample_graph(graph, params):
 
                     oversampled_graph.add_node(last, position=node_position)
                     oversampled_graph.add_edge(
-                        first, last, inner=True, dielectric_constant=dielectric_constant
+                        first,
+                        last,
+                        inner=True,
+                        dielectric_constant=dielectric_constant,
+                        pump=pump,
                     )
 
                 oversampled_graph.add_edge(
@@ -58,11 +81,13 @@ def oversample_graph(graph, params):
                     v,
                     inner=True,
                     dielectric_constant=dielectric_constant,
+                    pump=pump,
                 )
 
     oversampled_graph = nx.convert_node_labels_to_integers(oversampled_graph)
     set_edge_lengths(oversampled_graph)
     update_params_dielectric_constant(oversampled_graph, params)
+    _set_pump_on_params(oversampled_graph, params)
     return oversampled_graph
 
 
@@ -100,7 +125,6 @@ def construct_incidence_matrix(graph):
 
     lengths = np.array([graph[u][v]["length"] for u, v in graph.edges])
     ks = np.array([graph[u][v]["k"] for u, v in graph.edges])
-    k_filter = abs(ks) > 0
     expl = np.exp(1.0j * lengths * ks)
     ones = np.ones(len(graph.edges))
 
