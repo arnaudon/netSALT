@@ -12,7 +12,7 @@ from naq_graphs import set_dielectric_constant, set_dispersion_relation
 from naq_graphs.dispersion_relations import dispersion_relation_pump
 from naq_graphs import (
     create_naq_graph,
-    load_modes,
+    load_modes, save_modes,
     oversample_graph,
 )
 from naq_graphs import mode_on_nodes, mean_mode_on_edges
@@ -36,12 +36,22 @@ if graph_tpe == 'line_PRA' and params["dielectric_params"]["method"] == "custom"
     custom_index[-1] = 1.0**2
 
     count_inedges = len(graph.edges)-2.;
+    print('Number of inner edges', count_inedges)
     if count_inedges % 4 == 0:
         for i in range(round(count_inedges/4)):
             custom_index[i+1] = 1.5**2
     else:
         print('Change number of inner edges to be multiple of 4')
     set_dielectric_constant(graph, params, custom_values=custom_index)
+
+elif graph_tpe == 'line_semi':  
+    custom_index = [] #line OSA example 
+    for u, v in graph.edges:
+        custom_index.append(1.5**2)
+    custom_index[0] = 100.0**2
+    custom_index[-1] = 1.0**2
+    set_dielectric_constant(graph, params, custom_values=custom_index)
+
 else:
     set_dielectric_constant(graph, params) #for "uniform" and all other graphs
 
@@ -55,7 +65,11 @@ if graph_tpe == 'line_PRA' and params["dielectric_params"]["method"] == "custom"
     params["pump"] = np.append(np.ones(pump_edges),np.zeros(nopump_edges))
     params["pump"][0] = 0 #first edge is outside
 else:
-    params["pump"] = np.ones(len(graph.edges())) #for uniform pump on all edges (inner and outer) 
+    #params["pump"] = np.ones(len(graph.edges())) # uniform pump on ALL edges 
+    params["pump"] = np.zeros(len(graph.edges())) # uniform pump on inner edges 
+    for i, (u,v) in enumerate(graph.edges()): 
+        if graph[u][v]["inner"]:
+            params["pump"][i] = 1
 
 
 #graph = oversample_graph(graph, params)
@@ -94,7 +108,7 @@ for i, mode in enumerate(modes):
     plt.savefig("threshold_modes/mode_" + str(i) + ".png")
     plt.close()
 
-    if graph_tpe == "line_PRA":
+    if graph_tpe == "line_PRA" or "line_semi":
         position_x = [graph.nodes[u]["position"][0] for u in graph]
         E_sorted = node_solution[np.argsort(position_x)]
         node_positions = np.sort(position_x-position_x[1])
@@ -104,3 +118,5 @@ for i, mode in enumerate(modes):
         plt.title("k="+str(np.around(mode[0],3)-1j*np.around(mode[1],3)))
         plt.savefig("threshold_modes/profile_mode_" + str(i) + ".svg")
         plt.close()
+
+        #save_modes(node_positions,E_sorted, filename="thresholdmode_" + str(i))

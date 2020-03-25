@@ -37,12 +37,22 @@ if graph_tpe == 'line_PRA' and params["dielectric_params"]["method"] == "custom"
     custom_index[-1] = 1.0**2
 
     count_inedges = len(graph.edges)-2.;
+    print('Number of inner edges', count_inedges)
     if count_inedges % 4 == 0:
         for i in range(round(count_inedges/4)):
             custom_index[i+1] = 1.5**2
     else:
         print('Change number of inner edges to be multiple of 4')
     set_dielectric_constant(graph, params, custom_values=custom_index)
+
+elif graph_tpe == 'line_semi':  
+    custom_index = [] #line OSA example 
+    for u, v in graph.edges:
+        custom_index.append(1.5**2)
+    custom_index[0] = 100.0**2
+    custom_index[-1] = 1.0**2
+    set_dielectric_constant(graph, params, custom_values=custom_index)
+
 else:
     set_dielectric_constant(graph, params) #for "uniform" and all other graphs
 
@@ -56,7 +66,11 @@ if graph_tpe == 'line_PRA' and params["dielectric_params"]["method"] == "custom"
     params["pump"] = np.append(np.ones(pump_edges),np.zeros(nopump_edges))
     params["pump"][0] = 0 #first edge is outside
 else:
-    params["pump"] = np.ones(len(graph.edges())) #for uniform pump on all edges (inner and outer) 
+    #params["pump"] = np.ones(len(graph.edges())) # uniform pump on ALL edges 
+    params["pump"] = np.zeros(len(graph.edges())) # uniform pump on inner edges 
+    for i, (u,v) in enumerate(graph.edges()): 
+        if graph[u][v]["inner"]:
+            params["pump"][i] = 1
 
 
 #graph = oversample_graph(graph, params)
@@ -65,21 +79,22 @@ positions = [graph.nodes[u]["position"] for u in graph]
 modes, lasing_thresholds = load_modes(filename="threshold_modes")
 modes = np.array(modes)[np.argsort(lasing_thresholds)]
 lasing_thresholds = np.array(lasing_thresholds)[np.argsort(lasing_thresholds)]
+print('lasing threshold noninteracting',lasing_thresholds)
 T_mu_all = compute_mode_competition_matrix(graph, params, modes, lasing_thresholds)
 
 plt.figure()
 plt.imshow(T_mu_all)#, origin='auto')
 plt.colorbar()
 plt.savefig('T_matrix.svg')
-#plt.show()
-
-D0_max = 2.3
+plt.show()
+print('T matrix',T_mu_all)
+D0_max = 1.0 #2.3
 n_points = 100
 pump_intensities = np.linspace(0, D0_max, n_points)
 modal_intensities, interacting_lasing_thresholds = compute_modal_intensities(graph, params, modes, lasing_thresholds, pump_intensities)
 print('Interacting thresholds:', interacting_lasing_thresholds)
 
-#pickle.dump(I, open('modal_intensities_uniform.pkl','wb'))
+pickle.dump([pump_intensities, modal_intensities, interacting_lasing_thresholds], open('modal_intensities_uniform.pkl','wb'))
 
 plt.figure(figsize=(5,3))
 cmap = plt.cm.get_cmap('tab10')    

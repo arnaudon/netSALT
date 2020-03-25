@@ -4,11 +4,13 @@
 
 SM_small:
         #network params
+        n_workers: 1
         n: 10 #11
         k: 2
         p: 0.2
         lead_prob: 0.3
         seed: 2
+        innerL: 1
         dielectric_params: 
             method: 'uniform'
             inner_value: 1.
@@ -47,6 +49,7 @@ line_PRA:
         n: 103 #43 #103
         lead_prob: -0.2
         seed: 2
+        innerL: 1
         dielectric_params: # Note: this is the dielectric constant, eps = index**2
             method: 'custom' #'uniform'
             inner_value: 2.25
@@ -74,6 +77,45 @@ line_PRA:
         D0_steps: 11
         k_a: 15 #0.1
         gamma_perp: 3.0 #0.04
+
+        #WIP params
+        pump_edges: 'all' #[8, 9]        
+        open_nodes: []
+        
+line_semi:
+        #network params
+        n_workers: 1
+        n: 103 #43
+        lead_prob: -0.2
+        seed: 2
+        innerL: 1
+        dielectric_params: # Note: this is the dielectric constant, eps = index**2
+            method: 'custom'
+            inner_value: 2.25
+            outer_value: 1.
+        open_model: 'open_ends'
+        plot_edgesize: 0.001 #0.01 :see also oversample fn
+
+        #mode search params
+        k_min: 35 
+        k_max: 45 
+        k_n: 100
+        alpha_min: -0.0
+        alpha_max: 1.0 
+        alpha_n: 100
+        
+        # params for mode search
+        quality_threshold: 1.e-5
+        search_stepsize: 0.001
+        max_steps: 1000 
+        max_tries_reduction: 20 
+        reduction_factor: 0.80 
+
+        #pumping parameters
+        D0_max: 0.2
+        D0_steps: 11
+        k_a: 40
+        gamma_perp: 4.0
 
         #WIP params
         pump_edges: 'all' #[8, 9]        

@@ -34,7 +34,7 @@ os.chdir(graph_tpe)
 
 create_naq_graph(graph, params, positions=positions)
 
-set_total_length(graph, 1.0, inner=True)
+set_total_length(graph, params["innerL"], inner=True)
 
 if graph_tpe == 'line_PRA' and params["dielectric_params"]["method"] == "custom":
     custom_index = [] #line PRA example 
@@ -51,6 +51,15 @@ if graph_tpe == 'line_PRA' and params["dielectric_params"]["method"] == "custom"
     else:
         print('Change number of inner edges to be multiple of 4')
     set_dielectric_constant(graph, params, custom_values=custom_index)
+
+elif graph_tpe == 'line_semi':  
+    custom_index = [] #line OSA example or Esterhazy PRA 2014
+    for u, v in graph.edges:
+        custom_index.append(params["dielectric_params"]["inner_value"])
+    custom_index[0] = 100.0**2
+    custom_index[-1] = 1.0**2
+    set_dielectric_constant(graph, params, custom_values=custom_index)
+
 else:
     set_dielectric_constant(graph, params) #for "uniform" and all other graphs
 

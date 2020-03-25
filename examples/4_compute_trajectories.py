@@ -34,7 +34,12 @@ if graph_tpe == 'line_PRA' and params["dielectric_params"]["method"] == "custom"
     params["pump"] = np.append(np.ones(pump_edges),np.zeros(nopump_edges))
     params["pump"][0] = 0 #first edge is outside
 else:
-    params["pump"] = np.ones(len(graph.edges())) #for uniform pump on all edges (inner and outer) 
+    #params["pump"] = np.ones(len(graph.edges())) # uniform pump on ALL edges 
+    params["pump"] = np.zeros(len(graph.edges())) # uniform pump on inner edges 
+    for i, (u,v) in enumerate(graph.edges()): 
+        if graph[u][v]["inner"]:
+            params["pump"][i] = 1
+
 
 D0s = np.linspace(0, params["D0_max"], params["D0_steps"])
 modes_trajectories, modes_trajectories_approx = pump_trajectories(
