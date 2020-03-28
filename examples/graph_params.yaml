@@ -7,13 +7,13 @@ SM_small:
         n_workers: 1
         n: 10 #11
         k: 2
-        p: 0.2
-        lead_prob: 0.3
+        p: 0 #0.2
+        lead_prob: 1 #0.3
         seed: 2
         innerL: 1
         dielectric_params: 
             method: 'uniform'
-            inner_value: 1.
+            inner_value: 9.
             outer_value: 1.
         open_model: 'open_ends'
         plot_edgesize: 0.01
@@ -21,27 +21,27 @@ SM_small:
         #mode search params
         k_min: 12 
         k_max: 19 
-        k_n: 50
-        alpha_min: 0.0
-        alpha_max: 1.00 
-        alpha_n: 50
+        k_n: 200
+        alpha_min: -0.50
+        alpha_max: 2.50 
+        alpha_n: 200
         
         # params for mode search
         quality_threshold: 0.001
-        search_stepsize: 0.1 
+        search_stepsize: 0.01 
         max_steps: 1000 
         max_tries_reduction: 20 
-        reduction_factor: 1.00 
+        reduction_factor: 0.80 
+
+        #pumping parameters
+        D0_max: 2.
+        D0_steps: 21
+        k_a: 15
+        gamma_perp: 3.0
 
         #WIP params
         pump_edges: 'all' #[8, 9]        
-        D0_max: 1.2 
-        D0_steps: 61
         open_nodes: []
-        pump_params:
-                k_a: 15 #0.1
-                gamma_perp: 3.0 #0.04
-                D0: 0 #May be old variable
 
 line_PRA:
         #network params
@@ -85,20 +85,20 @@ line_PRA:
 line_semi:
         #network params
         n_workers: 4
-        n: 23 #43
+        n: 43 #43 103
         lead_prob: -0.2
         seed: 2
         innerL: 1
         dielectric_params: # Note: this is the dielectric constant, eps = index**2
             method: 'custom'
-            inner_value: 2.25
+            inner_value: 9 #2.25
             outer_value: 1.
         open_model: 'open_ends'
         plot_edgesize: 0.001 #0.01 :see also oversample fn
 
         #mode search params
-        k_min: 35 
-        k_max: 45 
+        k_min: 17 #35 
+        k_max: 23 #45 
         k_n: 100
         alpha_min: -0.0
         alpha_max: 1.0 
@@ -114,7 +114,7 @@ line_semi:
         #pumping parameters
         D0_max: 0.2
         D0_steps: 11
-        k_a: 40
+        k_a: 20 #40
         gamma_perp: 4.0
 
         #WIP params

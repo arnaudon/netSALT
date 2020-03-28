@@ -47,7 +47,7 @@ if graph_tpe == 'line_PRA' and params["dielectric_params"]["method"] == "custom"
 elif graph_tpe == 'line_semi':  
     custom_index = [] #line OSA example 
     for u, v in graph.edges:
-        custom_index.append(1.5**2)
+        custom_index.append(params["dielectric_params"]["inner_value"])
     custom_index[0] = 100.0**2
     custom_index[-1] = 1.0**2
     set_dielectric_constant(graph, params, custom_values=custom_index)
@@ -119,4 +119,4 @@ for i, mode in enumerate(modes):
         plt.savefig("threshold_modes/profile_mode_" + str(i) + ".svg")
         plt.close()
 
-        #save_modes(node_positions,E_sorted, filename="thresholdmode_" + str(i))
+        save_modes(node_positions,E_sorted, filename="threshold_modes/thresholdmode_" + str(i))

@@ -48,7 +48,7 @@ if graph_tpe == 'line_PRA' and params["dielectric_params"]["method"] == "custom"
 elif graph_tpe == 'line_semi':  
     custom_index = [] #line OSA example 
     for u, v in graph.edges:
-        custom_index.append(1.5**2)
+        custom_index.append(params["dielectric_params"]["inner_value"])
     custom_index[0] = 100.0**2
     custom_index[-1] = 1.0**2
     set_dielectric_constant(graph, params, custom_values=custom_index)
@@ -72,10 +72,6 @@ else:
         if graph[u][v]["inner"]:
             params["pump"][i] = 1
 
-
-#graph = oversample_graph(graph, params)
-positions = [graph.nodes[u]["position"] for u in graph]
-
 modes, lasing_thresholds = load_modes(filename="threshold_modes")
 modes = np.array(modes)[np.argsort(lasing_thresholds)]
 lasing_thresholds = np.array(lasing_thresholds)[np.argsort(lasing_thresholds)]
@@ -88,7 +84,8 @@ plt.colorbar()
 plt.savefig('T_matrix.svg')
 plt.show()
 print('T matrix',T_mu_all)
-D0_max = 1 #2.3
+
+D0_max = params["D0_max"] #10*lasing_thresholds[0] #1 #2.3
 n_points = 100
 pump_intensities = np.linspace(0, D0_max, n_points)
 modal_intensities, interacting_lasing_thresholds = compute_modal_intensities(graph, params, modes, lasing_thresholds, pump_intensities)
@@ -98,54 +95,52 @@ pickle.dump([pump_intensities, modal_intensities, interacting_lasing_thresholds]
 
 plt.figure(figsize=(5,3))
 cmap = plt.cm.get_cmap('tab10')    
-   
+
 n_lase =  0
 for i, intens in enumerate(modal_intensities):
-    #if intens[-1]>0:
-    plt.plot(pump_intensities, intens,'-',c=cmap.colors[n_lase % 10], label='Mode: '+ str(i))#str(positive_id[sort_id[i]]))
-    #plt.axvline(D0_th_sorted[i], c=cmap.colors[n_lase % 10], ls='--')
-
-    n_lase+=1
+    if intens[-1] > 0:
+        plt.plot(pump_intensities, intens,'-',c=cmap.colors[n_lase % 10], label='$k$'+str(i)+': '+str(np.round(modes[i][0],decimals=2)))
+        plt.axvline(lasing_thresholds[i], c=cmap.colors[n_lase % 10], ls='--')
+        n_lase+=1
 
 plt.legend()
 plt.title('Uniform mode '+str(n_lase) + ' lasing modes out of ' + str(len(modes)))
 plt.xlabel(r'$D_0$')
 plt.ylabel(r'$I_\mu$')
 
-#plt.twinx()
-#p=[]
-#for d in range(n_points):
-#    if len(I[:,d])>1:
-#        p.append( 1- np.max(I[1:,d])/I[0,d] )
-#    else:
-#        p.append(I[0,d]/I[0,d])
-
-#plt.plot(D0s, p,'--r')
-#plt.axis([D0s[0],D0s[-1],-0.5,1.1])
 plt.savefig('uniform_modal_pump.svg', bbox_inches ='tight')
 plt.show()
 
 ks, alphas, qualities = pickle.load(open("scan.pkl", "rb"))
+Ks = np.linspace(ks[0], ks[-1], len(ks)*10)
 
 def lorentzian(k, k0, gamma):
-    #return 1./np.pi * gamma / ( ( k-k0)**2 + gamma**2 ) 
     return  gamma**2 / ( ( k-k0)**2 + gamma**2 ) 
 
 gamma = 0.02
-spectr = np.zeros(len(ks))
+spectr = np.zeros(len(Ks))
+I0s = []
+modeks = []
+
 plt.figure(figsize=(5,2))
 for i, intens in enumerate(modal_intensities):
-    #if intens[-1]>0:
-    center = modes[positive_id[sort_id[i]]][0]
+    if intens[-1]>0:
+        modeks.append(modes[i][0])
+        I0s.append(intens[-1])
+    center = modes[i][0]
+    spectr += intens[-1]*lorentzian(Ks,center,gamma)
 
-    spectr += intens[-1]*lorentzian(ks,center,gamma)
-    print(intens[-1])
+pickle.dump([Ks, spectr], open('uniform_spectra.pkl', 'wb'))
 
-#pickle.dump(spectr, open('uniform_spectra.pkl', 'wb'))
-
-plt.plot(Ks, spectr, '-k')
+#plt.plot(Ks, spectr, '-k')
+plt.stem(modeks,I0s, basefmt=" ")
 plt.xlabel(r'$k$')
-plt.ylabel('Mode amplitude (a.u.)')
-#plt.axis([Ks[-1],Ks[0], 0, np.max(I)])
+plt.ylabel('Intensity (a.u.)')
+
+plt.twinx()
+plt.plot(Ks,lorentzian(Ks,params["k_a"],params["gamma_perp"]),'r--')
+
+plt.ylabel('Gain spectrum (a.u.)')
+
 plt.savefig('uniform_spectra.svg', bbox_inches ='tight')
 plt.show()

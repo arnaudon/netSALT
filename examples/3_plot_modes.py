@@ -10,7 +10,7 @@ from graph_generator import generate_graph
 
 from naq_graphs import set_dielectric_constant, set_dispersion_relation
 from naq_graphs.dispersion_relations import dispersion_relation_dielectric
-from naq_graphs import create_naq_graph, oversample_graph, load_modes
+from naq_graphs import create_naq_graph, oversample_graph, load_modes, save_modes
 from naq_graphs import mode_on_nodes, mean_mode_on_edges
 from naq_graphs.io import load_graph
 
@@ -65,3 +65,5 @@ for i, mode in enumerate(modes):
         plt.plot(node_positions[1:-1],abs(E_sorted[1:-1])**2) #only plot over inner edges
         plt.title("k="+str(np.around(modes[i,0],3)-1j*np.around(modes[i,1],3)))
         plt.savefig("modes/profile_mode_" + str(i) + ".svg")
+
+        save_modes(node_positions,E_sorted, filename="modes/passivemode_" + str(i))
