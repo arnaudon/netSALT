@@ -4,7 +4,7 @@
 
 SM_small:
         #network params
-        n_workers: 1
+        n_workers: 3
         n: 10 #11
         k: 2
         p: 0 #0.2
@@ -21,10 +21,10 @@ SM_small:
         #mode search params
         k_min: 12 
         k_max: 19 
-        k_n: 200
+        k_n: 100
         alpha_min: -0.50
         alpha_max: 2.50 
-        alpha_n: 200
+        alpha_n: 100
         
         # params for mode search
         quality_threshold: 0.001
@@ -45,7 +45,7 @@ SM_small:
 
 line_PRA:
         #network params
-        n_workers: 1
+        n_workers: 2
         n: 103 #43 #103
         lead_prob: -0.2
         seed: 2
@@ -63,7 +63,7 @@ line_PRA:
         k_n: 100
         alpha_min: -0.0
         alpha_max: 1.0 
-        alpha_n: 100
+        alpha_n: 50
         
         # params for mode search
         quality_threshold: 1.e-5

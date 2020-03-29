@@ -9,12 +9,7 @@ from .dispersion_relations import update_params_dielectric_constant
 def create_naq_graph(graph, params, positions=None, lengths=None):
     """append a networkx graph with necessary attributes for being a NAQ graph"""
     set_node_positions(graph, positions)
-
-    if lengths is None:
-        set_edge_lengths(graph)
-    else:
-        set_edge_lengths(graph, lengths=lengths)
-
+    set_edge_lengths(graph, lengths=lengths)
     set_inner_edges(graph, params)
 
 
@@ -101,151 +96,51 @@ def construct_laplacian(freq, graph):
 
 def set_wavenumber(graph, freq):
     """set edge wavenumbers from frequency and dispersion relation"""
-    for ei, e in enumerate(list(graph.edges())):
-        graph[e[0]][e[1]]["k"] = graph.graph["dispersion_relation"](freq, ei)
+    graph.graph["ks"] = graph.graph["dispersion_relation"](freq, graph.edges)
 
 
 def construct_incidence_matrix(graph):
     """Construct the incidence matrix B"""
+    row = np.repeat(np.arange(len(graph.edges) * 2), 2)
+    col = np.repeat(graph.edges, 2, axis=0).flatten()
 
-    row = np.zeros(4 * len(graph.edges))
-    row[::4] = 2 * np.arange(len(graph.edges))
-    row[1::4] = 2 * np.arange(len(graph.edges))
-    row[2::4] = 2 * np.arange(len(graph.edges)) + 1
-    row[3::4] = 2 * np.arange(len(graph.edges)) + 1
-
-    col_u = np.array([e[0] for e in graph.edges])
-    col_v = np.array([e[1] for e in graph.edges])
-
-    col = np.zeros(4 * len(graph.edges))
-    col[::4] = col_u
-    col[1::4] = col_v
-    col[2::4] = col_u
-    col[3::4] = col_v
-
-    lengths = np.array([graph[u][v]["length"] for u, v in graph.edges])
-    ks = np.array([graph[u][v]["k"] for u, v in graph.edges])
-    expl = np.exp(1.0j * lengths * ks)
+    expl = np.exp(1.0j * graph.graph["lengths"] * graph.graph["ks"])
     ones = np.ones(len(graph.edges))
 
-    data = np.zeros(4 * len(graph.edges), dtype=np.complex128)
-    data[::4] = -ones
-    data[1::4] = expl
-    data[2::4] = expl
-    data[3::4] = -ones
+    data = np.dstack([-ones, expl, expl, -ones])[0].flatten()
 
     deg_u = np.array([len(graph[e[0]]) for e in graph.edges])
     deg_v = np.array([len(graph[e[1]]) for e in graph.edges])
+
     data_out = data.copy()
-    (data_out[1::4])[deg_u == 1] = 0
-    (data_out[1::4])[deg_v == 1] = 0
-    (data_out[2::4])[deg_u == 1] = 0
-    (data_out[2::4])[deg_v == 1] = 0
+    mask = np.logical_or(deg_u == 1, deg_v == 1)
+    data_out[1::4][mask] = 0
+    data_out[2::4][mask] = 0
 
     m = len(graph.edges)
     n = len(graph.nodes)
-    B = sc.sparse.coo_matrix((data, (row, col)), shape=(2 * m, n))
-    Bout = sc.sparse.coo_matrix((data_out, (row, col)), shape=(2 * m, n))
-
-    return B.T.asformat("csc"), Bout.asformat("csc")
+    BT = sc.sparse.csr_matrix((data, (col, row)), shape=(n, 2 * m))
+    Bout = sc.sparse.csr_matrix((data_out, (row, col)), shape=(2 * m, n))
+    return BT, Bout
 
 
 def construct_weight_matrix(graph, with_k=True):
     """Construct the matrix W^{-1}
     with_k: multiplies or not by k (needed for graph laplcian, not for edge flux)"""
-    row = np.zeros(2 * len(graph.edges))
-    row[::2] = 2 * np.arange(len(graph.edges))
-    row[1::2] = 2 * np.arange(len(graph.edges)) + 1
-
-    lengths = np.array([graph[u][v]["length"] for u, v in graph.edges])
-    ks = np.array([graph[u][v]["k"] for u, v in graph.edges])
-    k_filter = abs(ks) > 0
-
+    mask = abs(graph.graph["ks"]) > 0
     data_tmp = np.zeros(len(graph.edges), dtype=np.complex128)
-    data_tmp[k_filter] = 1.0 / (np.exp(2.0j * lengths[k_filter] * ks[k_filter]) - 1.0)
+    data_tmp[mask] = 1.0 / (
+        np.exp(2.0j * graph.graph["lengths"][mask] * graph.graph["ks"][mask]) - 1.0
+    )
     if with_k:
-        data_tmp[k_filter] *= ks[k_filter]
-    data_tmp[~k_filter] = -0.5 * lengths[~k_filter]
+        data_tmp[mask] *= graph.graph["ks"][mask]
+    data_tmp[~mask] = -0.5 * graph.graph["lengths"][~mask]
 
-    data = np.zeros(2 * len(graph.edges), dtype=np.complex128)
-    data[::2] = data_tmp
-    data[1::2] = data_tmp
-
-    m = len(graph.edges)
-    return sc.sparse.coo_matrix((data, (row, row)), shape=(2 * m, 2 * m)).asformat(
-        "csc"
-    )
-
-
-def construct_incidence_matrix_old(graph):
-    """original function, not vectorized. Construct the incidence matrix B"""
-    row = []
-    col = []
-    data_B = []
-    data_Bout = []
-    for ei, e in enumerate(list(graph.edges())):
-        (u, v) = e[:2]
-
-        expl = np.exp(1.0j * graph[u][v]["length"] * graph[u][v]["k"])
-
-        row.append(2 * ei)
-        col.append(u)
-        data_B.append(-1)
-        data_Bout.append(-1)
-
-        row.append(2 * ei)
-        col.append(v)
-        data_B.append(expl)
-        if len(graph[u]) == 1 or len(graph[v]) == 1:
-            data_Bout.append(0)
-        else:
-            data_Bout.append(expl)
-
-        row.append(2 * ei + 1)
-        col.append(u)
-        data_B.append(expl)
-        if len(graph[u]) == 1 or len(graph[v]) == 1:
-            data_Bout.append(0)
-        else:
-            data_Bout.append(expl)
-
-        row.append(2 * ei + 1)
-        col.append(v)
-        data_B.append(-1)
-        data_Bout.append(-1)
+    row = np.arange(len(graph.edges) * 2)
+    data = np.repeat(data_tmp, 2)
 
     m = len(graph.edges)
-    n = len(graph.nodes)
-    B = sc.sparse.coo_matrix((data_B, (row, col)), shape=(2 * m, n))
-    Bout = sc.sparse.coo_matrix((data_Bout, (row, col)), shape=(2 * m, n))
-
-    return B.T.asformat("csc"), Bout.asformat("csc")
-
-
-def construct_weight_matrix_old(graph, with_k=True):
-    """original function, not vectorized. Construct the matrix W^{-1}
-    with_k: multiplies or not by k (needed for graph laplcian, not for edge flux)"""
-    row = []
-    data = []
-    for ei, e in enumerate(list(graph.edges())):
-        (u, v) = e[:2]
-
-        if abs(graph[u][v]["k"]) > 0.0:
-            w = 1 / (np.exp(2.0j * graph[u][v]["length"] * graph[u][v]["k"]) - 1.0)
-            if with_k:
-                w *= graph[u][v]["k"]
-        else:
-            w = -0.5 * graph[u][v]["length"]
-
-        row.append(2 * ei)
-        row.append(2 * ei + 1)
-        data.append(w)
-        data.append(w)
-
-    m = len(graph.edges)
-    return sc.sparse.coo_matrix((data, (row, row)), shape=(2 * m, 2 * m)).asformat(
-        "csc"
-    )
+    return sc.sparse.csc_matrix((data, (row, row)), shape=(2 * m, 2 * m))
 
 
 def set_inner_edges(graph, params, outer_edges=None):
@@ -292,3 +187,5 @@ def set_edge_lengths(graph, lengths=None):
             )
         else:
             graph[u][v]["length"] = lengths[ei]
+
+    graph.graph["lengths"] = np.array([graph[u][v]["length"] for u, v in graph.edges])

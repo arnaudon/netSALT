@@ -29,7 +29,25 @@ def dispersion_relation_dielectric(freq, edge_index, params=None):
     return freq * np.sqrt(params["dielectric_constant"][edge_index])
 
 
-def dispersion_relation_pump(freq, edge_index, params=None):
+def dispersion_relation_pump(freq, edges, params=None):
+    """dispersion relation with dielectric constant and pump"""
+    if not params:
+        raise Exception("Please provide dispersion parameters")
+
+    return freq * np.sqrt(params["dielectric_constant"])
+    if "pump" not in params or "D0" not in params:
+        return freq * np.sqrt(params["dielectric_constant"])
+
+    if not params["pump"][edge_index]:
+        return freq * np.sqrt(params["dielectric_constant"])
+
+    return freq * np.sqrt(
+        params["dielectric_constant"]
+        + _gamma(freq, params) * params["D0"] * params["pump"]
+    )
+
+
+def dispersion_relation_pump_old(freq, edge_index, params=None):
     """dispersion relation with dielectric constant and pump"""
     if not params:
         raise Exception("Please provide dispersion parameters")

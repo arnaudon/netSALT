@@ -49,3 +49,5 @@ def set_total_length(graph, total_length, inner=True, with_position=True):
     if with_position:
         for u in graph:
             graph.nodes[u]["position"] *= length_ratio
+
+    graph.graph["lengths"] = np.array([graph[u][v]["length"] for u, v in graph.edges])
