@@ -1,5 +1,4 @@
-"""functions related to modes search, etc..."""
-
+"""Functions related to modes."""
 import numpy as np
 import scipy as sc
 
@@ -15,8 +14,7 @@ from .dispersion_relations import _gamma
 
 
 def laplacian_quality(laplacian, method="eigenvalue"):
-    """return the quality of a mode encoded in the naq laplacian,
-       either with smallest eigenvalue, or smallest singular value"""
+    """Return the quality of a mode encoded in the naq laplacian."""
     if method == "eigenvalue":
         return abs(
             sc.sparse.linalg.eigs(laplacian, k=1, sigma=0, return_eigenvectors=False)
@@ -30,13 +28,13 @@ def laplacian_quality(laplacian, method="eigenvalue"):
 
 
 def mode_quality(mode, graph):
-    """quality of a mode, small means good quality"""
+    """Quality of a mode, small means good quality."""
     laplacian = construct_laplacian(_to_complex(mode), graph)
     return laplacian_quality(laplacian)
 
 
 def find_rough_modes_from_scan(ks, alphas, qualities, min_distance=2, threshold_abs=10):
-    """use scipy.ndimage algorithms to detect minima in the scan"""
+    """Use scipy.ndimage algorithms to detect minima in the scan."""
     data = 1.0 / (1e-10 + qualities)
     rough_mode_ids = peak_local_max(
         data, min_distance=min_distance, threshold_abs=threshold_abs
@@ -50,7 +48,7 @@ def find_rough_modes_from_scan(ks, alphas, qualities, min_distance=2, threshold_
 def refine_mode_brownian_ratchet(
     initial_mode, graph, params, disp=False, save_mode_trajectories=False,
 ):
-    """Accurately find a mode from an initial guess, using brownian ratchet algorithm"""
+    """Accurately find a mode from an initial guess, using brownian ratchet algorithm."""
     current_mode = initial_mode.copy()
     if save_mode_trajectories:
         mode_trajectories = [current_mode.copy()]
@@ -106,11 +104,11 @@ def refine_mode_brownian_ratchet(
         return current_mode
 
 
-def clean_duplicate_modes(modes, k_size, alpha_size):
-    """clean duplicate modes"""
+def clean_duplicate_modes(all_modes, k_size, alpha_size):
+    """Clean duplicate modes."""
     duplicate_mode_ids = []
-    for mode_id_0, mode_0 in enumerate(modes):
-        for mode_id_1, mode_1 in enumerate(modes[mode_id_0 + 1 :]):
+    for mode_id_0, mode_0 in enumerate(all_modes):
+        for mode_id_1, mode_1 in enumerate(all_modes[mode_id_0 + 1 :]):
             if (
                 mode_id_1 + mode_id_0 + 1 not in duplicate_mode_ids
                 and abs(mode_0[0] - mode_1[0]) < k_size
@@ -120,20 +118,29 @@ def clean_duplicate_modes(modes, k_size, alpha_size):
                 break
 
     for ids in duplicate_mode_ids:
-        del modes[ids]
+        del all_modes[ids]
 
-    return np.array(modes)
+    return np.array(all_modes)
+
 
 def compute_z_matrix(graph):
-    """Construct the matrix Z used for computing the pump overlapping factor"""
-    data_diag = (np.exp(2.0j * graph.graph["lengths"] * graph.graph["ks"]) - 1.0) / (2.0j * graph.graph["ks"])
-    data_off_diag = graph.graph["lengths"] * np.exp(1.0j * graph.graph["lengths"] * graph.graph["ks"])
+    """Construct the matrix Z used for computing the pump overlapping factor."""
+    data_diag = (np.exp(2.0j * graph.graph["lengths"] * graph.graph["ks"]) - 1.0) / (
+        2.0j * graph.graph["ks"]
+    )
+    data_off_diag = graph.graph["lengths"] * np.exp(
+        1.0j * graph.graph["lengths"] * graph.graph["ks"]
+    )
     data = np.dstack([data_diag, data_diag, data_off_diag, data_off_diag]).flatten()
 
     m = len(graph.edges)
     edge_ids = np.arange(m)
-    row = np.dstack([2 * edge_ids, 2 * edge_ids + 1, 2 * edge_ids, 2 * edge_ids + 1]).flatten()
-    col  = np.dstack([2 * edge_ids, 2 * edge_ids + 1, 2 * edge_ids + 1, 2 * edge_ids]).flatten()
+    row = np.dstack(
+        [2 * edge_ids, 2 * edge_ids + 1, 2 * edge_ids, 2 * edge_ids + 1]
+    ).flatten()
+    col = np.dstack(
+        [2 * edge_ids, 2 * edge_ids + 1, 2 * edge_ids + 1, 2 * edge_ids]
+    ).flatten()
     return sc.sparse.csc_matrix((data, (col, row)), shape=(2 * m, 2 * m))
 
 
@@ -145,19 +152,19 @@ def _convert_edges(vector):
 
 
 def _get_dielectric_constant_matrix(params):
-    """return sparse diagonal matrix of dielectric constants"""
+    """Return sparse diagonal matrix of dielectric constants."""
     return sc.sparse.diags(_convert_edges(params["dielectric_constant"]))
 
 
 def _get_mask_matrices(params):
-    """return sparse diagonal matrices of pump and inner edge masks"""
+    """Return sparse diagonal matrices of pump and inner edge masks."""
     in_mask = sc.sparse.diags(_convert_edges(np.array(params["inner"])))
     pump_mask = sc.sparse.diags(_convert_edges(params["pump"])).dot(in_mask)
     return in_mask, pump_mask
 
 
 def _graph_norm(BT, Bout, Winv, z_matrix, node_solution, mask):
-    """compute the norm of the node solution on the graph"""
+    """Compute the norm of the node solution on the graph."""
 
     weight_matrix = Winv.dot(z_matrix).dot(Winv)
     inner_matrix = BT.dot(weight_matrix).dot(mask).dot(Bout)
@@ -165,13 +172,13 @@ def _graph_norm(BT, Bout, Winv, z_matrix, node_solution, mask):
     return norm
 
 
-def compute_overlapping_factor(mode, graph, params):  # pylint: disable=too-many-locals
-    """compute the overlappin factor of a mode with the pump"""
+def compute_overlapping_factor(passive_mode, graph, params):
+    """Compute the overlappin factor of a mode with the pump."""
     dielectric_constant = _get_dielectric_constant_matrix(params)
     in_mask, pump_mask = _get_mask_matrices(params)
     inner_dielectric_constants = dielectric_constant.dot(in_mask)
 
-    node_solution = mode_on_nodes(mode, graph)
+    node_solution = mode_on_nodes(passive_mode, graph)
 
     z_matrix = compute_z_matrix(graph)
 
@@ -187,8 +194,7 @@ def compute_overlapping_factor(mode, graph, params):  # pylint: disable=too-many
 
 
 def lasing_threshold_linear(mode, graph, params, D0):
-    """find the linear approximation of the new wavenumber,
-    for an original pump mode with D0_0, to a new pump D0_1"""
+    """Find the linear approximation of the new wavenumber."""
     params["D0"] = D0
     overlapping_factor = -compute_overlapping_factor(mode, graph, params)
     return 1.0 / (
@@ -199,29 +205,24 @@ def lasing_threshold_linear(mode, graph, params, D0):
 
 
 def q_value(mode):
-    """compute the q_value of a mode"""
+    """Compute the q_value of a mode."""
     mode = _from_complex(mode)
     return 0.5 * mode[0] / mode[1]
 
 
-def pump_linear(mode, graph, params, D0_0, D0_1):
-    """find the linear approximation of the new wavenumber,
-    for an original pump mode with D0_0, to a new pump D0_1"""
+def pump_linear(mode_0, graph, params, D0_0, D0_1):
+    """Find the linear approximation of the new wavenumber."""
     params["D0"] = D0_0
-    overlapping_factor = compute_overlapping_factor(mode, graph, params)
-    freq = _to_complex(mode)
-
+    overlapping_factor = compute_overlapping_factor(mode_0, graph, params)
+    freq = _to_complex(mode_0)
+    gamma_overlap = _gamma(freq, params) * overlapping_factor
     return _from_complex(
-        freq
-        * np.sqrt(
-            (1.0 + _gamma(freq, params) * overlapping_factor * D0_0)
-            / (1.0 + _gamma(freq, params) * overlapping_factor * D0_1)
-        )
+        freq * np.sqrt((1.0 + gamma_overlap * D0_0) / (1.0 + gamma_overlap * D0_1))
     )
 
 
 def mode_on_nodes(mode, graph, eigenvalue_max=1e-2):
-    """compute the mode solution on the nodes of the graph"""
+    """Compute the mode solution on the nodes of the graph."""
     laplacian = construct_laplacian(_to_complex(mode), graph)
 
     min_eigenvalue, node_solution = sc.sparse.linalg.eigs(
@@ -240,7 +241,7 @@ def mode_on_nodes(mode, graph, eigenvalue_max=1e-2):
 
 
 def flux_on_edges(mode, graph, eigenvalue_max=1e-2):
-    """compute the flux on each edge (in both directions)"""
+    """Compute the flux on each edge (in both directions)."""
 
     node_solution = mode_on_nodes(mode, graph, eigenvalue_max=eigenvalue_max)
 
@@ -251,14 +252,13 @@ def flux_on_edges(mode, graph, eigenvalue_max=1e-2):
 
 
 def mean_mode_on_edges(mode, graph, eigenvalue_max=1e-2):
-    """Compute the average |E|^2 on each edge"""
+    """Compute the average |E|^2 on each edge."""
     edge_flux = flux_on_edges(mode, graph, eigenvalue_max=eigenvalue_max)
 
     mean_edge_solution = np.zeros(len(graph.edges))
-    for ei, e in enumerate(list(graph.edges)):
-        (u, v) = e[:2]
-        k = graph.graph['ks'][ei]
-        l = graph.graph['lengths'][ei]
+    for ei in range(len(graph.edges)):
+        k = graph.graph["ks"][ei]
+        l = graph.graph["lengths"][ei]
         z = np.zeros([2, 2], dtype=np.complex)
 
         z[0, 0] = (np.exp(1.0j * l * (k - np.conj(k))) - 1.0) / (
@@ -280,10 +280,12 @@ def mean_mode_on_edges(mode, graph, eigenvalue_max=1e-2):
     return mean_edge_solution
 
 
-def compute_mode_competition_matrix(graph, params, threshold_modes, lasing_thresholds):
-    """compute the mode competition matrix, or T matrix"""
+def compute_mode_competition_matrix(
+    graph, params, threshold_modes, lasing_thresholds
+):  # pylint: disable=too-many-locals
+    """Compute the mode competition matrix, or T matrix."""
 
-    in_mask, pump_mask = _get_mask_matrices(params)
+    _, pump_mask = _get_mask_matrices(params)
 
     edge_fluxes = []
     k_mus = []
@@ -303,14 +305,14 @@ def compute_mode_competition_matrix(graph, params, threshold_modes, lasing_thres
         edge_fluxes.append(flux_on_edges(mode, graph) / np.sqrt(pump_norm))
 
         # save wavenumbers
-        k_mus.append(graph.graph['ks'])
+        k_mus.append(graph.graph["ks"])
         gammas.append(_gamma(_to_complex(mode), params))
 
-    lengths = graph.graph['lengths']
+    lengths = graph.graph["lengths"]
     T = np.zeros([len(threshold_modes), len(threshold_modes)], dtype=np.complex128)
     for mu in range(len(threshold_modes)):
         for nu in range(len(threshold_modes)):
-            for ei, e in enumerate(graph.edges):
+            for ei in range(len(graph.edges)):
                 if params["pump"][ei] > 0.0 and params["inner"][ei]:
                     k_mu = k_mus[mu][ei]
                     k_nu = k_mus[nu][ei]
@@ -401,7 +403,7 @@ def compute_mode_competition_matrix(graph, params, threshold_modes, lasing_thres
 def _find_next_lasing_mode(
     threshold_modes, lasing_thresholds, lasing_mode_ids, mode_competition_matrix
 ):
-    """find next interacting lasing mode"""
+    """Find next interacting lasing mode."""
     interacting_lasing_thresholds = np.ones(len(threshold_modes)) * 1e10
     for mu in range(len(threshold_modes)):
         if mu not in lasing_mode_ids:
@@ -433,7 +435,7 @@ def _find_next_lasing_mode(
 def compute_modal_intensities(
     graph, params, threshold_modes, lasing_thresholds, pump_intensities
 ):
-    """compute the modal intensities of the modes up to D0, with D0_steps"""
+    """Compute the modal intensities of the modes up to D0, with D0_steps."""
 
     lasing_thresholds = np.array(lasing_thresholds)
 

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-python3 /home/dsaxena/NAQ-graphs/examples/0_generate_graph.py line_PRA
-python3 /home/dsaxena/NAQ-graphs/examples/1_scan_k.py line_PRA
-python3 /home/dsaxena/NAQ-graphs/examples/2_compute_passive_modes.py line_PRA
-python3 /home/dsaxena/NAQ-graphs/examples/3_plot_modes.py line_PRA
-python3 /home/dsaxena/NAQ-graphs/examples/4_compute_trajectories.py line_PRA
-python3 /home/dsaxena/NAQ-graphs/examples/5_compute_lasing_thresholds.py line_PRA
-python3 /home/dsaxena/NAQ-graphs/examples/6_plot_threshold_modes.py line_PRA
-python3 /home/dsaxena/NAQ-graphs/examples/7_mode_competition.py line_PRA
-bash
+
+python3 0_generate_graph.py $1
+python3 1_scan_k.py $1
+python3 2_compute_passive_modes.py $1
+python3 3_plot_modes.py $1
+python3 4_compute_trajectories.py $1
+python3 5_compute_lasing_thresholds.py $1
+python3 6_plot_threshold_modes.py $1
+python3 7_mode_competition.py $1

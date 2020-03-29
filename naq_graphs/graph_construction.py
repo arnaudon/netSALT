@@ -13,6 +13,35 @@ def create_naq_graph(graph, params, positions=None, lengths=None):
     set_inner_edges(graph, params)
 
 
+def get_total_length(graph):
+    """Get the total lenght of the graph."""
+    return sum([graph[u][v]["length"] for u, v in graph.edges()])
+
+
+def get_total_inner_length(graph):
+    """Get the total lenght of the graph."""
+    return sum(
+        [graph[u][v]["length"] for u, v in graph.edges() if graph[u][v]["inner"]]
+    )
+
+
+def set_total_length(graph, total_length, inner=True, with_position=True):
+    """Set the inner total lenghts of the graph to a given value."""
+    if inner:
+        original_total_lenght = get_total_inner_length(graph)
+    else:
+        original_total_lenght = get_total_length(graph)
+
+    length_ratio = total_length / original_total_lenght
+    for u, v in graph.edges:
+        graph[u][v]["length"] *= length_ratio
+    if with_position:
+        for u in graph:
+            graph.nodes[u]["position"] *= length_ratio
+
+    graph.graph["lengths"] = np.array([graph[u][v]["length"] for u, v in graph.edges])
+
+
 def _set_pump_on_graph(graph, params):
     """set the pump values on the graph from params"""
     if "pump" not in params:
@@ -33,8 +62,7 @@ def oversample_graph(graph, params):
 
     _set_pump_on_graph(graph, params)
     oversampled_graph = graph.copy()
-    for ei, e in enumerate(graph.edges):
-        (u, v) = e[:2]
+    for u, v in graph.edges:
         last_node = len(oversampled_graph)
         if graph[u][v]["inner"]:
             n_nodes = int(graph[u][v]["length"] / params["plot_edgesize"])
