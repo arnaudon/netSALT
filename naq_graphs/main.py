@@ -95,9 +95,7 @@ def pump_trajectories(
     if return_approx:
         new_modes_approx_all = []
 
-    new_modes = [
-        modes.copy(),
-    ]
+    new_modes = [modes.copy()]
     for d in tqdm(range(len(D0s) - 1)):
         new_modes_approx = new_modes[-1].copy()
         for m in range(len(modes)):
@@ -114,9 +112,7 @@ def pump_trajectories(
 
         for i, mode in enumerate(new_modes_tmp):
             if mode is None:
-                print(
-                    "A mode could not be updated, consider changing the search parameters"
-                )
+                print("Mode not be updated, consider changing the search parameters.")
                 new_modes_tmp[i] = new_modes[-1][i]
         new_modes.append(new_modes_tmp)
 

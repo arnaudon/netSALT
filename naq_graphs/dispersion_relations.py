@@ -15,52 +15,31 @@ def set_dispersion_relation(graph, dispersion_relation, params):
     graph.graph["dispersion_relation"] = partial(dispersion_relation, params=params)
 
 
-def dispersion_relation_linear(freq, edge_index, params=None):
+def dispersion_relation_linear(freq, params=None):
     """linear dispersion relation with wavespeed"""
     if not params:
         raise Exception("Please provide dispersion parameters")
-    return freq / params["c"][edge_index]
+    return freq / params["c"]
 
 
-def dispersion_relation_dielectric(freq, edge_index, params=None):
+def dispersion_relation_dielectric(freq, params=None):
     """linear dispersion relation with dielectric constant"""
     if not params:
         raise Exception("Please provide dispersion parameters")
-    return freq * np.sqrt(params["dielectric_constant"][edge_index])
+    return freq * np.sqrt(params["dielectric_constant"])
 
 
-def dispersion_relation_pump(freq, edges, params=None):
+def dispersion_relation_pump(freq, params=None):
     """dispersion relation with dielectric constant and pump"""
     if not params:
         raise Exception("Please provide dispersion parameters")
 
-    return freq * np.sqrt(params["dielectric_constant"])
     if "pump" not in params or "D0" not in params:
-        return freq * np.sqrt(params["dielectric_constant"])
-
-    if not params["pump"][edge_index]:
         return freq * np.sqrt(params["dielectric_constant"])
 
     return freq * np.sqrt(
         params["dielectric_constant"]
         + _gamma(freq, params) * params["D0"] * params["pump"]
-    )
-
-
-def dispersion_relation_pump_old(freq, edge_index, params=None):
-    """dispersion relation with dielectric constant and pump"""
-    if not params:
-        raise Exception("Please provide dispersion parameters")
-
-    if "pump" not in params or "D0" not in params:
-        return freq * np.sqrt(params["dielectric_constant"][edge_index])
-
-    if not params["pump"][edge_index]:
-        return freq * np.sqrt(params["dielectric_constant"][edge_index])
-
-    return freq * np.sqrt(
-        params["dielectric_constant"][edge_index]
-        + _gamma(freq, params) * params["D0"] * params["pump"][edge_index]
     )
 
 

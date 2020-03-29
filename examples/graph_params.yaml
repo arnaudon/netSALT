@@ -21,10 +21,10 @@ SM_small:
         #mode search params
         k_min: 12 
         k_max: 19 
-        k_n: 100
+        k_n: 200
         alpha_min: -0.50
         alpha_max: 2.50 
-        alpha_n: 100
+        alpha_n: 200
         
         # params for mode search
         quality_threshold: 0.001
@@ -34,7 +34,7 @@ SM_small:
         reduction_factor: 0.80 
 
         #pumping parameters
-        D0_max: 2.
+        D0_max: 10.
         D0_steps: 21
         k_a: 15
         gamma_perp: 3.0

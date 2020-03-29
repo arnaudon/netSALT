@@ -124,27 +124,17 @@ def clean_duplicate_modes(modes, k_size, alpha_size):
 
     return np.array(modes)
 
-
 def compute_z_matrix(graph):
     """Construct the matrix Z used for computing the pump overlapping factor"""
+    data_diag = (np.exp(2.0j * graph.graph["lengths"] * graph.graph["ks"]) - 1.0) / (2.0j * graph.graph["ks"])
+    data_off_diag = graph.graph["lengths"] * np.exp(1.0j * graph.graph["lengths"] * graph.graph["ks"])
+    data = np.dstack([data_diag, data_diag, data_off_diag, data_off_diag]).flatten()
 
-    Z = sc.sparse.lil_matrix(
-        (2 * len(graph.edges()), 2 * len(graph.edges())), dtype=np.complex
-    )
-
-    for ei, e in enumerate(list(graph.edges())):
-        (u, v) = e[:2]
-
-        l = graph[u][v]["length"]
-        k = graph[u][v]["k"]
-
-        Z[2 * ei, 2 * ei] = (np.exp(2.0j * l * k) - 1.0) / (2.0j * k)
-        Z[2 * ei, 2 * ei + 1] = l * np.exp(1.0j * l * k)
-
-        Z[2 * ei + 1, 2 * ei] = Z[2 * ei, 2 * ei + 1]
-        Z[2 * ei + 1, 2 * ei + 1] = Z[2 * ei, 2 * ei]
-
-    return Z.asformat("csc")
+    m = len(graph.edges)
+    edge_ids = np.arange(m)
+    row = np.dstack([2 * edge_ids, 2 * edge_ids + 1, 2 * edge_ids, 2 * edge_ids + 1]).flatten()
+    col  = np.dstack([2 * edge_ids, 2 * edge_ids + 1, 2 * edge_ids + 1, 2 * edge_ids]).flatten()
+    return sc.sparse.csc_matrix((data, (col, row)), shape=(2 * m, 2 * m))
 
 
 def _convert_edges(vector):
@@ -267,11 +257,10 @@ def mean_mode_on_edges(mode, graph, eigenvalue_max=1e-2):
     mean_edge_solution = np.zeros(len(graph.edges))
     for ei, e in enumerate(list(graph.edges)):
         (u, v) = e[:2]
-
+        k = graph.graph['ks'][ei]
+        l = graph.graph['lengths'][ei]
         z = np.zeros([2, 2], dtype=np.complex)
 
-        l = graph[u][v]["length"]
-        k = graph[u][v]["k"]
         z[0, 0] = (np.exp(1.0j * l * (k - np.conj(k))) - 1.0) / (
             1.0j * l * (k - np.conj(k))
         )
@@ -314,11 +303,10 @@ def compute_mode_competition_matrix(graph, params, threshold_modes, lasing_thres
         edge_fluxes.append(flux_on_edges(mode, graph) / np.sqrt(pump_norm))
 
         # save wavenumbers
-        k_mu = np.array([graph[u][v]["k"] for u, v in graph.edges])
-        k_mus.append(k_mu)
+        k_mus.append(graph.graph['ks'])
         gammas.append(_gamma(_to_complex(mode), params))
 
-    lengths = np.array([graph[u][v]["length"] for u, v in graph.edges])
+    lengths = graph.graph['lengths']
     T = np.zeros([len(threshold_modes), len(threshold_modes)], dtype=np.complex128)
     for mu in range(len(threshold_modes)):
         for nu in range(len(threshold_modes)):

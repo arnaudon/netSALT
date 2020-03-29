@@ -39,7 +39,6 @@ def oversample_graph(graph, params):
         if graph[u][v]["inner"]:
             n_nodes = int(graph[u][v]["length"] / params["plot_edgesize"])
             if n_nodes > 1:
-
                 dielectric_constant = graph[u][v]["dielectric_constant"]
                 pump = graph[u][v]["pump"]
                 oversampled_graph.remove_edge(u, v)
@@ -96,7 +95,7 @@ def construct_laplacian(freq, graph):
 
 def set_wavenumber(graph, freq):
     """set edge wavenumbers from frequency and dispersion relation"""
-    graph.graph["ks"] = graph.graph["dispersion_relation"](freq, graph.edges)
+    graph.graph["ks"] = graph.graph["dispersion_relation"](freq)
 
 
 def construct_incidence_matrix(graph):
