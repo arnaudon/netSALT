@@ -26,3 +26,4 @@ pickle.dump([ks, alphas, qualities], open("scan.pkl", "wb"))
 
 plotting.plot_scan(ks, alphas, qualities, np.array([[0, 0],]))
 plt.savefig("scan_nomodes.svg")
+plt.show()

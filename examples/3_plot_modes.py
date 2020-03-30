@@ -51,7 +51,7 @@ for i, mode in tqdm(enumerate(modes), total=len(modes)):
     plt.savefig("modes/mode_" + str(i) + ".png")
     plt.close()
 
-    if graph_tpe == "line_PRA" or "line_semi":
+    if graph_tpe == "line_PRA" or graph_tpe == "line_semi":
         position_x = [graph.nodes[u]["position"][0] for u in graph]
         E_sorted = node_solution[np.argsort(position_x)]
         node_positions = np.sort(position_x - position_x[1])

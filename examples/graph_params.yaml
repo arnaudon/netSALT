@@ -10,7 +10,7 @@ SM_small:
         p: 0 #0.2
         lead_prob: 1 #0.3
         seed: 2
-        innerL: 1
+        innerL: 100
         dielectric_params: 
             method: 'uniform'
             inner_value: 9.
@@ -19,11 +19,11 @@ SM_small:
         plot_edgesize: 0.01
         
         #mode search params
-        k_min: 12 
-        k_max: 19 
-        k_n: 200
-        alpha_min: -0.50
-        alpha_max: 2.50 
+        k_min: 10.4 #10.6 #12 
+        k_max: 11.0 #10.76 #19 
+        k_n: 10000
+        alpha_min: -0.0 #-0.50
+        alpha_max: 0.02 #2.50 
         alpha_n: 200
         
         # params for mode search
@@ -34,10 +34,10 @@ SM_small:
         reduction_factor: 0.80 
 
         #pumping parameters
-        D0_max: 10.
-        D0_steps: 21
-        k_a: 15
-        gamma_perp: 3.0
+        D0_max: 0.015 #10.
+        D0_steps: 11
+        k_a: 10.68 #15
+        gamma_perp: 0.55 #3.0
 
         #WIP params
         pump_edges: 'all' #[8, 9]        
@@ -121,3 +121,41 @@ line_semi:
         pump_edges: 'all' #[8, 9]        
         open_nodes: []
         
+buffon:
+        #network params
+        n_workers: 1
+        lead_prob: 0
+        seed: 2
+        innerL: 1000
+        dielectric_params: 
+            method: 'uniform'
+            inner_value: 9.
+            outer_value: 1.
+        open_model: 'open_ends'
+        plot_edgesize: 0.01
+        
+        #mode search params
+        k_min: 10.4 #10.6 #12 
+        k_max: 11.0 #10.76 #19 
+        k_n: 1000 #10000
+        alpha_min: -0.0 #-0.50
+        alpha_max: 0.02 #2.50 
+        alpha_n: 200
+        
+        # params for mode search
+        quality_threshold: 0.001
+        search_stepsize: 0.01 
+        max_steps: 1000 
+        max_tries_reduction: 20 
+        reduction_factor: 0.80 
+
+        #pumping parameters
+        D0_max: 0.015 #10.
+        D0_steps: 11
+        k_a: 10.68 #15
+        gamma_perp: 0.55 #3.0
+
+        #WIP params
+        pump_edges: 'all' #[8, 9]        
+        open_nodes: []
+

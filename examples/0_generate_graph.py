@@ -66,3 +66,4 @@ naq.save_graph(graph, params)
 plotting.plot_naq_graph(graph, edge_colors=params["dielectric_constant"], node_size=0.1)
 
 plt.savefig("original_graph.svg")
+plt.show()

@@ -45,7 +45,7 @@ elif graph_tpe == "line_semi":
     naq.set_dielectric_constant(graph, params, custom_values=custom_index)
 
 else:
-    set_dielectric_constant(graph, params)  # for "uniform" and all other graphs
+    naq.set_dielectric_constant(graph, params)  # for "uniform" and all other graphs
 
 naq.set_dispersion_relation(
     graph, naq.dispersion_relations.dispersion_relation_pump, params
@@ -70,7 +70,7 @@ modes = np.array(modes)[np.argsort(lasing_thresholds)]
 lasing_thresholds = np.array(lasing_thresholds)[np.argsort(lasing_thresholds)]
 print("lasing threshold noninteracting", lasing_thresholds)
 
-D0_max = params["D0_max"]  # 10*lasing_thresholds[0] #1 #2.3
+D0_max = 10*params["D0_max"]  # 10*lasing_thresholds[0] #1 #2.3
 n_points = 100
 pump_intensities = np.linspace(0, D0_max, n_points)
 modal_intensities, interacting_lasing_thresholds = naq.compute_modal_intensities(
