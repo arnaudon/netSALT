@@ -123,7 +123,7 @@ line_semi:
         
 buffon:
         #network params
-        n_workers: 3
+        n_workers: 70
         lead_prob: 0
         seed: 2
         innerL: 1000
@@ -135,18 +135,18 @@ buffon:
         plot_edgesize: 0.01
         
         #mode search params
-        k_min: 10.4 #10.6 #12 
-        k_max: 11.0 #10.76 #19 
-        k_n: 1000 #10000
-        alpha_min: -0.0 #-0.50
-        alpha_max: 0.02 #2.50 
-        alpha_n: 200
+        k_min: 10.9
+        k_max: 11.0
+        k_n: 2000
+        alpha_min: -0.0
+        alpha_max: 0.002
+        alpha_n: 100
         
         # params for mode search
-        quality_threshold: 0.001
+        quality_threshold: 1.e-2
         search_stepsize: 0.01 
-        max_steps: 1000 
-        max_tries_reduction: 20 
+        max_steps: 200
+        max_tries_reduction: 10 
         reduction_factor: 0.80 
 
         #pumping parameters

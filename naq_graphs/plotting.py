@@ -6,9 +6,9 @@ import numpy as np
 from .utils import order_edges_by
 
 
-def plot_scan(ks, alphas, qualities, modes=None):
+def plot_scan(ks, alphas, qualities, modes=None, figsize=(10, 5)):
     """plot the scan with the mode found"""
-    plt.figure(figsize=(10, 5))
+    plt.figure(figsize=figsize)
 
     plt.imshow(
         np.log(qualities.T),

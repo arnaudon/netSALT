@@ -22,11 +22,10 @@ ks, alphas, qualities = pickle.load(open("scan.pkl", "rb"))  # save it for later
 modes = naq.find_modes(
     ks, alphas, qualities, graph, params, n_workers=params["n_workers"]
 )
-print("Found", len(modes), "mode(s)")
 
 naq.save_modes(modes)
 
-plotting.plot_scan(ks, alphas, qualities, modes)
+plotting.plot_scan(ks, alphas, qualities, modes, figsize=(30, 5))
 
 plt.savefig("scan_with_modes.svg")
 plt.show()

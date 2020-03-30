@@ -12,18 +12,31 @@ from .utils import _to_complex
 class WorkerModes:
     """Worker to find modes."""
 
-    def __init__(self, estimated_modes, graph, params, D0s=None):
+    def __init__(self, estimated_modes, graph, params, D0s=None, search_radii=None):
+        "Init function of the worker." ""
         self.graph = graph
         self.params = params
         self.estimated_modes = estimated_modes
         self.D0s = D0s
+        self.search_radii = search_radii
+
+    def set_search_radii(self, mode):
+        """This fixes a local search region set by search radii."""
+        if self.search_radii is not None:
+            self.params["k_min"] = mode[0] - self.search_radii[0]
+            self.params["k_max"] = mode[0] + self.search_radii[0]
+            self.params["alpha_min"] = mode[1] - self.search_radii[1]
+            self.params["alpha_max"] = mode[1] + self.search_radii[1]
+            # the 0.1 is hardcoded, and seems to be a good value
+            self.params["search_stepsize"] = 0.1 * np.linalg.norm(self.search_radii)
 
     def __call__(self, mode_id):
+        """Call function of the worker."""
         if self.D0s is not None:
             self.params["D0"] = self.D0s[mode_id]
-        return modes.refine_mode_brownian_ratchet(
-            self.estimated_modes[mode_id], self.graph, self.params
-        )
+        mode = self.estimated_modes[mode_id]
+        # self.set_search_radii(mode)
+        return modes.refine_mode_brownian_ratchet(mode, self.graph, self.params)
 
 
 class WorkerScan:
@@ -45,10 +58,7 @@ def scan_frequencies(graph, params, n_workers=1):
     worker_scan = WorkerScan(graph)
     pool = multiprocessing.Pool(n_workers)
     qualities_list = list(
-        tqdm(
-            pool.imap(worker_scan, freqs, chunksize=100),
-            total=len(freqs),
-        )
+        tqdm(pool.imap(worker_scan, freqs, chunksize=10), total=len(freqs),)
     )
     pool.close()
 
@@ -66,10 +76,18 @@ def find_modes(ks, alphas, qualities, graph, params, n_workers=1):
     estimated_modes = modes.find_rough_modes_from_scan(
         ks, alphas, qualities, min_distance=2, threshold_abs=1.0
     )
-
-    worker_modes = WorkerModes(estimated_modes, graph, params)
+    print("Found", len(estimated_modes), "mode candidates.")
+    search_radii = [1 * (ks[1] - ks[0]), 1 * (alphas[1] - alphas[0])]
+    worker_modes = WorkerModes(
+        estimated_modes, graph, params, search_radii=search_radii
+    )
     pool = multiprocessing.Pool(n_workers)
-    refined_modes = pool.map(worker_modes, range(len(estimated_modes)))
+    refined_modes = list(
+        tqdm(
+            pool.imap(worker_modes, range(len(estimated_modes))),
+            total=len(estimated_modes),
+        )
+    )
     pool.close()
 
     if len(refined_modes) == 0:
@@ -78,6 +96,7 @@ def find_modes(ks, alphas, qualities, graph, params, n_workers=1):
     true_modes = modes.clean_duplicate_modes(
         refined_modes, ks[1] - ks[0], alphas[1] - alphas[0]
     )
+    print("Found", len(true_modes), "after refinements.")
     return true_modes[np.argsort(true_modes[:, 1])]
 
 
@@ -103,7 +122,9 @@ def pump_trajectories(  # pylint: disable=too-many-locals
 
         params["D0"] = D0s[d + 1]
         worker_modes = WorkerModes(new_modes_approx, graph, params)
-        new_modes_tmp = np.array(pool.map(worker_modes, range(len(new_modes_approx))))
+        new_modes_tmp = np.array(
+            list(pool.imap(worker_modes, range(len(new_modes_approx))))
+        )
 
         for i, mode in enumerate(new_modes_tmp):
             if mode is None:
