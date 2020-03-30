@@ -45,10 +45,7 @@ def scan_frequencies(graph, params, n_workers=1):
     worker_scan = WorkerScan(graph)
     pool = multiprocessing.Pool(n_workers)
     qualities_list = list(
-        tqdm(
-            pool.imap(worker_scan, freqs, chunksize=100),
-            total=len(freqs),
-        )
+        tqdm(pool.imap_unordered(worker_scan, freqs, chunksize=10), total=len(freqs),)
     )
     pool.close()
 
@@ -69,7 +66,12 @@ def find_modes(ks, alphas, qualities, graph, params, n_workers=1):
 
     worker_modes = WorkerModes(estimated_modes, graph, params)
     pool = multiprocessing.Pool(n_workers)
-    refined_modes = pool.map(worker_modes, range(len(estimated_modes)))
+    refined_modes = list(
+        tqdm(
+            pool.imap_unordered(worker_modes, range(len(estimated_modes))),
+            total=len(estimated_modes),
+        )
+    )
     pool.close()
 
     if len(refined_modes) == 0:

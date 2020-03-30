@@ -16,9 +16,16 @@ from .dispersion_relations import _gamma
 def laplacian_quality(laplacian, method="eigenvalue"):
     """Return the quality of a mode encoded in the naq laplacian."""
     if method == "eigenvalue":
-        return abs(
-            sc.sparse.linalg.eigs(laplacian, k=1, sigma=0, return_eigenvectors=False)
-        )[0]
+        try:
+            return abs(
+                sc.sparse.linalg.eigs(
+                    laplacian, k=1, sigma=0, return_eigenvectors=False
+                )
+            )[0]
+        except sc.sparse.linalg.ArpackNoConvergence:
+            # If eigenvalue solver did not converge, set to small value,
+            # as it corresponds to having a very singular laplacian.
+            return 1.0e-4
     if method == "singularvalue":
         return sc.sparse.linalg.svds(
             laplacian, k=1, which="SM", return_singular_vectors=False
@@ -70,7 +77,12 @@ def refine_mode_brownian_ratchet(
             / initial_quality
             * np.random.uniform(-1, 1, 2)
         )
+
+        new_mode[0] = np.clip(new_mode[0], params["k_min"], params["k_max"])
+        new_mode[1] = np.clip(new_mode[1], params["alpha_min"], params["alpha_max"])
+
         new_quality = mode_quality(new_mode, graph)
+
         if disp:
             print(
                 "New quality:",
@@ -117,10 +129,7 @@ def clean_duplicate_modes(all_modes, k_size, alpha_size):
                 duplicate_mode_ids.append(mode_id_0)
                 break
 
-    for ids in duplicate_mode_ids:
-        del all_modes[ids]
-
-    return np.array(all_modes)
+    return np.delete(np.array(all_modes), duplicate_mode_ids, axis=0)
 
 
 def compute_z_matrix(graph):
