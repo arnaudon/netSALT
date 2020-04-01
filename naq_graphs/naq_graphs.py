@@ -101,10 +101,11 @@ def find_modes(ks, alphas, qualities, graph, params, n_workers=1):
 
 
 def pump_trajectories(  # pylint: disable=too-many-locals
-    passive_modes, graph, params, D0s, n_workers=1, return_approx=False
+    passive_modes, graph, params, D0s, return_approx=False
 ):
     """For a sequence of D0s, find the mode positions of the modes modes."""
-    pool = multiprocessing.Pool(n_workers)
+    print(params['n_workers'])
+    pool = multiprocessing.Pool(params['n_workers'])
 
     if return_approx:
         new_modes_approx_all = []
@@ -123,9 +124,7 @@ def pump_trajectories(  # pylint: disable=too-many-locals
         params["D0"] = D0s[d + 1]
         params["alpha_min"] = -1e10  # to allow for going to upper plane
         worker_modes = WorkerModes(new_modes_approx, graph, params)
-        new_modes_tmp = np.array(
-            pool.map(worker_modes, range(len(new_modes_approx)))
-        )
+        new_modes_tmp = np.array(pool.map(worker_modes, range(len(new_modes_approx))))
 
         for i, mode in enumerate(new_modes_tmp):
             if mode is None:

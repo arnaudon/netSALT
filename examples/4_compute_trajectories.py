@@ -37,7 +37,7 @@ else:
 
 D0s = np.linspace(0, params["D0_max"], params["D0_steps"])
 modes_trajectories, modes_trajectories_approx = naq.pump_trajectories(
-    passive_modes, graph, params, D0s, n_workers=params["n_workers"], return_approx=True
+    passive_modes, graph, params, D0s, return_approx=True
 )
 
 naq.save_modes(modes_trajectories, modes_trajectories_approx, filename="trajectories")
