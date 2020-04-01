@@ -124,7 +124,7 @@ def pump_trajectories(  # pylint: disable=too-many-locals
         params["alpha_min"] = -1e10  # to allow for going to upper plane
         worker_modes = WorkerModes(new_modes_approx, graph, params)
         new_modes_tmp = np.array(
-            list(pool.imap(worker_modes, range(len(new_modes_approx))))
+            pool.map(worker_modes, range(len(new_modes_approx)))
         )
 
         for i, mode in enumerate(new_modes_tmp):
@@ -147,6 +147,7 @@ def find_threshold_lasing_modes(  # pylint: disable=too-many-locals
     pool = multiprocessing.Pool(n_workers)
     stepsize = params["search_stepsize"]
 
+    params["alpha_min"] = -1e10  # to allow for going to upper plane
     new_modes = passive_modes.copy()
     threshold_lasing_modes = []
 
