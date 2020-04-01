@@ -35,7 +35,7 @@ class WorkerModes:
         if self.D0s is not None:
             self.params["D0"] = self.D0s[mode_id]
         mode = self.estimated_modes[mode_id]
-        # self.set_search_radii(mode)
+        self.set_search_radii(mode)
         return modes.refine_mode_brownian_ratchet(mode, self.graph, self.params)
 
 
@@ -121,6 +121,7 @@ def pump_trajectories(  # pylint: disable=too-many-locals
             new_modes_approx_all.append(new_modes_approx)
 
         params["D0"] = D0s[d + 1]
+        params["alpha_min"] = -1e10  # to allow for going to upper plane
         worker_modes = WorkerModes(new_modes_approx, graph, params)
         new_modes_tmp = np.array(
             list(pool.imap(worker_modes, range(len(new_modes_approx))))
