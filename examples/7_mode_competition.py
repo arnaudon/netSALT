@@ -70,7 +70,7 @@ modes = np.array(modes)[np.argsort(lasing_thresholds)]
 lasing_thresholds = np.array(lasing_thresholds)[np.argsort(lasing_thresholds)]
 print("lasing threshold noninteracting", lasing_thresholds)
 
-D0_max = 10*params["D0_max"]  # 10*lasing_thresholds[0] #1 #2.3
+D0_max = 2*params["D0_max"]  # 10*lasing_thresholds[0] #1 #2.3
 n_points = 100
 pump_intensities = np.linspace(0, D0_max, n_points)
 modal_intensities, interacting_lasing_thresholds = naq.compute_modal_intensities(
@@ -96,7 +96,7 @@ for i, intens in enumerate(modal_intensities):
             c=cmap.colors[n_lase % 10],
             label="$k$" + str(i) + ": " + str(np.round(modes[i][0], decimals=2)),
         )
-        plt.axvline(lasing_thresholds[i], c=cmap.colors[n_lase % 10], ls="--")
+        #plt.axvline(lasing_thresholds[i], c=cmap.colors[n_lase % 10], ls="--")
         n_lase += 1
 
 plt.legend()
@@ -130,7 +130,10 @@ for i, intens in enumerate(modal_intensities):
 pickle.dump([Ks, spectr], open("uniform_spectra.pkl", "wb"))
 
 # plt.plot(Ks, spectr, '-k')
-plt.stem(modeks, I0s, basefmt=" ")
+markerline, stemlines, baseline = plt.stem(modeks, I0s, '-')
+markerline.set_markerfacecolor('white')
+plt.setp(baseline, 'color', 'grey', 'linewidth', 1)
+plt.yscale('symlog')
 plt.xlabel(r"$k$")
 plt.ylabel("Intensity (a.u.)")
 

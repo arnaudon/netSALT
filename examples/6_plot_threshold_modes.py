@@ -66,7 +66,7 @@ else:
             params["pump"][i] = 1
 
 
-graph = naq.oversample_graph(graph, params)
+#graph = naq.oversample_graph(graph, params)
 positions = [graph.nodes[u]["position"] for u in graph]
 
 threshold_modes, lasing_thresholds = naq.load_modes(filename="threshold_modes")
@@ -85,7 +85,7 @@ for i, threshold_mode in enumerate(threshold_modes):
         graph,
         pos=positions,
         node_color=abs(node_solution) ** 2,
-        node_size=5,
+        node_size=2,
         cmap=plt.get_cmap("Blues"),
     )
     plt.colorbar(nodes, label=r"$|E|^2$ (a.u)")
@@ -93,7 +93,7 @@ for i, threshold_mode in enumerate(threshold_modes):
         graph,
         pos=positions,
         edge_color=edge_solution,
-        width=5,
+        width=2,
         edge_cmap=plt.get_cmap("Blues"),
     )
 

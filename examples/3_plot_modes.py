@@ -18,7 +18,7 @@ os.chdir(graph_tpe)
 
 graph, params = naq.load_graph()
 
-graph = naq.oversample_graph(graph, params)
+#graph = naq.oversample_graph(graph, params)
 positions = [graph.nodes[u]["position"] for u in graph]
 
 modes = naq.load_modes()
@@ -35,7 +35,7 @@ for i, mode in tqdm(enumerate(modes), total=len(modes)):
         graph,
         pos=positions,
         node_color=abs(node_solution) ** 2,
-        node_size=5,
+        node_size=2,
         cmap=plt.get_cmap("Blues"),
     )
     plt.colorbar(nodes, label=r"$|E|^2$ (a.u)")
@@ -43,7 +43,7 @@ for i, mode in tqdm(enumerate(modes), total=len(modes)):
         graph,
         pos=positions,
         edge_color=edge_solution,
-        width=5,
+        width=2,
         edge_cmap=plt.get_cmap("Blues"),
     )
     plt.title("k=" + str(np.around(modes[i, 0], 3) - 1j * np.around(modes[i, 1], 3)))

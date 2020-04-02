@@ -4,8 +4,8 @@
 
 SM_small:
         #network params
-        n_workers: 3
-        n: 10 #11
+        n_workers: 10
+        n: 30 #11
         k: 2
         p: 0 #0.2
         lead_prob: 1 #0.3
@@ -123,24 +123,24 @@ line_semi:
         
 buffon:
         #network params
-        n_workers: 10
+        n_workers: 36
         lead_prob: 0
         seed: 2
-        innerL: 1000
+        innerL: 3000
         dielectric_params: 
             method: 'uniform'
-            inner_value: 9.
-            outer_value: 1.
+            inner_value: 2.25
+            outer_value: 2.25
         open_model: 'open_ends'
         plot_edgesize: 0.01
         
         #mode search params
-        k_min: 10.9
+        k_min: 10.4
         k_max: 11.0
-        k_n: 2000
+        k_n: 30000
         alpha_min: -0.0
-        alpha_max: 0.002
-        alpha_n: 100
+        alpha_max: 0.003
+        alpha_n: 300
         
         # params for mode search
         quality_threshold: 1.e-2
@@ -150,7 +150,7 @@ buffon:
         reduction_factor: 0.80 
 
         #pumping parameters
-        D0_max: 0.015 #10.
+        D0_max: 0.0015 #10.
         D0_steps: 11
         k_a: 10.68 #15
         gamma_perp: 0.55 #3.0
