@@ -49,14 +49,14 @@ class WorkerScan:
         return modes.mode_quality(_to_complex(freq), self.graph)
 
 
-def scan_frequencies(graph, params, n_workers=1):
+def scan_frequencies(graph, params):
     """Scan a range of complex frequencies and return mode qualities."""
     ks = np.linspace(params["k_min"], params["k_max"], params["k_n"])
     alphas = np.linspace(params["alpha_min"], params["alpha_max"], params["alpha_n"])
     freqs = [[k, a] for k in ks for a in alphas]
 
     worker_scan = WorkerScan(graph)
-    pool = multiprocessing.Pool(n_workers)
+    pool = multiprocessing.Pool(params["n_workers"])
     qualities_list = list(
         tqdm(pool.imap(worker_scan, freqs, chunksize=10), total=len(freqs),)
     )
@@ -104,8 +104,8 @@ def pump_trajectories(  # pylint: disable=too-many-locals
     passive_modes, graph, params, D0s, return_approx=False
 ):
     """For a sequence of D0s, find the mode positions of the modes modes."""
-    print(params['n_workers'])
-    pool = multiprocessing.Pool(params['n_workers'])
+    print(params["n_workers"])
+    pool = multiprocessing.Pool(params["n_workers"])
 
     if return_approx:
         new_modes_approx_all = []

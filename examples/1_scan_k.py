@@ -18,9 +18,7 @@ os.chdir(graph_tpe)
 
 graph, params = naq.load_graph()
 
-ks, alphas, qualities = naq.scan_frequencies(
-    graph, params, n_workers=params["n_workers"]
-)
+ks, alphas, qualities = naq.scan_frequencies(graph, params)
 
 pickle.dump([ks, alphas, qualities], open("scan.pkl", "wb"))
 

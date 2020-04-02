@@ -150,7 +150,7 @@ buffon:
         reduction_factor: 0.80 
 
         #pumping parameters
-        D0_max: 0.0015 #10.
+        D0_max: 0.0002 #10.
         D0_steps: 11
         k_a: 10.68 #15
         gamma_perp: 0.55 #3.0

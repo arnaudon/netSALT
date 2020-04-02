@@ -1,5 +1,6 @@
 """input/output functions"""
 import pickle
+import numpy as np
 
 
 def save_graph(graph, params, filename="graph.pkl"):
@@ -17,7 +18,10 @@ def save_modes(modes, lasing_thresholds=None, filename="passive_modes"):
     if lasing_thresholds is None:
         pickle.dump(modes, open(filename + ".pkl", "wb"))
     else:
-        pickle.dump([modes, lasing_thresholds], open(filename + ".pkl", "wb"))
+        pickle.dump(
+            [np.array(modes), np.array(lasing_thresholds)],
+            open(filename + ".pkl", "wb"),
+        )
 
 
 def load_modes(filename="passive_modes"):

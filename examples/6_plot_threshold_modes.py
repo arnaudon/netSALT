@@ -66,7 +66,7 @@ else:
             params["pump"][i] = 1
 
 
-#graph = naq.oversample_graph(graph, params)
+# graph = naq.oversample_graph(graph, params)
 positions = [graph.nodes[u]["position"] for u in graph]
 
 threshold_modes, lasing_thresholds = naq.load_modes(filename="threshold_modes")

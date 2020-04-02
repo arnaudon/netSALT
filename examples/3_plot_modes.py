@@ -18,7 +18,7 @@ os.chdir(graph_tpe)
 
 graph, params = naq.load_graph()
 
-#graph = naq.oversample_graph(graph, params)
+# graph = naq.oversample_graph(graph, params)
 positions = [graph.nodes[u]["position"] for u in graph]
 
 modes = naq.load_modes()
