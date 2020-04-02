@@ -23,15 +23,13 @@ def laplacian_quality(laplacian, method="eigenvalue"):
                 )
             )[0]
         except sc.sparse.linalg.ArpackNoConvergence:
-            # If eigenvalue solver did not converge, set to small value,
-            # as it corresponds to having a very singular laplacian.
-            return 1.0e-4
+            # If eigenvalue solver did not converge, set to 1.0,
+            return 1.0 
     if method == "singularvalue":
         return sc.sparse.linalg.svds(
             laplacian, k=1, which="SM", return_singular_vectors=False
         )[0]
-
-    return 0.0
+    return 1.0
 
 
 def mode_quality(mode, graph):

@@ -11,7 +11,7 @@ def plot_scan(ks, alphas, qualities, modes=None, figsize=(10, 5)):
     plt.figure(figsize=figsize)
 
     plt.imshow(
-        np.log(qualities.T),
+        np.log10(qualities.T),
         extent=(ks[0], ks[-1], alphas[0], alphas[-1]),
         aspect="auto",
         origin="lower",
