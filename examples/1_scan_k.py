@@ -1,10 +1,10 @@
 import os
+import pickle
 import sys
 
-import pickle
+import matplotlib.pyplot as plt
 import numpy as np
 import yaml
-import matplotlib.pyplot as plt
 
 import naq_graphs as naq
 from naq_graphs import plotting
@@ -14,14 +14,16 @@ if len(sys.argv) > 1:
 else:
     print("give me a type of graph please!")
 
+params = yaml.full_load(open("graph_params.yaml", "rb"))[graph_tpe]
+
 os.chdir(graph_tpe)
 
-graph, params = naq.load_graph()
+graph = naq.load_graph()
+naq.update_parameters(graph, params)
 
-ks, alphas, qualities = naq.scan_frequencies(graph, params)
+qualities = naq.scan_frequencies(graph)
+pickle.dump(qualities, open("scan.pkl", "wb"))
 
-pickle.dump([ks, alphas, qualities], open("scan.pkl", "wb"))
-
-plotting.plot_scan(ks, alphas, qualities, np.array([[0, 0],]))
+plotting.plot_scan(graph, qualities)
 plt.savefig("scan_nomodes.svg")
 plt.show()

@@ -2,6 +2,21 @@
 import numpy as np
 
 
+def get_scan_grid(graph):
+    """Return arrays of values to scan in complex plane."""
+    ks = np.linspace(
+        graph.graph["params"]["k_min"],
+        graph.graph["params"]["k_max"],
+        graph.graph["params"]["k_n"],
+    )
+    alphas = np.linspace(
+        graph.graph["params"]["alpha_min"],
+        graph.graph["params"]["alpha_max"],
+        graph.graph["params"]["alpha_n"],
+    )
+    return ks, alphas
+
+
 def _to_complex(mode):
     """Convert mode array to complex number."""
     if isinstance(mode, complex):

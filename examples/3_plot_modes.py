@@ -1,11 +1,11 @@
 import os
 import sys
 
-import yaml
-from tqdm import tqdm
 import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
+import yaml
+from tqdm import tqdm
 
 import naq_graphs as naq
 
@@ -14,9 +14,12 @@ if len(sys.argv) > 1:
 else:
     print("give me a type of graph please!")
 
+params = yaml.full_load(open("graph_params.yaml", "rb"))[graph_tpe]
+
 os.chdir(graph_tpe)
 
-graph, params = naq.load_graph()
+graph = naq.load_graph()
+naq.update_parameters(graph, params)
 
 # graph = naq.oversample_graph(graph, params)
 positions = [graph.nodes[u]["position"] for u in graph]

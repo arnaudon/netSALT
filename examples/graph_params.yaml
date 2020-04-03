@@ -34,6 +34,7 @@ SM_small:
         reduction_factor: 0.80 
 
         #pumping parameters
+        D0_min: 0.0
         D0_max: 0.015 #10.
         D0_steps: 11
         k_a: 10.68 #15
@@ -45,7 +46,7 @@ SM_small:
 
 line_PRA:
         #network params
-        n_workers: 1
+        n_workers: 10
         n: 103 #43 #103
         lead_prob: -0.2
         seed: 2
@@ -60,7 +61,7 @@ line_PRA:
         #mode search params
         k_min: 12 
         k_max: 19 
-        k_n: 100
+        k_n: 200
         alpha_min: -0.0
         alpha_max: 1.0 
         alpha_n: 50
@@ -73,6 +74,7 @@ line_PRA:
         reduction_factor: 0.80 
 
         #pumping parameters
+        D0_min: 0.
         D0_max: 1.2
         D0_steps: 11
         k_a: 15 #0.1
@@ -112,6 +114,7 @@ line_semi:
         reduction_factor: 0.80 
 
         #pumping parameters
+        D0_min: 0.0
         D0_max: 0.2
         D0_steps: 11
         k_a: 20 #40
@@ -150,6 +153,7 @@ buffon:
         reduction_factor: 0.80 
 
         #pumping parameters
+        D0_min: 0.0
         D0_max: 0.0002 #10.
         D0_steps: 11
         k_a: 10.68 #15

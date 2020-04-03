@@ -1,15 +1,17 @@
 """input/output functions"""
 import pickle
+
 import numpy as np
 
 
-def save_graph(graph, params, filename="graph.pkl"):
-    """save a the naq graph"""
-    pickle.dump([graph, params], open(filename, "wb"))
+def save_graph(graph, filename="graph.pkl"):
+    """Save a the naq graph."""
+    # pickle.dump([graph, params], open(filename, "wb"))
+    pickle.dump(graph, open(filename, "wb"))
 
 
 def load_graph(filename="graph.pkl"):
-    """load a the naq graph"""
+    """Load a the naq graph."""
     return pickle.load(open(filename, "rb"))
 
 

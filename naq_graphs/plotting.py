@@ -3,11 +3,14 @@ import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
 
-from .utils import order_edges_by
+from .utils import get_scan_grid, order_edges_by
 
 
-def plot_scan(ks, alphas, qualities, modes=None, figsize=(10, 5)):
+def plot_scan(graph, qualities, modes=None, figsize=(10, 5)):
     """plot the scan with the mode found"""
+
+    ks, alphas = get_scan_grid(graph)
+
     plt.figure(figsize=figsize)
 
     plt.imshow(

@@ -1,13 +1,12 @@
 import os
+import pickle
 import sys
 
-import pickle
+import matplotlib.pyplot as plt
 import numpy as np
 import yaml
-import matplotlib.pyplot as plt
 
 import naq_graphs as naq
-
 from naq_graphs import plotting
 
 if len(sys.argv) > 1:
@@ -15,9 +14,11 @@ if len(sys.argv) > 1:
 else:
     print("give me a type of graph please!")
 
+params = yaml.full_load(open("graph_params.yaml", "rb"))[graph_tpe]
+
 os.chdir(graph_tpe)
 
-graph, params = naq.load_graph()
+graph = naq.load_graph()
 
 positions = [graph.nodes[u]["position"] for u in graph]
 
@@ -35,15 +36,17 @@ else:
         if graph[u][v]["inner"]:
             params["pump"][i] = 1
 
-D0s = np.linspace(0, params["D0_max"], params["D0_steps"])
+naq.update_parameters(graph, params)
+naq.save_graph(graph)
+
 modes_trajectories, modes_trajectories_approx = naq.pump_trajectories(
-    passive_modes, graph, params, D0s, return_approx=True
+    passive_modes, graph, return_approx=True
 )
 
 naq.save_modes(modes_trajectories, modes_trajectories_approx, filename="trajectories")
 
-ks, alphas, qualities = pickle.load(open("scan.pkl", "rb"))
-plotting.plot_scan(ks, alphas, qualities, passive_modes)
+qualities = pickle.load(open("scan.pkl", "rb"))
+plotting.plot_scan(graph, qualities, passive_modes)
 plotting.plot_pump_traj(passive_modes, modes_trajectories, modes_trajectories_approx)
 plt.savefig("mode_trajectories.png")
 plt.show()

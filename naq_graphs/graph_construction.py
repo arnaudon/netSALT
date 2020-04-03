@@ -1,7 +1,7 @@
 """graph construction methods"""
+import networkx as nx
 import numpy as np
 import scipy as sc
-import networkx as nx
 
 from .dispersion_relations import update_params_dielectric_constant
 
@@ -11,6 +11,47 @@ def create_naq_graph(graph, params, positions=None, lengths=None):
     set_node_positions(graph, positions)
     set_edge_lengths(graph, lengths=lengths)
     set_inner_edges(graph, params)
+    update_parameters(graph, params)
+
+
+def update_parameters(graph, params, force=False):
+    """Set the parameter dictionary to the graph."""
+    warning_params = [
+        "k_min",
+        "k_max",
+        "k_n",
+        "alpha_min",
+        "alpha_max",
+        "alpha_n",
+        "k_a",
+        "gamma_perp",
+        "dielectric_params",
+    ]
+    if "params" not in graph.graph:
+        graph.graph["params"] = params
+    else:
+        for param, value in params.items():
+            if param not in graph.graph["params"]:
+                print("Adding new parameter:", param)
+                graph.graph["params"][param] = value
+            elif graph.graph["params"][param] != value:
+                if param in warning_params:
+                    if force:
+                        print(
+                            "WARNING: you have forced the update of parameter",
+                            param,
+                            "so things may not work anymore.",
+                        )
+                        graph.graph["params"][param] = value
+                    else:
+                        print(
+                            "You are trying to update parmeter:",
+                            param,
+                            "but this may break the pipeline, so we will not update it. Use argument force=True to update if you really want it.",
+                        )
+                else:
+                    print("Parameter:", param, "is updated with value", value)
+                    graph.graph["params"][param] = value
 
 
 def get_total_length(graph):

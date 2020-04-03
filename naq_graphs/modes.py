@@ -1,18 +1,16 @@
 """Functions related to modes."""
+import multiprocessing
+from functools import partial
+
 import numpy as np
 import scipy as sc
-from tqdm import tqdm
-from functools import partial
-import multiprocessing
 from skimage.feature import peak_local_max
+from tqdm import tqdm
 
-from .graph_construction import (
-    construct_laplacian,
-    construct_incidence_matrix,
-    construct_weight_matrix,
-)
-from .utils import _to_complex, _from_complex
 from .dispersion_relations import _gamma
+from .graph_construction import (construct_incidence_matrix,
+                                 construct_laplacian, construct_weight_matrix)
+from .utils import _from_complex, _to_complex
 
 
 def laplacian_quality(laplacian, method="eigenvalue"):
@@ -79,7 +77,7 @@ def refine_mode_brownian_ratchet(
         )
 
         new_mode[0] = np.clip(new_mode[0], params["k_min"], params["k_max"])
-        new_mode[1] = np.clip(new_mode[1], params["alpha_min"], params["alpha_max"])
+        new_mode[1] = np.clip(new_mode[1], None, params["alpha_max"])
 
         new_quality = mode_quality(new_mode, graph)
 
@@ -181,10 +179,10 @@ def _graph_norm(BT, Bout, Winv, z_matrix, node_solution, mask):
     return norm
 
 
-def compute_overlapping_factor(passive_mode, graph, params):
+def compute_overlapping_factor(passive_mode, graph):
     """Compute the overlappin factor of a mode with the pump."""
-    dielectric_constant = _get_dielectric_constant_matrix(params)
-    in_mask, pump_mask = _get_mask_matrices(params)
+    dielectric_constant = _get_dielectric_constant_matrix(graph.graph["params"])
+    in_mask, pump_mask = _get_mask_matrices(graph.graph["params"])
     inner_dielectric_constants = dielectric_constant.dot(in_mask)
 
     node_solution = mode_on_nodes(passive_mode, graph)
@@ -202,13 +200,13 @@ def compute_overlapping_factor(passive_mode, graph, params):
     return pump_norm / inner_norm
 
 
-def lasing_threshold_linear(mode, graph, params, D0):
+def lasing_threshold_linear(mode, graph, D0):
     """Find the linear approximation of the new wavenumber."""
-    params["D0"] = D0
-    overlapping_factor = -compute_overlapping_factor(mode, graph, params)
+    graph.graph["params"]["D0"] = D0
+    overlapping_factor = -compute_overlapping_factor(mode, graph)
     return 1.0 / (
         q_value(mode)
-        * np.imag(_gamma(_to_complex(mode), params))
+        * np.imag(_gamma(_to_complex(mode), graph.graph["params"]))
         * np.real(overlapping_factor)
     )
 
@@ -219,12 +217,12 @@ def q_value(mode):
     return 0.5 * mode[0] / mode[1]
 
 
-def pump_linear(mode_0, graph, params, D0_0, D0_1):
+def pump_linear(mode_0, graph, D0_0, D0_1):
     """Find the linear approximation of the new wavenumber."""
-    params["D0"] = D0_0
-    overlapping_factor = compute_overlapping_factor(mode_0, graph, params)
+    graph.graph["params"]["D0"] = D0_0
+    overlapping_factor = compute_overlapping_factor(mode_0, graph)
     freq = _to_complex(mode_0)
-    gamma_overlap = _gamma(freq, params) * overlapping_factor
+    gamma_overlap = _gamma(freq, graph.graph["params"]) * overlapping_factor
     return _from_complex(
         freq * np.sqrt((1.0 + gamma_overlap * D0_0) / (1.0 + gamma_overlap * D0_1))
     )
@@ -289,11 +287,11 @@ def mean_mode_on_edges(mode, graph, eigenvalue_max=1e-2):
     return mean_edge_solution
 
 
-def _precomputations_mode_competition(graph, pump_mask, params, mode_threshold):
+def _precomputations_mode_competition(graph, pump_mask, mode_threshold):
     """precompute some quantities for a mode for mode competitiion matrix"""
     mode, threshold = mode_threshold
 
-    params["D0"] = threshold
+    graph.graph["params"]["D0"] = threshold
     node_solution = mode_on_nodes(mode, graph)
 
     z_matrix = compute_z_matrix(graph)
@@ -303,7 +301,7 @@ def _precomputations_mode_competition(graph, pump_mask, params, mode_threshold):
 
     edge_flux = flux_on_edges(mode, graph) / np.sqrt(pump_norm)
     k_mu = graph.graph["ks"]
-    gamma = _gamma(_to_complex(mode), params)
+    gamma = _gamma(_to_complex(mode), graph.graph["params"])
 
     return k_mu, edge_flux, gamma
 
@@ -399,12 +397,14 @@ def _compute_mode_competition_element(lengths, params, data):
     return -matrix_element * np.imag(gamma_nu)
 
 
-def compute_mode_competition_matrix(graph, params, threshold_modes, lasing_thresholds):
+def compute_mode_competition_matrix(graph, threshold_modes, lasing_thresholds):
     """Compute the mode competition matrix, or T matrix."""
-    pool = multiprocessing.Pool(params["n_workers"])
+    pool = multiprocessing.Pool(graph.graph["params"]["n_workers"])
 
     precomp = partial(
-        _precomputations_mode_competition, graph, _get_mask_matrices(params)[1], params
+        _precomputations_mode_competition,
+        graph,
+        _get_mask_matrices(graph.graph["params"])[1],
     )
     precomp_results = list(
         tqdm(
@@ -429,7 +429,10 @@ def compute_mode_competition_matrix(graph, params, threshold_modes, lasing_thres
     output_data = list(
         tqdm(
             pool.imap(
-                partial(_compute_mode_competition_element, lengths, params), input_data
+                partial(
+                    _compute_mode_competition_element, lengths, graph.graph["params"]
+                ),
+                input_data,
             ),
             total=len(input_data),
         )

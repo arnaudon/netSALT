@@ -1,17 +1,14 @@
 import os as os
+import pickle as pickle
 import sys as sys
 
+import matplotlib.pyplot as plt
 import numpy as np
 import yaml as yaml
 
-import pickle as pickle
-import matplotlib.pyplot as plt
-
-from graph_generator import generate_graph
-
-from naq_graphs import plotting
 import naq_graphs as naq
-
+from graph_generator import generate_graph
+from naq_graphs import plotting
 
 if len(sys.argv) > 1:
     graph_tpe = sys.argv[-1]
@@ -61,7 +58,9 @@ naq.set_dispersion_relation(
     graph, naq.dispersion_relations.dispersion_relation_pump, params
 )
 
-naq.save_graph(graph, params)
+
+naq.update_parameters(graph, params)
+naq.save_graph(graph)
 
 plotting.plot_naq_graph(graph, edge_colors=params["dielectric_constant"], node_size=0.1)
 
