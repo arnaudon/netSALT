@@ -5,10 +5,10 @@
 SM_small:
         #network params
         n_workers: 10
-        n: 30 #11
+        n: 6 #11
         k: 2
         p: 0 #0.2
-        lead_prob: 1 #0.3
+        lead_prob: 0.2 #0.3
         seed: 2
         innerL: 100
         dielectric_params: 
@@ -21,10 +21,10 @@ SM_small:
         #mode search params
         k_min: 10.4 #10.6 #12 
         k_max: 11.0 #10.76 #19 
-        k_n: 10000
+        k_n: 5000
         alpha_min: -0.0 #-0.50
-        alpha_max: 0.02 #2.50 
-        alpha_n: 200
+        alpha_max: 0.005 #2.50 
+        alpha_n: 100
         
         # params for mode search
         quality_threshold: 0.001
@@ -35,7 +35,7 @@ SM_small:
 
         #pumping parameters
         D0_min: 0.0
-        D0_max: 0.015 #10.
+        D0_max: 0.005 #10.
         D0_steps: 11
         k_a: 10.68 #15
         gamma_perp: 0.55 #3.0

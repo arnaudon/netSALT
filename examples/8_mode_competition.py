@@ -27,7 +27,7 @@ threshold_modes, lasing_thresholds = naq.load_modes(filename="threshold_modes")
 
 mode_competition_matrix = pickle.load(open("mode_competition_matrix.pkl", "rb"))
 
-D0_max = params["D0_max"]
+D0_max = 10*params["D0_max"]
 n_points = 1000
 pump_intensities = np.linspace(0, D0_max, n_points)
 modal_intensities, interacting_lasing_thresholds = naq.compute_modal_intensities(
@@ -59,7 +59,7 @@ for i, intens in enumerate(modal_intensities):
             + ": "
             + str(np.round(threshold_modes[i][0], decimals=2)),
         )
-        # plt.axvline(lasing_thresholds[i], c=cmap.colors[n_lase % 10], ls="--")
+        plt.axvline(lasing_thresholds[i], c=cmap.colors[n_lase % 10], ls="--")
         n_lase += 1
 
 plt.legend()
