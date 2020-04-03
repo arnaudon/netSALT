@@ -18,6 +18,7 @@ else:
 params = yaml.full_load(open("graph_params.yaml", "rb"))[graph_tpe]
 
 graph, positions = generate_graph(tpe=graph_tpe, params=params)
+graph.graph["name"] = graph_tpe
 
 if not os.path.isdir(graph_tpe):
     os.mkdir(graph_tpe)

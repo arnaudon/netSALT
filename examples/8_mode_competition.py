@@ -22,32 +22,24 @@ os.chdir(graph_tpe)
 graph = naq.load_graph()
 naq.update_parameters(graph, params)
 
-threshold_modes, lasing_thresholds = naq.load_modes(filename="threshold_modes")
-# print("lasing threshold noninteracting", lasing_thresholds)
+modes_df = naq.load_modes()
 
 mode_competition_matrix = pickle.load(open("mode_competition_matrix.pkl", "rb"))
 
-D0_max = 10*params["D0_max"]
+D0_max = params["D0_max"]
 n_points = 1000
 pump_intensities = np.linspace(0, D0_max, n_points)
-modal_intensities, interacting_lasing_thresholds = naq.compute_modal_intensities(
-    np.array(threshold_modes),
-    np.array(lasing_thresholds),
-    pump_intensities,
-    mode_competition_matrix,
+modes_df = naq.compute_modal_intensities(
+    modes_df, pump_intensities, mode_competition_matrix
 )
-# print("Interacting thresholds:", interacting_lasing_thresholds)
 
-pickle.dump(
-    [pump_intensities, modal_intensities, interacting_lasing_thresholds],
-    open("modal_intensities_uniform.pkl", "wb"),
-)
+naq.save_modes(modes_df)
 
 plt.figure(figsize=(5, 3))
 cmap = plt.cm.get_cmap("tab10")
 
 n_lase = 0
-for i, intens in enumerate(modal_intensities):
+for i, intens in enumerate(modes_df["modal_intensities"].to_numpy()):
     if intens[-1] > 0:
         plt.plot(
             pump_intensities,
@@ -57,21 +49,23 @@ for i, intens in enumerate(modal_intensities):
             label="$k$"
             + str(i)
             + ": "
-            + str(np.round(threshold_modes[i][0], decimals=2)),
+            + str(
+                np.round(np.real(modes_df.loc[i, "threshold_lasing_modes"]), decimals=2)
+            ),
         )
-        plt.axvline(lasing_thresholds[i], c=cmap.colors[n_lase % 10], ls="--")
+        plt.axvline(
+            modes_df.loc[i, "lasing_thresholds"], c=cmap.colors[n_lase % 10], ls="--"
+        )
         n_lase += 1
 
 plt.legend()
-plt.title(
-    "Uniform mode " + str(n_lase) + " lasing modes out of " + str(len(threshold_modes))
-)
+plt.title("Uniform mode " + str(n_lase) + " lasing modes out of " + str(len(modes_df)))
 plt.xlabel(r"$D_0$")
 plt.ylabel(r"$I_\mu$")
 
 plt.savefig("uniform_modal_pump.svg", bbox_inches="tight")
 
-Ks = np.linspace(params["k_min"], params["k_max"], 1000)
+Ks = np.linspace(graph.graph["params"]["k_min"], graph.graph["params"]["k_max"], 1000)
 
 
 def lorentzian(k, k0, gamma):
@@ -84,11 +78,11 @@ I0s = []
 modeks = []
 
 plt.figure(figsize=(5, 2))
-for i, intens in enumerate(modal_intensities):
+for i, intens in enumerate(modes_df["modal_intensities"].to_numpy()):
     if intens[-1] > 0:
-        modeks.append(threshold_modes[i][0])
+        modeks.append(np.real(modes_df.loc[i, "threshold_lasing_modes"]))
         I0s.append(intens[-1])
-    center = threshold_modes[i][0]
+    center = modeks[-1]
     spectr += intens[-1] * lorentzian(Ks, center, gamma)
 
 pickle.dump([Ks, spectr], open("uniform_spectra.pkl", "wb"))

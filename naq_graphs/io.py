@@ -1,6 +1,6 @@
 """input/output functions"""
 import pickle
-
+import pandas as pd
 import numpy as np
 
 
@@ -15,7 +15,7 @@ def load_graph(filename="graph.pkl"):
     return pickle.load(open(filename, "rb"))
 
 
-def save_modes(modes, lasing_thresholds=None, filename="passive_modes"):
+def save_modes_old(modes, lasing_thresholds=None, filename="passive_modes"):
     """save modes in a pickle"""
     if lasing_thresholds is None:
         pickle.dump(modes, open(filename + ".pkl", "wb"))
@@ -26,6 +26,11 @@ def save_modes(modes, lasing_thresholds=None, filename="passive_modes"):
         )
 
 
-def load_modes(filename="passive_modes"):
-    """return modes in a pickle"""
-    return pickle.load(open(filename + ".pkl", "rb"))
+def save_modes(modes_df, filename="modes_results.h5"):
+    """Save modes dataframe into h5."""
+    modes_df.to_hdf(filename, key="modes")
+
+
+def load_modes(filename="modes_results.h5"):
+    """Return modes dataframe from hdf5"""
+    return pd.read_hdf(filename, "modes")

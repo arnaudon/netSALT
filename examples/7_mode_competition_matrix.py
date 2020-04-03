@@ -22,9 +22,7 @@ os.chdir(graph_tpe)
 graph = naq.load_graph()
 naq.update_parameters(graph, params)
 
-threshold_modes, lasing_thresholds = naq.load_modes(filename="threshold_modes")
+modes_df = naq.load_modes()
 
-mode_competition_matrix = naq.compute_mode_competition_matrix(
-    graph, threshold_modes, lasing_thresholds
-)
+mode_competition_matrix = naq.compute_mode_competition_matrix(graph, modes_df)
 pickle.dump(mode_competition_matrix, open("mode_competition_matrix.pkl", "wb"))

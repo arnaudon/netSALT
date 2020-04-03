@@ -2,11 +2,13 @@
 import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
+from tqdm import tqdm
 
 from .utils import get_scan_grid, order_edges_by
+from .modes import mode_on_nodes, mean_mode_on_edges
 
 
-def plot_scan(graph, qualities, modes=None, figsize=(10, 5)):
+def plot_scan(graph, qualities, modes_df=None, figsize=(10, 5)):
     """plot the scan with the mode found"""
 
     ks, alphas = get_scan_grid(graph)
@@ -27,9 +29,9 @@ def plot_scan(graph, qualities, modes=None, figsize=(10, 5)):
     plt.xlabel(r"$Real(k)$")
     plt.ylabel(r"$\alpha = -Im(k)$")
 
-    if modes is not None:
-        for mode in modes:
-            plt.plot(mode[0], mode[1], "r+")
+    if modes_df is not None:
+        modes = modes_df["passive"].to_numpy()
+        plt.plot(np.real(modes), -np.imag(modes), "r+")
 
     plt.axis([ks[0], ks[-1], alphas[-1], alphas[0]])
 
@@ -99,26 +101,86 @@ def plot_naq_graph(graph, edge_colors=None, node_colors=None, node_size=1):
     plt.gca().tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
 
 
-def plot_pump_traj(modes, new_modes, new_modes_approx=None):
+def plot_pump_traj(modes_df):  # , new_modes, new_modes_approx=None):
     """plot pump trajectories"""
+    # TODO: clean this mess with dataframes...
+    modes = modes_df["passive"].to_numpy()
+    new_modes = modes_df["mode_trajectories"].to_numpy()
+    new_modes_approx = modes_df["mode_trajectories_approx"].to_numpy()
 
-    plt.scatter(modes[:, 0], modes[:, 1], s=20, c="r")
+    plt.scatter(np.real(modes), -np.imag(modes), s=20, c="r")
     for i in range(len(modes)):
-        plt.scatter(new_modes[:, i, 0], new_modes[:, i, 1], marker="o", s=10, c="b")
-        plt.plot(new_modes[:, i, 0], new_modes[:, i, 1], c="b")
+        plt.scatter(
+            np.real(new_modes[:][i]), -np.imag(new_modes[:][i]), marker="o", s=10, c="b"
+        )
+        plt.plot(np.real(new_modes[:][i]), -np.imag(new_modes[:][i]), c="b")
     if new_modes_approx is not None:
         for i in range(len(modes)):
-            for j in range(len(new_modes_approx[:, i, 0])):
+            for j in range(len(new_modes_approx[i])):
                 plt.plot(
-                    [new_modes[j, i, 0], new_modes_approx[j, i, 0]],
-                    [new_modes[j, i, 1], new_modes_approx[j, i, 1]],
+                    [np.real(new_modes[i][j]), np.real(new_modes_approx[i][j])],
+                    [-np.imag(new_modes[i][j]), -np.imag(new_modes_approx[i][j])],
                     c="k",
                     lw=0.5,
                 )
             plt.scatter(
-                new_modes_approx[:, i, 0],
-                new_modes_approx[:, i, 1],
+                np.real(new_modes_approx[i]),
+                -np.imag(new_modes_approx[i]),
                 marker="+",
                 s=10,
                 c="k",
             )
+
+
+def plot_modes(graph, modes_df, df_entry="passive", folder="modes"):
+    """Plot modes on the graph"""
+    # TODO: cleaning needed here
+    positions = [graph.nodes[u]["position"] for u in graph]
+
+    for i, mode in tqdm(enumerate(modes_df[df_entry]), total=len(modes_df)):
+
+        if df_entry == "threshold_lasing_modes":
+            graph.graph["params"]["D0"] = modes_df["lasing_thresholds"][i]
+        node_solution = mode_on_nodes(mode, graph)
+        edge_solution = mean_mode_on_edges(mode, graph)
+
+        plt.figure(figsize=(6, 4))
+        nodes = nx.draw_networkx_nodes(
+            graph,
+            pos=positions,
+            node_color=abs(node_solution) ** 2,
+            node_size=2,
+            cmap=plt.get_cmap("Blues"),
+        )
+        plt.colorbar(nodes, label=r"$|E|^2$ (a.u)")
+        edges_k = nx.draw_networkx_edges(
+            graph,
+            pos=positions,
+            edge_color=edge_solution,
+            width=2,
+            edge_cmap=plt.get_cmap("Blues"),
+        )
+        plt.title(
+            "k=" + str(np.around(np.real(mode), 3) - 1j * np.around(np.imag(mode), 3))
+        )
+
+        plt.savefig(folder + "/mode_" + str(i) + ".png")
+        plt.close()
+
+        if graph.graph["name"] == "line_PRA" or graph.graph["name"] == "line_semi":
+            position_x = [graph.nodes[u]["position"][0] for u in graph]
+            E_sorted = node_solution[np.argsort(position_x)]
+            node_positions = np.sort(position_x - position_x[1])
+
+            plt.figure()
+            plt.plot(
+                node_positions[1:-1], abs(E_sorted[1:-1]) ** 2
+            )  # only plot over inner edges
+
+            plt.title(
+                "k="
+                + str(np.around(np.real(mode), 3) - 1j * np.around(np.imag(mode), 3))
+            )
+            plt.savefig(folder + "/profile_mode_" + str(i) + ".svg")
+
+            # naq.save_modes(node_positions, E_sorted, filename="modes/passivemode_" + str(i))

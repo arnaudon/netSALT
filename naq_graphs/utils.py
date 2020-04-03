@@ -17,14 +17,14 @@ def get_scan_grid(graph):
     return ks, alphas
 
 
-def _to_complex(mode):
+def to_complex(mode):
     """Convert mode array to complex number."""
     if isinstance(mode, complex):
         return mode
     return mode[0] - 1.0j * mode[1]
 
 
-def _from_complex(freq):
+def from_complex(freq):
     """Convert mode array to complex number."""
     if isinstance(freq, list):
         return freq

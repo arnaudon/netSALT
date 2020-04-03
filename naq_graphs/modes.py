@@ -8,9 +8,12 @@ from skimage.feature import peak_local_max
 from tqdm import tqdm
 
 from .dispersion_relations import _gamma
-from .graph_construction import (construct_incidence_matrix,
-                                 construct_laplacian, construct_weight_matrix)
-from .utils import _from_complex, _to_complex
+from .graph_construction import (
+    construct_incidence_matrix,
+    construct_laplacian,
+    construct_weight_matrix,
+)
+from .utils import from_complex, to_complex
 
 
 def laplacian_quality(laplacian, method="eigenvalue"):
@@ -34,7 +37,7 @@ def laplacian_quality(laplacian, method="eigenvalue"):
 
 def mode_quality(mode, graph):
     """Quality of a mode, small means good quality."""
-    laplacian = construct_laplacian(_to_complex(mode), graph)
+    laplacian = construct_laplacian(to_complex(mode), graph)
     return laplacian_quality(laplacian)
 
 
@@ -206,14 +209,14 @@ def lasing_threshold_linear(mode, graph, D0):
     overlapping_factor = -compute_overlapping_factor(mode, graph)
     return 1.0 / (
         q_value(mode)
-        * np.imag(_gamma(_to_complex(mode), graph.graph["params"]))
+        * np.imag(_gamma(to_complex(mode), graph.graph["params"]))
         * np.real(overlapping_factor)
     )
 
 
 def q_value(mode):
     """Compute the q_value of a mode."""
-    mode = _from_complex(mode)
+    mode = from_complex(mode)
     return 0.5 * mode[0] / mode[1]
 
 
@@ -221,16 +224,16 @@ def pump_linear(mode_0, graph, D0_0, D0_1):
     """Find the linear approximation of the new wavenumber."""
     graph.graph["params"]["D0"] = D0_0
     overlapping_factor = compute_overlapping_factor(mode_0, graph)
-    freq = _to_complex(mode_0)
+    freq = to_complex(mode_0)
     gamma_overlap = _gamma(freq, graph.graph["params"]) * overlapping_factor
-    return _from_complex(
+    return from_complex(
         freq * np.sqrt((1.0 + gamma_overlap * D0_0) / (1.0 + gamma_overlap * D0_1))
     )
 
 
 def mode_on_nodes(mode, graph, eigenvalue_max=1e-2):
     """Compute the mode solution on the nodes of the graph."""
-    laplacian = construct_laplacian(_to_complex(mode), graph)
+    laplacian = construct_laplacian(to_complex(mode), graph)
 
     min_eigenvalue, node_solution = sc.sparse.linalg.eigs(
         laplacian, k=1, sigma=0, v0=np.ones(len(graph))
@@ -301,7 +304,7 @@ def _precomputations_mode_competition(graph, pump_mask, mode_threshold):
 
     edge_flux = flux_on_edges(mode, graph) / np.sqrt(pump_norm)
     k_mu = graph.graph["ks"]
-    gamma = _gamma(_to_complex(mode), graph.graph["params"])
+    gamma = _gamma(to_complex(mode), graph.graph["params"])
 
     return k_mu, edge_flux, gamma
 
@@ -397,8 +400,11 @@ def _compute_mode_competition_element(lengths, params, data):
     return -matrix_element * np.imag(gamma_nu)
 
 
-def compute_mode_competition_matrix(graph, threshold_modes, lasing_thresholds):
+def compute_mode_competition_matrix(graph, modes_df):
     """Compute the mode competition matrix, or T matrix."""
+    threshold_modes = modes_df["threshold_lasing_modes"]
+    lasing_thresholds = modes_df["lasing_thresholds"]
+
     pool = multiprocessing.Pool(graph.graph["params"]["n_workers"])
 
     precomp = partial(
@@ -485,9 +491,12 @@ def _find_next_lasing_mode(
 
 
 def compute_modal_intensities(
-    threshold_modes, lasing_thresholds, pump_intensities, mode_competition_matrix,
+    modes_df, pump_intensities, mode_competition_matrix,
 ):
     """Compute the modal intensities of the modes up to D0, with D0_steps."""
+    threshold_modes = modes_df["threshold_lasing_modes"]
+    lasing_thresholds = modes_df["lasing_thresholds"]
+
     next_lasing_mode_id = np.argmin(lasing_thresholds)
     next_lasing_threshold = lasing_thresholds[next_lasing_mode_id]
 
@@ -518,4 +527,10 @@ def compute_modal_intensities(
                 1
             )
 
-    return modal_intensities, interacting_lasing_thresholds
+    interacting_lasing_thresholds_all = np.inf * np.ones(len(modes_df))
+    interacting_lasing_thresholds_all[lasing_mode_ids] = interacting_lasing_thresholds[
+        :-1
+    ]
+    modes_df["interacting_lasing_thresholds"] = interacting_lasing_thresholds_all
+    modes_df["modal_intensities"] = list(modal_intensities)
+    return modes_df

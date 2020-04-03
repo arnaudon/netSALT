@@ -14,6 +14,13 @@ def create_naq_graph(graph, params, positions=None, lengths=None):
     update_parameters(graph, params)
 
 
+def _not_equal(data1, data2):
+    """Check if datasets are the same."""
+    if isinstance(data1, np.ndarray):
+        return all(data1 != data2)
+    return data1 != data2
+
+
 def update_parameters(graph, params, force=False):
     """Set the parameter dictionary to the graph."""
     warning_params = [
@@ -34,7 +41,7 @@ def update_parameters(graph, params, force=False):
             if param not in graph.graph["params"]:
                 print("Adding new parameter:", param)
                 graph.graph["params"][param] = value
-            elif graph.graph["params"][param] != value:
+            elif _not_equal(graph.graph["params"][param], value):
                 if param in warning_params:
                     if force:
                         print(

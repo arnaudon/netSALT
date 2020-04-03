@@ -4,9 +4,10 @@ import multiprocessing
 import numpy as np
 import scipy as sc
 from tqdm import tqdm
+import pandas as pd
 
 from . import modes
-from .utils import _to_complex, get_scan_grid
+from .utils import to_complex, from_complex, get_scan_grid
 
 
 class WorkerModes:
@@ -46,7 +47,7 @@ class WorkerScan:
         self.graph = graph
 
     def __call__(self, freq):
-        return modes.mode_quality(_to_complex(freq), self.graph)
+        return modes.mode_quality(to_complex(freq), self.graph)
 
 
 def scan_frequencies(graph):
@@ -96,10 +97,14 @@ def find_modes(graph, qualities):
         refined_modes, ks[1] - ks[0], alphas[1] - alphas[0]
     )
     print("Found", len(true_modes), "after refinements.")
-    return true_modes[np.argsort(true_modes[:, 1])]
+
+    modes_df = pd.DataFrame()
+    modes_df["passive"] = [to_complex(true_mode) for true_mode in true_modes]
+    # return true_modes[np.argsort(true_modes[:, 1])]
+    return modes_df
 
 
-def pump_trajectories(passive_modes, graph, return_approx=False):
+def pump_trajectories(modes_df, graph, return_approx=False):
     """For a sequence of D0s, find the mode positions of the modes modes."""
 
     D0s = np.linspace(
@@ -113,10 +118,10 @@ def pump_trajectories(passive_modes, graph, return_approx=False):
     if return_approx:
         new_modes_approx_all = []
 
-    new_modes = [passive_modes.copy()]
+    new_modes = [[from_complex(mode) for mode in modes_df["passive"]]]
     for d in tqdm(range(len(D0s) - 1)):
         new_modes_approx = new_modes[-1].copy()
-        for m in range(len(passive_modes)):
+        for m in range(len(modes_df)):
             new_modes_approx[m] = modes.pump_linear(
                 new_modes[-1][m], graph, D0s[d], D0s[d + 1]
             )
@@ -137,24 +142,40 @@ def pump_trajectories(passive_modes, graph, return_approx=False):
 
     pool.close()
 
+    # TODO: use pandas everywhere instead of this dirty trick
+    mode_trajectories = [
+        [to_complex(new_modes[j][i]) for j in range(np.shape(new_modes)[0])]
+        for i in range(np.shape(new_modes)[1])
+    ]
+    modes_df["mode_trajectories"] = mode_trajectories
+
     if return_approx:
-        return np.array(new_modes), np.array(new_modes_approx_all)
-    return np.array(new_modes)
+        mode_trajectories_approx = [
+            [
+                to_complex(new_modes_approx_all[j][i])
+                for j in range(np.shape(new_modes_approx_all)[0])
+            ]
+            for i in range(np.shape(new_modes_approx_all)[1])
+        ]
+        modes_df["mode_trajectories_approx"] = mode_trajectories_approx
+
+    return modes_df
 
 
-def find_threshold_lasing_modes(  # pylint: disable=too-many-locals
-    passive_modes, graph, threshold=1e-2, n_workers=1
-):
+def find_threshold_lasing_modes(modes_df, graph, threshold=1e-5):
     """Find the threshold lasing modes and associated lasing thresholds."""
-    pool = multiprocessing.Pool(n_workers)
+    pool = multiprocessing.Pool(graph.graph["params"]["n_workers"])
     stepsize = graph.graph["params"]["search_stepsize"]
 
-    new_modes = passive_modes.copy()
+    new_modes = modes_df["passive"].to_numpy()
+
     threshold_lasing_modes = []
-
     lasing_thresholds = []
-    D0s = np.zeros(len(passive_modes))
+    D0_steps = (
+        graph.graph["params"]["D0_max"] - graph.graph["params"]["D0_min"]
+    ) / graph.graph["params"]["D0_steps"]
 
+    D0s = np.zeros(len(modes_df))
     while len(new_modes) > 0:
         print(len(new_modes), "modes left to find")
 
@@ -162,8 +183,7 @@ def find_threshold_lasing_modes(  # pylint: disable=too-many-locals
         new_modes_approx = []
         for i, new_mode in enumerate(new_modes):
             new_D0s[i] = D0s[i] + modes.lasing_threshold_linear(new_mode, graph, D0s[i])
-
-            new_D0s[i] = min(graph.graph["params"]["D0_steps"] + D0s[i], new_D0s[i])
+            new_D0s[i] = min(new_D0s[i], D0_steps + D0s[i])
 
             new_modes_approx.append(
                 modes.pump_linear(new_mode, graph, D0s[i], new_D0s[i])
@@ -176,7 +196,7 @@ def find_threshold_lasing_modes(  # pylint: disable=too-many-locals
 
         worker_modes = WorkerModes(new_modes_approx, graph, D0s=new_D0s)
         new_modes_tmp = np.array(pool.map(worker_modes, range(len(new_modes_approx))))
-
+        print(new_modes_approx, new_modes_tmp)
         selected_modes = []
         selected_D0s = []
         for i, mode in enumerate(new_modes_tmp):
@@ -199,5 +219,8 @@ def find_threshold_lasing_modes(  # pylint: disable=too-many-locals
         D0s = selected_D0s.copy()
 
     pool.close()
-
-    return threshold_lasing_modes, lasing_thresholds
+    modes_df["threshold_lasing_modes"] = [
+        to_complex(mode) for mode in threshold_lasing_modes
+    ]
+    modes_df["lasing_thresholds"] = lasing_thresholds
+    return modes_df

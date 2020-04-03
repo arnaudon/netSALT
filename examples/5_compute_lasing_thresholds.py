@@ -24,28 +24,22 @@ naq.update_parameters(graph, params)
 
 positions = [graph.nodes[u]["position"] for u in graph]
 
-passive_modes = naq.load_modes()
+modes_df = naq.load_modes()
 
-modes_trajectories, modes_trajectories_approx = pickle.load(
-    open("trajectories.pkl", "rb")
-)
+modes_df = naq.find_threshold_lasing_modes(modes_df, graph)
 
-threshold_lasing_modes, lasing_thresholds = naq.find_threshold_lasing_modes(
-    passive_modes, graph, n_workers=params["n_workers"], threshold=1e-5,
-)
-
-naq.save_modes(threshold_lasing_modes, lasing_thresholds, filename="threshold_modes")
-
-print("threshold modes", threshold_lasing_modes)
-print("non interacting thresholds", lasing_thresholds)
+naq.save_modes(modes_df)
 
 qualities = pickle.load(open("scan.pkl", "rb"))
-plotting.plot_scan(graph, qualities, passive_modes)
-plotting.plot_pump_traj(passive_modes, modes_trajectories, modes_trajectories_approx)
+
+plotting.plot_scan(graph, qualities, modes_df)
+plotting.plot_pump_traj(modes_df)
+
 plt.scatter(
-    np.array(threshold_lasing_modes)[:, 0],
-    np.array(threshold_lasing_modes)[:, 1],
+    np.real(modes_df["threshold_lasing_modes"].to_numpy()),
+    -np.imag(modes_df["threshold_lasing_modes"].to_numpy()),
     c="m",
 )
+
 plt.savefig("mode_trajectories.png")
 plt.show()

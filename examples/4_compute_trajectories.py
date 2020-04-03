@@ -19,10 +19,7 @@ params = yaml.full_load(open("graph_params.yaml", "rb"))[graph_tpe]
 os.chdir(graph_tpe)
 
 graph = naq.load_graph()
-
-positions = [graph.nodes[u]["position"] for u in graph]
-
-passive_modes = naq.load_modes()
+modes_df = naq.load_modes()
 
 # set pump profile for PRA example
 if graph_tpe == "line_PRA" and params["dielectric_params"]["method"] == "custom":
@@ -39,14 +36,13 @@ else:
 naq.update_parameters(graph, params)
 naq.save_graph(graph)
 
-modes_trajectories, modes_trajectories_approx = naq.pump_trajectories(
-    passive_modes, graph, return_approx=True
-)
-
-naq.save_modes(modes_trajectories, modes_trajectories_approx, filename="trajectories")
+modes_df = naq.pump_trajectories(modes_df, graph, return_approx=True)
+naq.save_modes(modes_df)
 
 qualities = pickle.load(open("scan.pkl", "rb"))
-plotting.plot_scan(graph, qualities, passive_modes)
-plotting.plot_pump_traj(passive_modes, modes_trajectories, modes_trajectories_approx)
+plotting.plot_scan(graph, qualities, modes_df)
+plotting.plot_pump_traj(
+    modes_df
+)  # passive_modes, modes_trajectories, modes_trajectories_approx)
 plt.savefig("mode_trajectories.png")
 plt.show()

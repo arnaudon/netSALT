@@ -7,6 +7,7 @@ import numpy as np
 import yaml
 
 import naq_graphs as naq
+from naq_graphs import plotting
 from graph_generator import generate_graph
 
 if len(sys.argv) > 1:
@@ -20,15 +21,21 @@ os.chdir(graph_tpe)
 
 graph = naq.load_graph()
 naq.update_parameters(graph, params)
-
 # graph = naq.oversample_graph(graph, params)
-positions = [graph.nodes[u]["position"] for u in graph]
 
-threshold_modes, lasing_thresholds = naq.load_modes(filename="threshold_modes")
+modes_df = naq.load_modes()
+print(modes_df)
+# threshold_modes, lasing_thresholds = naq.load_modes(filename="threshold_modes")
 
 if not os.path.isdir("threshold_modes"):
     os.mkdir("threshold_modes")
 
+plotting.plot_modes(
+    graph, modes_df, df_entry="threshold_lasing_modes", folder="threshold_modes"
+)
+
+sys.exit()
+positions = [graph.nodes[u]["position"] for u in graph]
 for i, threshold_mode in enumerate(threshold_modes):
     graph.graph["params"]["D0"] = lasing_thresholds[i]
 
