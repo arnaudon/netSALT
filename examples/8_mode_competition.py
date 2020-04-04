@@ -26,7 +26,7 @@ modes_df = naq.load_modes()
 
 mode_competition_matrix = pickle.load(open("mode_competition_matrix.pkl", "rb"))
 
-D0_max = params["D0_max"]
+D0_max = 2*params["D0_max"]
 n_points = 1000
 pump_intensities = np.linspace(0, D0_max, n_points)
 modes_df = naq.compute_modal_intensities(
@@ -72,7 +72,7 @@ def lorentzian(k, k0, gamma):
     return gamma ** 2 / ((k - k0) ** 2 + gamma ** 2)
 
 
-gamma = 0.02
+gamma = 0.005
 spectr = np.zeros(len(Ks))
 I0s = []
 modeks = []
@@ -82,16 +82,16 @@ for i, intens in enumerate(modes_df["modal_intensities"].to_numpy()):
     if intens[-1] > 0:
         modeks.append(np.real(modes_df.loc[i, "threshold_lasing_modes"]))
         I0s.append(intens[-1])
-    center = modeks[-1]
-    spectr += intens[-1] * lorentzian(Ks, center, gamma)
+        center = modeks[-1]
+        spectr += intens[-1] * lorentzian(Ks, center, gamma)
 
 pickle.dump([Ks, spectr], open("uniform_spectra.pkl", "wb"))
 
-# plt.plot(Ks, spectr, '-k')
+#plt.plot(Ks, spectr, '-k')
 markerline, stemlines, baseline = plt.stem(modeks, I0s, "-")
 markerline.set_markerfacecolor("white")
 plt.setp(baseline, "color", "grey", "linewidth", 1)
-plt.yscale("symlog")
+#plt.yscale("symlog")
 plt.xlabel(r"$k$")
 plt.ylabel("Intensity (a.u.)")
 
