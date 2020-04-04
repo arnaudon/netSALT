@@ -2,6 +2,13 @@
 import numpy as np
 
 
+def lorentzian(k, graph):
+    return graph.graph["params"]["gamma_perp"] ** 2 / (
+        (k - graph.graph["params"]["k_a"]) ** 2
+        + graph.graph["params"]["gamma_perp"] ** 2
+    )
+
+
 def get_scan_grid(graph):
     """Return arrays of values to scan in complex plane."""
     ks = np.linspace(

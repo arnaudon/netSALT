@@ -28,8 +28,8 @@ def save_modes_old(modes, lasing_thresholds=None, filename="passive_modes"):
 
 def save_modes(modes_df, filename="modes_results"):
     """Save modes dataframe into h5."""
-    modes_df.to_hdf(filename + '.h5', key="modes")
-    modes_df.to_csv(filename + '.csv')
+    modes_df.to_hdf(filename + ".h5", key="modes")
+    modes_df.to_csv(filename + ".csv")
 
 
 def load_modes(filename="modes_results.h5"):

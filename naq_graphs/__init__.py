@@ -15,3 +15,5 @@ from .modes import (
     mode_on_nodes,
 )
 from .naq_graphs import *
+
+from .utils import lorentzian

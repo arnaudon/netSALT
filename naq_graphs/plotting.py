@@ -3,9 +3,50 @@ import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
 from tqdm import tqdm
+from itertools import cycle
 
-from .utils import get_scan_grid, order_edges_by
+from .utils import get_scan_grid, order_edges_by, lorentzian
 from .modes import mode_on_nodes, mean_mode_on_edges
+
+
+def plot_stem_spectra(graph, modes_df, pump_index):
+    """Plot spectra with stem plots."""
+    threshold_modes = modes_df["threshold_lasing_modes"]
+    modal_amplitudes = modes_df["modal_intensities"].iloc[:, pump_index]
+
+    plt.figure(figsize=(5, 2))
+    markerline, stemlines, baseline = plt.stem(threshold_modes, modal_amplitudes, "-")
+    markerline.set_markerfacecolor("white")
+    plt.setp(baseline, "color", "grey", "linewidth", 1)
+    plt.xlabel(r"$k$")
+    plt.ylabel("Intensity (a.u.)")
+
+    plt.twinx()
+    ks = np.linspace(
+        graph.graph["params"]["k_min"], graph.graph["params"]["k_max"], 1000
+    )
+    plt.plot(ks, lorentzian(ks, graph), "r--")
+    plt.ylabel("Gain spectrum (a.u.)")
+
+
+def plot_ll_curve(graph, modes_df):
+    """Plot LL curves."""
+    colors = cycle(["C{}".format(i) for i in range(10)])
+    pump_intensities = modes_df["modal_intensities"].columns.values
+    plt.figure(figsize=(5, 3))
+    for i, intens in enumerate(modes_df["modal_intensities"].to_numpy()):
+        if intens[-1] > 0:
+            color = next(colors)
+            plt.plot(pump_intensities, intens, label="$mode $" + str(i), c=color)
+            plt.axvline(
+                modes_df["lasing_thresholds"][i], c=color, ls="dotted", ymin=0, ymax=0.1
+            )
+
+    plt.legend()
+    top = np.max(modes_df["modal_intensities"].to_numpy())
+    plt.axis([pump_intensities[0], pump_intensities[-1], -0.02 * top, top])
+    plt.xlabel(r"$D_0$")
+    plt.ylabel(r"$I_\mu$")
 
 
 def plot_scan(graph, qualities, modes_df=None, figsize=(10, 5)):
@@ -103,29 +144,22 @@ def plot_naq_graph(graph, edge_colors=None, node_colors=None, node_size=1):
 
 def plot_pump_traj(modes_df):  # , new_modes, new_modes_approx=None):
     """plot pump trajectories"""
-    # TODO: clean this mess with dataframes...
-    modes = modes_df["passive"].to_numpy()
-    new_modes = modes_df["mode_trajectories"].to_numpy()
-    new_modes_approx = modes_df["mode_trajectories_approx"].to_numpy()
+    passive_modes = modes_df["passive"].to_numpy()
+    plt.scatter(np.real(passive_modes), -np.imag(passive_modes), s=20, c="r")
 
-    plt.scatter(np.real(modes), -np.imag(modes), s=20, c="r")
-    for i in range(len(modes)):
+    pumped_modes = modes_df["mode_trajectories"].to_numpy()
+    for pumped_mode in pumped_modes:
         plt.scatter(
-            np.real(new_modes[:][i]), -np.imag(new_modes[:][i]), marker="o", s=10, c="b"
+            np.real(pumped_mode), -np.imag(pumped_mode), marker="o", s=10, c="b"
         )
-        plt.plot(np.real(new_modes[:][i]), -np.imag(new_modes[:][i]), c="b")
-    if new_modes_approx is not None:
-        for i in range(len(modes)):
-            for j in range(len(new_modes_approx[i])):
-                plt.plot(
-                    [np.real(new_modes[i][j]), np.real(new_modes_approx[i][j])],
-                    [-np.imag(new_modes[i][j]), -np.imag(new_modes_approx[i][j])],
-                    c="k",
-                    lw=0.5,
-                )
+        plt.plot(np.real(pumped_mode), -np.imag(pumped_mode), c="b")
+
+    if "mode_trajectories_approx" in modes_df:
+        pumped_modes_approx = modes_df["mode_trajectories_approx"].to_numpy()
+        for pumped_mode_approx in pumped_modes_approx:
             plt.scatter(
-                np.real(new_modes_approx[i]),
-                -np.imag(new_modes_approx[i]),
+                np.real(pumped_mode_approx),
+                -np.imag(pumped_mode_approx),
                 marker="+",
                 s=10,
                 c="k",
@@ -138,9 +172,9 @@ def plot_modes(graph, modes_df, df_entry="passive", folder="modes"):
     positions = [graph.nodes[u]["position"] for u in graph]
 
     for i, mode in tqdm(enumerate(modes_df[df_entry]), total=len(modes_df)):
-
         if df_entry == "threshold_lasing_modes":
             graph.graph["params"]["D0"] = modes_df["lasing_thresholds"][i]
+
         node_solution = mode_on_nodes(mode, graph)
         edge_solution = mean_mode_on_edges(mode, graph)
 

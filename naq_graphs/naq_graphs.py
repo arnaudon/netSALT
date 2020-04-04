@@ -98,10 +98,17 @@ def find_modes(graph, qualities):
     )
     print("Found", len(true_modes), "after refinements.")
 
-    modes_df = pd.DataFrame()
+    modes_df = _init_dataframe()
     modes_df["passive"] = [to_complex(true_mode) for true_mode in true_modes]
-    # return true_modes[np.argsort(true_modes[:, 1])]
     return modes_df
+
+
+def _init_dataframe():
+    """Initialize multicolumn dataframe."""
+    indexes = pd.MultiIndex(
+        levels=[[], []], codes=[[], []], names=["data", "pump strength"], dtype=np.float
+    )
+    return pd.DataFrame(columns=indexes)
 
 
 def pump_trajectories(modes_df, graph, return_approx=False):
@@ -114,51 +121,38 @@ def pump_trajectories(modes_df, graph, return_approx=False):
     )
 
     pool = multiprocessing.Pool(graph.graph["params"]["n_workers"])
+    n_modes = len(modes_df)
 
-    if return_approx:
-        new_modes_approx_all = []
-
-    new_modes = [[from_complex(mode) for mode in modes_df["passive"]]]
+    pumped_modes = [[from_complex(mode) for mode in modes_df["passive"]]]
+    pumped_modes_approx = pumped_modes.copy()
     for d in tqdm(range(len(D0s) - 1)):
-        new_modes_approx = new_modes[-1].copy()
-        for m in range(len(modes_df)):
-            new_modes_approx[m] = modes.pump_linear(
-                new_modes[-1][m], graph, D0s[d], D0s[d + 1]
+        pumped_modes_approx.append(pumped_modes[-1].copy())
+        for m in range(n_modes):
+            pumped_modes_approx[-1][m] = modes.pump_linear(
+                pumped_modes[-1][m], graph, D0s[d], D0s[d + 1]
             )
 
-        if return_approx:
-            new_modes_approx_all.append(new_modes_approx)
-
         worker_modes = WorkerModes(
-            new_modes_approx, graph, D0s=len(new_modes_approx) * [D0s[d + 1]]
+            pumped_modes_approx[-1], graph, D0s=n_modes * [D0s[d + 1]]
         )
-        new_modes_tmp = np.array(pool.map(worker_modes, range(len(new_modes_approx))))
-
-        for i, mode in enumerate(new_modes_tmp):
+        pumped_modes.append(pool.map(worker_modes, range(n_modes)))
+        for i, mode in enumerate(pumped_modes[-1]):
             if mode is None:
                 print("Mode not be updated, consider changing the search parameters.")
-                new_modes_tmp[i] = new_modes[-1][i]
-        new_modes.append(new_modes_tmp)
+                pumped_modes[-1][i] = pumped_modes[-2][i]
 
     pool.close()
 
-    # TODO: use pandas everywhere instead of this dirty trick
-    mode_trajectories = [
-        [to_complex(new_modes[j][i]) for j in range(np.shape(new_modes)[0])]
-        for i in range(np.shape(new_modes)[1])
-    ]
-    modes_df["mode_trajectories"] = mode_trajectories
+    for D0, pumped_mode in zip(D0s, pumped_modes):
+        modes_df["mode_trajectories", D0] = [to_complex(mode) for mode in pumped_mode]
 
     if return_approx:
-        mode_trajectories_approx = [
-            [
-                to_complex(new_modes_approx_all[j][i])
-                for j in range(np.shape(new_modes_approx_all)[0])
+        for D0, pumped_mode_approx in zip(D0s, pumped_modes_approx):
+            modes_df["mode_trajectories_approx", D0] = [
+                to_complex(mode) for mode in pumped_mode_approx
             ]
-            for i in range(np.shape(new_modes_approx_all)[1])
-        ]
-        modes_df["mode_trajectories_approx"] = mode_trajectories_approx
 
+    print(modes_df)
     return modes_df
 
 
@@ -167,14 +161,14 @@ def find_threshold_lasing_modes(modes_df, graph, threshold=1e-5):
     pool = multiprocessing.Pool(graph.graph["params"]["n_workers"])
     stepsize = graph.graph["params"]["search_stepsize"]
 
-    new_modes = modes_df["passive"].to_numpy()
-
-    threshold_lasing_modes = []
-    lasing_thresholds = []
     D0_steps = (
         graph.graph["params"]["D0_max"] - graph.graph["params"]["D0_min"]
     ) / graph.graph["params"]["D0_steps"]
 
+    new_modes = modes_df["passive"].to_numpy()
+
+    threshold_lasing_modes = []
+    lasing_thresholds = []
     D0s = np.zeros(len(modes_df))
     while len(new_modes) > 0:
         print(len(new_modes), "modes left to find")
@@ -196,7 +190,7 @@ def find_threshold_lasing_modes(modes_df, graph, threshold=1e-5):
 
         worker_modes = WorkerModes(new_modes_approx, graph, D0s=new_D0s)
         new_modes_tmp = np.array(pool.map(worker_modes, range(len(new_modes_approx))))
-        print(new_modes_approx, new_modes_tmp)
+
         selected_modes = []
         selected_D0s = []
         for i, mode in enumerate(new_modes_tmp):

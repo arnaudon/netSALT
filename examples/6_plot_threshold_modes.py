@@ -24,7 +24,7 @@ naq.update_parameters(graph, params)
 # graph = naq.oversample_graph(graph, params)
 
 modes_df = naq.load_modes()
-#print(modes_df)
+# print(modes_df)
 # threshold_modes, lasing_thresholds = naq.load_modes(filename="threshold_modes")
 
 if not os.path.isdir("threshold_modes"):

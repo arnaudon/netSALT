@@ -21,8 +21,8 @@ os.chdir(graph_tpe)
 graph = naq.load_graph()
 modes_df = naq.load_modes()
 
-# set pump profile for PRA example
 if graph_tpe == "line_PRA" and params["dielectric_params"]["method"] == "custom":
+    # set pump profile for PRA example
     pump_edges = round(len(graph.edges()) / 2)
     nopump_edges = len(graph.edges()) - pump_edges
     params["pump"] = np.append(np.ones(pump_edges), np.zeros(nopump_edges))
@@ -41,8 +41,6 @@ naq.save_modes(modes_df)
 
 qualities = pickle.load(open("scan.pkl", "rb"))
 plotting.plot_scan(graph, qualities, modes_df)
-plotting.plot_pump_traj(
-    modes_df
-)  # passive_modes, modes_trajectories, modes_trajectories_approx)
+plotting.plot_pump_traj(modes_df)
 plt.savefig("mode_trajectories.png")
 plt.show()

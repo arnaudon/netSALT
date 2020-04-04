@@ -532,5 +532,8 @@ def compute_modal_intensities(
         :-1
     ]
     modes_df["interacting_lasing_thresholds"] = interacting_lasing_thresholds_all
-    modes_df["modal_intensities"] = list(modal_intensities)
+    for pump_intensity, modal_intensity in zip(
+        pump_intensities, np.array(modal_intensities).T
+    ):
+        modes_df["modal_intensities", pump_intensity] = modal_intensity
     return modes_df
