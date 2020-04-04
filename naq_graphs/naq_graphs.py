@@ -2,12 +2,12 @@
 import multiprocessing
 
 import numpy as np
+import pandas as pd
 import scipy as sc
 from tqdm import tqdm
-import pandas as pd
 
 from . import modes
-from .utils import to_complex, from_complex, get_scan_grid
+from .utils import from_complex, get_scan_grid, to_complex
 
 
 class WorkerModes:
@@ -106,7 +106,7 @@ def find_modes(graph, qualities):
 def _init_dataframe():
     """Initialize multicolumn dataframe."""
     indexes = pd.MultiIndex(
-        levels=[[], []], codes=[[], []], names=["data", "pump strength"], dtype=np.float
+        levels=[[], []], codes=[[], []], names=["data", "D0"], dtype=np.float
     )
     return pd.DataFrame(columns=indexes)
 

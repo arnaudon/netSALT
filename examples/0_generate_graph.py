@@ -25,7 +25,6 @@ if not os.path.isdir(graph_tpe):
 os.chdir(graph_tpe)
 
 naq.create_naq_graph(graph, params, positions=positions)
-
 naq.set_total_length(graph, params["innerL"], inner=True)
 
 if graph_tpe == "line_PRA" and params["dielectric_params"]["method"] == "custom":
@@ -58,7 +57,6 @@ else:
 naq.set_dispersion_relation(
     graph, naq.dispersion_relations.dispersion_relation_pump, params
 )
-
 
 naq.update_parameters(graph, params)
 naq.save_graph(graph)

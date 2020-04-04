@@ -8,9 +8,8 @@ import numpy as np
 import yaml
 
 import naq_graphs as naq
-from naq_graphs import plotting
-
 from graph_generator import generate_graph
+from naq_graphs import plotting
 
 if len(sys.argv) > 1:
     graph_tpe = sys.argv[-1]
@@ -26,7 +25,7 @@ naq.update_parameters(graph, params)
 
 modes_df = naq.load_modes()
 
-mode_competition_matrix = pickle.load(open("mode_competition_matrix.pkl", "rb"))
+mode_competition_matrix = naq.load_mode_competition_matrix()
 
 D0_max = 2 * params["D0_max"]
 n_points = 1000

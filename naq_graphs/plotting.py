@@ -1,12 +1,13 @@
 """plotting function"""
+from itertools import cycle
+
 import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
 from tqdm import tqdm
-from itertools import cycle
 
-from .utils import get_scan_grid, order_edges_by, lorentzian
-from .modes import mode_on_nodes, mean_mode_on_edges
+from .modes import mean_mode_on_edges, mode_on_nodes
+from .utils import get_scan_grid, lorentzian, order_edges_by
 
 
 def plot_stem_spectra(graph, modes_df, pump_index):

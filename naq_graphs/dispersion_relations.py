@@ -49,7 +49,10 @@ def set_dielectric_constant(graph, params, custom_values=None):
     if params["dielectric_params"]["method"] == "uniform":
         for u, v in graph.edges:
             if graph[u][v]["inner"]:
-                graph[u][v]["dielectric_constant"] = params["dielectric_params"]["inner_value"] - 1.j * params["dielectric_params"]["loss"]
+                graph[u][v]["dielectric_constant"] = (
+                    params["dielectric_params"]["inner_value"]
+                    - 1.0j * params["dielectric_params"]["loss"]
+                )
             else:
                 graph[u][v]["dielectric_constant"] = params["dielectric_params"][
                     "outer_value"

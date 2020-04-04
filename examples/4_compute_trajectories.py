@@ -39,7 +39,8 @@ naq.save_graph(graph)
 modes_df = naq.pump_trajectories(modes_df, graph, return_approx=True)
 naq.save_modes(modes_df)
 
-qualities = pickle.load(open("scan.pkl", "rb"))
+qualities = naq.load_qualities()
+
 plotting.plot_scan(graph, qualities, modes_df)
 plotting.plot_pump_traj(modes_df)
 plt.savefig("mode_trajectories.png")

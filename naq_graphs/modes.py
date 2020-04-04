@@ -8,11 +8,8 @@ from skimage.feature import peak_local_max
 from tqdm import tqdm
 
 from .dispersion_relations import _gamma
-from .graph_construction import (
-    construct_incidence_matrix,
-    construct_laplacian,
-    construct_weight_matrix,
-)
+from .graph_construction import (construct_incidence_matrix,
+                                 construct_laplacian, construct_weight_matrix)
 from .utils import from_complex, to_complex
 
 

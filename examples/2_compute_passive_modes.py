@@ -20,7 +20,7 @@ os.chdir(graph_tpe)
 graph = naq.load_graph()
 naq.update_parameters(graph, params)
 
-qualities = pickle.load(open("scan.pkl", "rb"))  # save it for later
+qualities = naq.load_qualities()
 
 modes_df = naq.find_modes(graph, qualities)
 

@@ -25,4 +25,4 @@ naq.update_parameters(graph, params)
 modes_df = naq.load_modes()
 
 mode_competition_matrix = naq.compute_mode_competition_matrix(graph, modes_df)
-pickle.dump(mode_competition_matrix, open("mode_competition_matrix.pkl", "wb"))
+naq.save_mode_competition_matrix(mode_competition_matrix)

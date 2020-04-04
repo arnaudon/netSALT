@@ -22,15 +22,13 @@ os.chdir(graph_tpe)
 graph = naq.load_graph()
 naq.update_parameters(graph, params)
 
-positions = [graph.nodes[u]["position"] for u in graph]
-
 modes_df = naq.load_modes()
 
 modes_df = naq.find_threshold_lasing_modes(modes_df, graph)
 
 naq.save_modes(modes_df)
 
-qualities = pickle.load(open("scan.pkl", "rb"))
+qualities = naq.load_qualities()
 
 plotting.plot_scan(graph, qualities, modes_df)
 plotting.plot_pump_traj(modes_df)
