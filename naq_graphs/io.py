@@ -30,7 +30,10 @@ def load_modes(filename="results.h5"):
 def save_qualities(qualities, filename="results.h5"):
     """Save qualities in the results hdf5 file."""
     with h5py.File(filename, "a") as all_results:
-        dset = all_results.create_dataset("scan_qualities", data=qualities)
+        if "scan_qualities" in all_results:
+            all_results["scan_qualities"][:, :] = qualities
+        else:
+            dset = all_results.create_dataset("scan_qualities", data=qualities)
 
 
 def load_qualities(filename="results.h5"):
@@ -42,9 +45,12 @@ def load_qualities(filename="results.h5"):
 def save_mode_competition_matrix(mode_competition_matrix, filename="results.h5"):
     """Save mode competitian matrix in the results hdf5 file."""
     with h5py.File(filename, "a") as all_results:
-        dset = all_results.create_dataset(
-            "mode_competition_matrix", data=mode_competition_matrix
-        )
+        if "mode_competition_matrix" in all_results:
+            all_results["mode_competition_matrix"][:, :] = mode_competition_matrix
+        else:
+            dset = all_results.create_dataset(
+                "mode_competition_matrix", data=mode_competition_matrix
+            )
 
 
 def load_mode_competition_matrix(filename="results.h5"):

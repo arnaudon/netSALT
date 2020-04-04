@@ -25,5 +25,5 @@ qualities = naq.scan_frequencies(graph)
 naq.save_qualities(qualities)
 
 plotting.plot_scan(graph, qualities)
-plt.savefig("scan_nomodes.svg")
+plt.savefig("scan_nomodes.png")
 plt.show()

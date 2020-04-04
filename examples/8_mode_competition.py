@@ -38,9 +38,9 @@ modes_df = naq.compute_modal_intensities(
 naq.save_modes(modes_df)
 
 plotting.plot_ll_curve(graph, modes_df)
-plt.savefig("uniform_modal_pump.svg", bbox_inches="tight")
+plt.savefig("uniform_modal_pump.png", bbox_inches="tight")
 
 plotting.plot_stem_spectra(graph, modes_df, -1)
-plt.savefig("stem_spectra.svg", bbox_inches="tight")
+plt.savefig("stem_spectra.png", bbox_inches="tight")
 
 plt.show()

@@ -13,10 +13,12 @@ from .utils import get_scan_grid, lorentzian, order_edges_by
 def plot_stem_spectra(graph, modes_df, pump_index):
     """Plot spectra with stem plots."""
     threshold_modes = modes_df["threshold_lasing_modes"]
-    modal_amplitudes = modes_df["modal_intensities"].iloc[:, pump_index]
+    modal_amplitudes = np.real(modes_df["modal_intensities"].iloc[:, pump_index])
 
     plt.figure(figsize=(5, 2))
     markerline, stemlines, baseline = plt.stem(threshold_modes, modal_amplitudes, "-")
+
+    colors = cycle(["C{}".format(i) for i in range(10)])
     markerline.set_markerfacecolor("white")
     plt.setp(baseline, "color", "grey", "linewidth", 1)
     plt.xlabel(r"$k$")
@@ -35,14 +37,15 @@ def plot_ll_curve(graph, modes_df):
     colors = cycle(["C{}".format(i) for i in range(10)])
     pump_intensities = modes_df["modal_intensities"].columns.values
     plt.figure(figsize=(5, 3))
-    for i, intens in enumerate(modes_df["modal_intensities"].to_numpy()):
+    for index, mode in modes_df.iterrows():
+        intens = np.real(mode["modal_intensities"].to_numpy())
+        color = next(colors)
         if intens[-1] > 0:
-            color = next(colors)
-            plt.plot(pump_intensities, intens, label="$mode $" + str(i), c=color)
+            plt.plot(pump_intensities, intens, label="mode " + str(index), c=color)
             plt.axvline(
-                modes_df["lasing_thresholds"][i], c=color, ls="dotted", ymin=0, ymax=0.1
+                modes_df["lasing_thresholds"][index], c=color, ls="dotted", ymin=0, ymax=0.2
             )
-
+    plt.axhline(0, lw=0.5, c='k')
     plt.legend()
     top = np.max(modes_df["modal_intensities"].to_numpy())
     plt.axis([pump_intensities[0], pump_intensities[-1], -0.02 * top, top])
@@ -72,9 +75,11 @@ def plot_scan(graph, qualities, modes_df=None, figsize=(10, 5)):
     plt.ylabel(r"$\alpha = -Im(k)$")
 
     if modes_df is not None:
-        modes = modes_df["passive"].to_numpy()
-        plt.plot(np.real(modes), -np.imag(modes), "r+")
-
+        for index, modes in modes_df.iterrows():
+            k = np.real(modes["passive"][0])
+            alpha = -np.imag(modes["passive"][0])
+            plt.scatter(k, alpha, marker="+", color='r')
+            plt.annotate(index, (k, alpha))
     plt.axis([ks[0], ks[-1], alphas[-1], alphas[0]])
 
 
@@ -168,12 +173,12 @@ def plot_pump_traj(modes_df):  # , new_modes, new_modes_approx=None):
             )
 
 
-def plot_modes(graph, modes_df, df_entry="passive", folder="modes"):
+def plot_modes(graph, modes_df, df_entry="passive", folder="modes", ext='.png'):
     """Plot modes on the graph"""
-    # TODO: cleaning needed here
     positions = [graph.nodes[u]["position"] for u in graph]
 
-    for i, mode in tqdm(enumerate(modes_df[df_entry]), total=len(modes_df)):
+    for index, mode_data in tqdm(modes_df.iterrows(), total=len(modes_df)):
+        mode = mode_data[df_entry][0]
         if df_entry == "threshold_lasing_modes":
             graph.graph["params"]["D0"] = modes_df["lasing_thresholds"][i]
 
@@ -196,11 +201,11 @@ def plot_modes(graph, modes_df, df_entry="passive", folder="modes"):
             width=2,
             edge_cmap=plt.get_cmap("Blues"),
         )
-        plt.title(
-            "k=" + str(np.around(np.real(mode), 3) - 1j * np.around(np.imag(mode), 3))
+        plt.title('mode ' + str(index) +
+            ", k = " + str(np.around(np.real(mode), 3) - 1j * np.around(np.imag(mode), 3))
         )
 
-        plt.savefig(folder + "/mode_" + str(i) + ".png")
+        plt.savefig(folder + "/mode_" + str(index) + ext)
         plt.close()
 
         if graph.graph["name"] == "line_PRA" or graph.graph["name"] == "line_semi":
@@ -209,14 +214,10 @@ def plot_modes(graph, modes_df, df_entry="passive", folder="modes"):
             node_positions = np.sort(position_x - position_x[1])
 
             plt.figure()
-            plt.plot(
-                node_positions[1:-1], abs(E_sorted[1:-1]) ** 2
-            )  # only plot over inner edges
+            plt.plot(node_positions[1:-1], abs(E_sorted[1:-1]) ** 2)
 
-            plt.title(
-                "k="
+            plt.title('mode ' + str(index) +
+                "k = "
                 + str(np.around(np.real(mode), 3) - 1j * np.around(np.imag(mode), 3))
             )
-            plt.savefig(folder + "/profile_mode_" + str(i) + ".svg")
-
-            # naq.save_modes(node_positions, E_sorted, filename="modes/passivemode_" + str(i))
+            plt.savefig(folder + "/profile_mode_" + str(index) + ext)
