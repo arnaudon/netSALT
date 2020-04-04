@@ -19,7 +19,7 @@ params = yaml.full_load(open("graph_params.yaml", "rb"))[graph_tpe]
 os.chdir(graph_tpe)
 
 graph = naq.load_graph()
-naq.update_parameters(graph, params)
+naq.update_parameters(graph, params, force=True)
 
 qualities = naq.scan_frequencies(graph)
 pickle.dump(qualities, open("scan.pkl", "wb"))

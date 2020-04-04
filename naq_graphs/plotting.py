@@ -108,6 +108,7 @@ def plot_naq_graph(graph, edge_colors=None, node_colors=None, node_size=1):
     nx.draw_networkx_edges(graph, pos=positions)
 
     if edge_colors is not None:
+        edge_colors = np.real(edge_colors)
         for ei, e in enumerate(order_edges_by(graph, edge_colors)):
             nx.draw_networkx_edges(
                 graph,

@@ -152,7 +152,6 @@ def pump_trajectories(modes_df, graph, return_approx=False):
                 to_complex(mode) for mode in pumped_mode_approx
             ]
 
-    print(modes_df)
     return modes_df
 
 

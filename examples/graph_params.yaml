@@ -5,26 +5,27 @@
 SM_small:
         #network params
         n_workers: 10
-        n: 6 #11
+        n: 20
         k: 2
         p: 0 #0.2
-        lead_prob: 0.2 #0.3
+        lead_prob: 0.0 #0.3
         seed: 2
-        innerL: 100
+        innerL: 20
         dielectric_params: 
             method: 'uniform'
             inner_value: 9.
+            loss: 0.1
             outer_value: 1.
         open_model: 'open_ends'
         plot_edgesize: 0.01
         
         #mode search params
-        k_min: 10.4 #10.6 #12 
-        k_max: 11.0 #10.76 #19 
-        k_n: 5000
-        alpha_min: -0.0 #-0.50
-        alpha_max: 0.005 #2.50 
-        alpha_n: 100
+        k_min: 10.4
+        k_max: 11.0
+        k_n: 100
+        alpha_min: 0.0
+        alpha_max: 0.07
+        alpha_n: 50
         
         # params for mode search
         quality_threshold: 0.001
@@ -35,7 +36,7 @@ SM_small:
 
         #pumping parameters
         D0_min: 0.0
-        D0_max: 0.005 #10.
+        D0_max: 0.12
         D0_steps: 11
         k_a: 10.68 #15
         gamma_perp: 0.55 #3.0
@@ -54,6 +55,7 @@ line_PRA:
         dielectric_params: # Note: this is the dielectric constant, eps = index**2
             method: 'custom' #'uniform'
             inner_value: 2.25
+            loss: 0.0
             outer_value: 1.
         open_model: 'open_ends'
         plot_edgesize: 0.001 #0.01 :see also oversample fn
@@ -94,6 +96,7 @@ line_semi:
         dielectric_params: # Note: this is the dielectric constant, eps = index**2
             method: 'custom'
             inner_value: 9 #2.25
+            loss: 0.0
             outer_value: 1.
         open_model: 'open_ends'
         plot_edgesize: 0.001 #0.01 :see also oversample fn
@@ -133,6 +136,7 @@ buffon:
         dielectric_params: 
             method: 'uniform'
             inner_value: 2.25
+            loss: 0.0
             outer_value: 2.25
         open_model: 'open_ends'
         plot_edgesize: 0.1
