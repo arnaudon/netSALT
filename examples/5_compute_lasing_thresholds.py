@@ -30,14 +30,7 @@ naq.save_modes(modes_df)
 
 qualities = naq.load_qualities()
 
-plotting.plot_scan(graph, qualities, modes_df)
-plotting.plot_pump_traj(modes_df)
-
-plt.scatter(
-    np.real(modes_df["threshold_lasing_modes"].to_numpy()),
-    -np.imag(modes_df["threshold_lasing_modes"].to_numpy()),
-    c="m",
-)
-
+ax = plotting.plot_scan(graph, qualities, modes_df)
+plotting.plot_pump_traj(modes_df, ax=ax)
 plt.savefig("mode_trajectories.png")
 plt.show()

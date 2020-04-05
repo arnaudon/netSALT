@@ -5,9 +5,14 @@ import numpy as np
 import pandas as pd
 import scipy as sc
 from tqdm import tqdm
+import warnings
 
 from . import modes
 from .utils import from_complex, get_scan_grid, to_complex
+import numpy as np
+
+warnings.filterwarnings("ignore")
+warnings.filterwarnings("error", category=np.ComplexWarning)
 
 
 class WorkerModes:
@@ -176,9 +181,13 @@ def find_threshold_lasing_modes(modes_df, graph, threshold=1e-5):
         new_D0s = np.zeros(len(modes_df))
         new_modes_approx = np.empty([len(new_modes), 2])
         for i in current_modes:
-            new_D0s[i] = D0s[i] + modes.lasing_threshold_linear(new_modes[i], graph, D0s[i])
+            new_D0s[i] = D0s[i] + modes.lasing_threshold_linear(
+                new_modes[i], graph, D0s[i]
+            )
             new_D0s[i] = min(new_D0s[i], D0_steps + D0s[i])
-            new_modes_approx[i] = modes.pump_linear(new_modes[i], graph, D0s[i], new_D0s[i])
+            new_modes_approx[i] = modes.pump_linear(
+                new_modes[i], graph, D0s[i], new_D0s[i]
+            )
 
         # this is a trick to reduce the stepsizes as we are near the solution
         graph.graph["params"]["search_stepsize"] = (

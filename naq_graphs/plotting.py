@@ -2,6 +2,7 @@
 from itertools import cycle
 
 import matplotlib.pyplot as plt
+from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 import networkx as nx
 import numpy as np
 from tqdm import tqdm
@@ -10,77 +11,109 @@ from .modes import mean_mode_on_edges, mode_on_nodes
 from .utils import get_scan_grid, lorentzian, order_edges_by
 
 
-def plot_stem_spectra(graph, modes_df, pump_index):
+def plot_stem_spectra(graph, modes_df, pump_index, ax=None):
     """Plot spectra with stem plots."""
-    threshold_modes = modes_df["threshold_lasing_modes"]
+    threshold_modes = np.real(modes_df["threshold_lasing_modes"])
     modal_amplitudes = np.real(modes_df["modal_intensities"].iloc[:, pump_index])
 
-    plt.figure(figsize=(5, 2))
-    markerline, stemlines, baseline = plt.stem(threshold_modes, modal_amplitudes, "-")
+    ks, alphas = get_scan_grid(graph)
+
+    if ax == None:
+        plt.figure(figsize=(5, 2))
+        ax = plt.gca()
+
+    markerline, stemlines, baseline = ax.stem(threshold_modes, modal_amplitudes, "-")
 
     colors = cycle(["C{}".format(i) for i in range(10)])
     markerline.set_markerfacecolor("white")
     plt.setp(baseline, "color", "grey", "linewidth", 1)
-    plt.xlabel(r"$k$")
-    plt.ylabel("Intensity (a.u.)")
+    ax.set_xlabel(r"$k$")
+    ax.set_ylabel("Intensity (a.u.)")
 
-    plt.twinx()
+    ax.set_xlim(ks[0], ks[-1])
+    ax.set_ylim(0, np.max(modal_amplitudes) * 1.3)
+
+    ax2 = ax.twinx()
     ks = np.linspace(
         graph.graph["params"]["k_min"], graph.graph["params"]["k_max"], 1000
     )
-    plt.plot(ks, lorentzian(ks, graph), "r--")
-    plt.ylabel("Gain spectrum (a.u.)")
+    ax2.plot(ks, lorentzian(ks, graph), "r--")
+    ax2.set_ylabel("Gain spectrum (a.u.)")
+
+    ax2.set_xlim(ks[0], ks[-1])
+    ax2.set_ylim(0, np.max(lorentzian(ks, graph)) * 1.3)
 
 
-def plot_ll_curve(graph, modes_df):
+def plot_ll_curve(graph, modes_df, with_legend=True, ax=None):
     """Plot LL curves."""
     colors = cycle(["C{}".format(i) for i in range(10)])
     pump_intensities = modes_df["modal_intensities"].columns.values
-    plt.figure(figsize=(5, 3))
+    if ax == None:
+        plt.figure(figsize=(5, 3))
+        ax = plt.gca()
+
     for index, mode in modes_df.iterrows():
         intens = np.real(mode["modal_intensities"].to_numpy())
         color = next(colors)
         if intens[-1] > 0:
-            plt.plot(pump_intensities, intens, label="mode " + str(index), c=color)
-            plt.axvline(
-                modes_df["lasing_thresholds"][index], c=color, ls="dotted", ymin=0, ymax=0.2
+            ax.plot(pump_intensities, intens, label="mode " + str(index), c=color)
+            ax.axvline(
+                modes_df["lasing_thresholds"][index],
+                c=color,
+                ls="dotted",
+                ymin=0,
+                ymax=0.2,
             )
-    plt.axhline(0, lw=0.5, c='k')
-    plt.legend()
+    ax.axhline(0, lw=0.5, c="k")
+
+    if with_legend:
+        ax.legend()
+
     top = np.max(modes_df["modal_intensities"].to_numpy())
-    plt.axis([pump_intensities[0], pump_intensities[-1], -0.02 * top, top])
-    plt.xlabel(r"$D_0$")
-    plt.ylabel(r"$I_\mu$")
+    ax.axis([pump_intensities[0], pump_intensities[-1], -0.02 * top, top])
+    ax.set_xlabel(r"$D_0$")
+    ax.set_ylabel("Intensity (a.u)")
 
 
-def plot_scan(graph, qualities, modes_df=None, figsize=(10, 5)):
+def plot_scan(graph, qualities, modes_df=None, figsize=(10, 5), ax=None):
     """plot the scan with the mode found"""
 
     ks, alphas = get_scan_grid(graph)
 
-    plt.figure(figsize=figsize)
+    if ax == None:
+        plt.figure(figsize=figsize)
+        ax = plt.gca()
 
-    plt.imshow(
+    im = ax.imshow(
         np.log10(qualities.T),
         extent=(ks[0], ks[-1], alphas[0], alphas[-1]),
         aspect="auto",
         origin="lower",
-        cmap=plt.get_cmap("Blues"),
+        cmap=plt.get_cmap("Blues_r"),
     )
 
-    cbar = plt.colorbar()
-    cbar.set_label("smallest singular value")
+    cbaxes = inset_axes(ax, width="2%", height="40%", loc="lower center")
+    cbar = plt.colorbar(im, cax=cbaxes)
+    cbar.set_label(r"$log_{10}(quality)$", fontsize=8)
 
-    plt.xlabel(r"$Real(k)$")
-    plt.ylabel(r"$\alpha = -Im(k)$")
+    ax.set_xlabel(r"$Real(k)$")
+    ax.set_ylabel(r"$\alpha = -Im(k)$")
 
     if modes_df is not None:
         for index, modes in modes_df.iterrows():
             k = np.real(modes["passive"][0])
             alpha = -np.imag(modes["passive"][0])
-            plt.scatter(k, alpha, marker="+", color='r')
-            plt.annotate(index, (k, alpha))
-    plt.axis([ks[0], ks[-1], alphas[-1], alphas[0]])
+            ax.scatter(k, alpha, marker="+", color="r")
+            ax.annotate(index, (k, alpha))
+        if "threshold_lasing_modes" in modes_df:
+            ax.scatter(
+                np.real(modes_df["threshold_lasing_modes"].to_numpy()),
+                -np.imag(modes_df["threshold_lasing_modes"].to_numpy()),
+                c="m",
+            )
+
+    ax.axis([ks[0], ks[-1], alphas[-1], alphas[0]])
+    return ax
 
 
 def plot_naq_graph(graph, edge_colors=None, node_colors=None, node_size=1):
@@ -149,22 +182,27 @@ def plot_naq_graph(graph, edge_colors=None, node_colors=None, node_size=1):
     plt.gca().tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
 
 
-def plot_pump_traj(modes_df):  # , new_modes, new_modes_approx=None):
+def plot_pump_traj(modes_df, with_scatter=True, with_approx=True, ax=None):
     """plot pump trajectories"""
+    if ax == None:
+        ax = plt.gca()
+
+    colors = cycle(["C{}".format(i) for i in range(10)])
+
     passive_modes = modes_df["passive"].to_numpy()
-    plt.scatter(np.real(passive_modes), -np.imag(passive_modes), s=20, c="r")
 
     pumped_modes = modes_df["mode_trajectories"].to_numpy()
     for pumped_mode in pumped_modes:
-        plt.scatter(
-            np.real(pumped_mode), -np.imag(pumped_mode), marker="o", s=10, c="b"
-        )
-        plt.plot(np.real(pumped_mode), -np.imag(pumped_mode), c="b")
+        if with_scatter:
+            ax.scatter(
+                np.real(pumped_mode), -np.imag(pumped_mode), marker="o", s=10, c="b"
+            )
+        ax.plot(np.real(pumped_mode), -np.imag(pumped_mode), c=next(colors))
 
-    if "mode_trajectories_approx" in modes_df:
+    if "mode_trajectories_approx" in modes_df and with_approx:
         pumped_modes_approx = modes_df["mode_trajectories_approx"].to_numpy()
         for pumped_mode_approx in pumped_modes_approx:
-            plt.scatter(
+            ax.scatter(
                 np.real(pumped_mode_approx),
                 -np.imag(pumped_mode_approx),
                 marker="+",
@@ -173,7 +211,7 @@ def plot_pump_traj(modes_df):  # , new_modes, new_modes_approx=None):
             )
 
 
-def plot_modes(graph, modes_df, df_entry="passive", folder="modes", ext='.png'):
+def plot_modes(graph, modes_df, df_entry="passive", folder="modes", ext=".png"):
     """Plot modes on the graph"""
     positions = [graph.nodes[u]["position"] for u in graph]
 
@@ -201,8 +239,11 @@ def plot_modes(graph, modes_df, df_entry="passive", folder="modes", ext='.png'):
             width=2,
             edge_cmap=plt.get_cmap("Blues"),
         )
-        plt.title('mode ' + str(index) +
-            ", k = " + str(np.around(np.real(mode), 3) - 1j * np.around(np.imag(mode), 3))
+        plt.title(
+            "mode "
+            + str(index)
+            + ", k = "
+            + str(np.around(np.real(mode), 3) - 1j * np.around(np.imag(mode), 3))
         )
 
         plt.savefig(folder + "/mode_" + str(index) + ext)
@@ -216,8 +257,10 @@ def plot_modes(graph, modes_df, df_entry="passive", folder="modes", ext='.png'):
             plt.figure()
             plt.plot(node_positions[1:-1], abs(E_sorted[1:-1]) ** 2)
 
-            plt.title('mode ' + str(index) +
-                "k = "
+            plt.title(
+                "mode "
+                + str(index)
+                + "k = "
                 + str(np.around(np.real(mode), 3) - 1j * np.around(np.imag(mode), 3))
             )
             plt.savefig(folder + "/profile_mode_" + str(index) + ext)

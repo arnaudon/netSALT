@@ -26,7 +26,7 @@ modes_df = naq.find_modes(graph, qualities)
 
 naq.save_modes(modes_df)
 
-plotting.plot_scan(graph, qualities, modes_df) #, figsize=(30, 5))
+plotting.plot_scan(graph, qualities, modes_df)  # , figsize=(30, 5))
 
 plt.savefig("scan_with_modes.png")
 plt.show()
