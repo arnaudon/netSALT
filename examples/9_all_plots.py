@@ -1,6 +1,7 @@
 import os
 import pickle as pickle
 import sys
+import numpy as np
 
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
@@ -19,6 +20,8 @@ params = yaml.full_load(open("graph_params.yaml", "rb"))[graph_tpe]
 os.chdir(graph_tpe)
 
 graph = naq.load_graph()
+graph = naq.oversample_graph(graph, params)
+
 modes_df = naq.load_modes()
 qualities = naq.load_qualities()
 
@@ -37,5 +40,17 @@ ll_axis.xaxis.label.set_size(8)
 ll_axis.yaxis.label.set_size(8)
 
 fig.savefig("final_plot.png", bbox_inches="tight")
+
+lasing_mode_id = np.where(modes_df["modal_intensities"].to_numpy()[:, -1] > 0)[0]
+
+fig, axes = plt.subplots(
+    nrows=int(np.round(len(lasing_mode_id) / 3.0)), ncols=3, figsize=(12, 4)
+)
+for ax, index in zip(axes.flatten(), lasing_mode_id):
+    plotting.plot_single_mode(
+        graph, modes_df, index, df_entry="threshold_lasing_modes", colorbar=False, ax=ax
+    )
+
+fig.savefig("lasing_modes.png", bbox_inches="tight")
 
 plt.show()

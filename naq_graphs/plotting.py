@@ -211,56 +211,85 @@ def plot_pump_traj(modes_df, with_scatter=True, with_approx=True, ax=None):
             )
 
 
-def plot_modes(graph, modes_df, df_entry="passive", folder="modes", ext=".png"):
-    """Plot modes on the graph"""
+def plot_single_mode(
+    graph, modes_df, index, df_entry="passive", colorbar=True, ax=None
+):
+    """Plot single mode on the graph."""
     positions = [graph.nodes[u]["position"] for u in graph]
+    mode = modes_df[df_entry][index]
+
+    if df_entry == "threshold_lasing_modes":
+        graph.graph["params"]["D0"] = modes_df["lasing_thresholds"][index]
+
+    node_solution = mode_on_nodes(mode, graph)
+    edge_solution = mean_mode_on_edges(mode, graph)
+
+    if ax == None:
+        plt.figure(figsize=(6, 4))
+        ax = plt.gca()
+
+    nodes = nx.draw_networkx_nodes(
+        graph,
+        pos=positions,
+        node_color=abs(node_solution) ** 2,
+        node_size=0,
+        cmap=plt.get_cmap("Blues"),
+        ax=ax,
+    )
+
+    if colorbar:
+        plt.colorbar(nodes, label=r"$|E|^2$ (a.u)")
+    edges_k = nx.draw_networkx_edges(
+        graph,
+        pos=positions,
+        edge_color=edge_solution,
+        width=5,
+        edge_cmap=plt.get_cmap("Blues"),
+        ax=ax,
+    )
+
+    ax.set_title(
+        "mode "
+        + str(index)
+        + ", k = "
+        + str(np.around(np.real(mode), 3) - 1j * np.around(np.imag(mode), 3))
+    )
+
+
+def plot_modes(graph, modes_df, df_entry="passive", folder="modes", ext=".png"):
+    """Plot modes on the graph."""
 
     for index, mode_data in tqdm(modes_df.iterrows(), total=len(modes_df)):
-        mode = mode_data[df_entry][0]
-        if df_entry == "threshold_lasing_modes":
-            graph.graph["params"]["D0"] = modes_df["lasing_thresholds"][index]
-
-        node_solution = mode_on_nodes(mode, graph)
-        edge_solution = mean_mode_on_edges(mode, graph)
-
-        plt.figure(figsize=(6, 4))
-        nodes = nx.draw_networkx_nodes(
-            graph,
-            pos=positions,
-            node_color=abs(node_solution) ** 2,
-            node_size=2,
-            cmap=plt.get_cmap("Blues"),
-        )
-        plt.colorbar(nodes, label=r"$|E|^2$ (a.u)")
-        edges_k = nx.draw_networkx_edges(
-            graph,
-            pos=positions,
-            edge_color=edge_solution,
-            width=2,
-            edge_cmap=plt.get_cmap("Blues"),
-        )
-        plt.title(
-            "mode "
-            + str(index)
-            + ", k = "
-            + str(np.around(np.real(mode), 3) - 1j * np.around(np.imag(mode), 3))
-        )
+        plot_single_mode(graph, modes_df, index, df_entry)
 
         plt.savefig(folder + "/mode_" + str(index) + ext)
         plt.close()
-
         if graph.graph["name"] == "line_PRA" or graph.graph["name"] == "line_semi":
-            position_x = [graph.nodes[u]["position"][0] for u in graph]
-            E_sorted = node_solution[np.argsort(position_x)]
-            node_positions = np.sort(position_x - position_x[1])
-
-            plt.figure()
-            plt.plot(node_positions[1:-1], abs(E_sorted[1:-1]) ** 2)
-
-            plt.title(
-                "mode "
-                + str(index)
-                + "k = "
-                + str(np.around(np.real(mode), 3) - 1j * np.around(np.imag(mode), 3))
-            )
+            plot_line_mode(graph, modes_df, index, df_entry)
             plt.savefig(folder + "/profile_mode_" + str(index) + ext)
+
+
+def plot_line_mode(graph, modes_df, index, df_entry="passive"):
+    """Plot single mode on the line."""
+
+    mode = modes_df[df_entry][index]
+
+    if df_entry == "threshold_lasing_modes":
+        graph.graph["params"]["D0"] = modes_df["lasing_thresholds"][index]
+
+    node_solution = mode_on_nodes(mode, graph)
+    edge_solution = mean_mode_on_edges(mode, graph)
+
+    position_x = [graph.nodes[u]["position"][0] for u in graph]
+    E_sorted = node_solution[np.argsort(position_x)]
+    node_positions = np.sort(position_x - position_x[1])
+
+    plt.figure()
+    plt.plot(node_positions[1:-1], abs(E_sorted[1:-1]) ** 2)
+
+    plt.title(
+        "mode "
+        + str(index)
+        + "k = "
+        + str(np.around(np.real(mode), 3) - 1j * np.around(np.imag(mode), 3))
+    )

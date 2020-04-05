@@ -21,7 +21,7 @@ os.chdir(graph_tpe)
 
 graph = naq.load_graph()
 naq.update_parameters(graph, params)
-# graph = naq.oversample_graph(graph, params)
+graph = naq.oversample_graph(graph, params)
 
 modes_df = naq.load_modes()
 

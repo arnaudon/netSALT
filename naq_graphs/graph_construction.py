@@ -14,8 +14,10 @@ def create_naq_graph(graph, params, positions=None, lengths=None):
     update_parameters(graph, params)
 
 
-def _not_equal(data1, data2):
+def _not_equal(data1, data2, force=False):
     """Check if datasets are the same."""
+    if force:
+        return True
     if isinstance(data1, np.ndarray):
         return all(data1 != data2)
     return data1 != data2
@@ -39,25 +41,26 @@ def update_parameters(graph, params, force=False):
     else:
         for param, value in params.items():
             if param not in graph.graph["params"]:
-                print("Adding new parameter:", param)
+                # print("Adding new parameter:", param)
                 graph.graph["params"][param] = value
-            elif _not_equal(graph.graph["params"][param], value):
+            elif _not_equal(graph.graph["params"][param], value, force=force):
                 if param in warning_params:
                     if force:
-                        print(
-                            "WARNING: you have forced the update of parameter",
-                            param,
-                            "so things may not work anymore.",
-                        )
+                        # print(
+                        #    "WARNING: you have forced the update of parameter",
+                        #    param,
+                        #    "so things may not work anymore.",
+                        # )
                         graph.graph["params"][param] = value
                     else:
-                        print(
-                            "You are trying to update parmeter:",
-                            param,
-                            "but this may break the pipeline, so we will not update it. Use argument force=True to update if you really want it.",
-                        )
+                        pass
+                        # print(
+                        #    "You are trying to update parmeter:",
+                        #    param,
+                        #    "but this may break the pipeline, so we will not update it. Use argument force=True to update if you really want it.",
+                        # )
                 else:
-                    print("Parameter:", param, "is updated with value", value)
+                    # print("Parameter:", param, "is updated.")
                     graph.graph["params"][param] = value
 
 
@@ -92,10 +95,10 @@ def set_total_length(graph, total_length, inner=True, with_position=True):
 
 def _set_pump_on_graph(graph, params):
     """set the pump values on the graph from params"""
-    if "pump" not in params:
+    if "pump" not in graph.graph["params"]:
         params["pump"] = np.zeros(len(graph.edges))
     for ei, e in enumerate(graph.edges):
-        graph[e[0]][e[1]]["pump"] = params["pump"][ei]
+        graph[e[0]][e[1]]["pump"] = graph.graph["params"]["pump"][ei]
 
 
 def _set_pump_on_params(graph, params):
@@ -158,6 +161,7 @@ def oversample_graph(graph, params):
     set_edge_lengths(oversampled_graph)
     update_params_dielectric_constant(oversampled_graph, params)
     _set_pump_on_params(oversampled_graph, params)
+    update_parameters(oversampled_graph, params, force=True)
     return oversampled_graph
 
 
@@ -178,7 +182,6 @@ def construct_incidence_matrix(graph):
     """Construct the incidence matrix B"""
     row = np.repeat(np.arange(len(graph.edges) * 2), 2)
     col = np.repeat(graph.edges, 2, axis=0).flatten()
-
     expl = np.exp(1.0j * graph.graph["lengths"] * graph.graph["ks"])
     ones = np.ones(len(graph.edges))
 
