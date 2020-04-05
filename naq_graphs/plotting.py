@@ -180,7 +180,7 @@ def plot_modes(graph, modes_df, df_entry="passive", folder="modes", ext='.png'):
     for index, mode_data in tqdm(modes_df.iterrows(), total=len(modes_df)):
         mode = mode_data[df_entry][0]
         if df_entry == "threshold_lasing_modes":
-            graph.graph["params"]["D0"] = modes_df["lasing_thresholds"][i]
+            graph.graph["params"]["D0"] = modes_df["lasing_thresholds"][index]
 
         node_solution = mode_on_nodes(mode, graph)
         edge_solution = mean_mode_on_edges(mode, graph)
