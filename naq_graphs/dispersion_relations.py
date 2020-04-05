@@ -51,7 +51,7 @@ def set_dielectric_constant(graph, params, custom_values=None):
             if graph[u][v]["inner"]:
                 graph[u][v]["dielectric_constant"] = (
                     params["dielectric_params"]["inner_value"]
-                    - 1.0j * params["dielectric_params"]["loss"]
+                    + 1.0j * params["dielectric_params"]["loss"]
                 )
             else:
                 graph[u][v]["dielectric_constant"] = params["dielectric_params"][
