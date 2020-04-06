@@ -82,6 +82,8 @@ line_PRA:
         k_a: 15 #0.1
         gamma_perp: 3.0 #0.04
 
+        exts: ['.png', '.svg']
+
         #WIP params
         pump_edges: 'all' #[8, 9]        
         open_nodes: []

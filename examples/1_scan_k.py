@@ -24,6 +24,5 @@ naq.update_parameters(graph, params, force=True)
 qualities = naq.scan_frequencies(graph)
 naq.save_qualities(qualities)
 
-plotting.plot_scan(graph, qualities)
-plt.savefig("scan_nomodes.png")
+plotting.plot_scan(graph, qualities, filename="scan_no_modes")
 plt.show()

@@ -96,7 +96,7 @@ def set_total_length(graph, total_length, inner=True, with_position=True):
 def _set_pump_on_graph(graph, params):
     """set the pump values on the graph from params"""
     if "pump" not in graph.graph["params"]:
-        params["pump"] = np.zeros(len(graph.edges))
+        graph.graph["params"]["pump"] = np.zeros(len(graph.edges))
     for ei, e in enumerate(graph.edges):
         graph[e[0]][e[1]]["pump"] = graph.graph["params"]["pump"][ei]
 

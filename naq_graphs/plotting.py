@@ -1,4 +1,6 @@
 """plotting function"""
+import os
+from pathlib import Path
 from itertools import cycle
 
 import matplotlib.pyplot as plt
@@ -11,7 +13,18 @@ from .modes import mean_mode_on_edges, mode_on_nodes
 from .utils import get_scan_grid, lorentzian, order_edges_by
 
 
-def plot_stem_spectra(graph, modes_df, pump_index, ax=None):
+def _savefig(graph, fig, folder, filename):
+    """Save figures in subfolders and with different extensions."""
+    for ext in graph.graph["params"]["exts"]:
+        folder_ext = Path(folder + "_" + ext.split(".")[-1])
+        if not folder_ext.exists():
+            os.mkdir(folder_ext)
+        plt.savefig((folder_ext / filename).with_suffix(ext), bbox_inches="tight")
+
+
+def plot_stem_spectra(
+    graph, modes_df, pump_index, ax=None, folder="plots", filename="stem_spectra"
+):
     """Plot spectra with stem plots."""
     threshold_modes = np.real(modes_df["threshold_lasing_modes"])
     modal_amplitudes = np.real(modes_df["modal_intensities"].iloc[:, pump_index])
@@ -19,8 +32,10 @@ def plot_stem_spectra(graph, modes_df, pump_index, ax=None):
     ks, alphas = get_scan_grid(graph)
 
     if ax == None:
-        plt.figure(figsize=(5, 2))
+        fig = plt.figure(figsize=(5, 2))
         ax = plt.gca()
+    else:
+        fig = None
 
     markerline, stemlines, baseline = ax.stem(threshold_modes, modal_amplitudes, "-")
 
@@ -43,14 +58,20 @@ def plot_stem_spectra(graph, modes_df, pump_index, ax=None):
     ax2.set_xlim(ks[0], ks[-1])
     ax2.set_ylim(0, np.max(lorentzian(ks, graph)) * 1.3)
 
+    _savefig(graph, fig, folder, filename)
 
-def plot_ll_curve(graph, modes_df, with_legend=True, ax=None):
+
+def plot_ll_curve(
+    graph, modes_df, with_legend=True, ax=None, folder="plots", filename="ll_curve"
+):
     """Plot LL curves."""
     colors = cycle(["C{}".format(i) for i in range(10)])
     pump_intensities = modes_df["modal_intensities"].columns.values
     if ax == None:
-        plt.figure(figsize=(5, 3))
+        fig = plt.figure(figsize=(5, 3))
         ax = plt.gca()
+    else:
+        fig = None
 
     for index, mode in modes_df.iterrows():
         intens = np.real(mode["modal_intensities"].to_numpy())
@@ -74,15 +95,30 @@ def plot_ll_curve(graph, modes_df, with_legend=True, ax=None):
     ax.set_xlabel(r"$D_0$")
     ax.set_ylabel("Intensity (a.u)")
 
+    _savefig(graph, fig, folder, filename)
 
-def plot_scan(graph, qualities, modes_df=None, figsize=(10, 5), ax=None):
+
+def plot_scan(
+    graph,
+    qualities,
+    modes_df=None,
+    figsize=(10, 5),
+    ax=None,
+    with_trajectories=True,
+    with_scatter=True,
+    with_approx=True,
+    folder="plots",
+    filename="scan",
+):
     """plot the scan with the mode found"""
 
     ks, alphas = get_scan_grid(graph)
 
     if ax == None:
-        plt.figure(figsize=figsize)
+        fig = plt.figure(figsize=figsize)
         ax = plt.gca()
+    else:
+        fig = None
 
     im = ax.imshow(
         np.log10(qualities.T),
@@ -113,14 +149,28 @@ def plot_scan(graph, qualities, modes_df=None, figsize=(10, 5), ax=None):
             )
 
     ax.axis([ks[0], ks[-1], alphas[-1], alphas[0]])
+
+    if with_trajectories and "mode_trajectories" in modes_df:
+        plot_pump_traj(
+            modes_df, with_scatter=with_scatter, with_approx=with_approx, ax=ax
+        )
+
+    _savefig(graph, fig, folder, filename)
     return ax
 
 
-def plot_naq_graph(graph, edge_colors=None, node_colors=None, node_size=1):
+def plot_naq_graph(
+    graph,
+    edge_colors=None,
+    node_colors=None,
+    node_size=1,
+    folder="plots",
+    filename="original_graph",
+):
     """plot the graph"""
     positions = [graph.nodes[u]["position"] for u in graph]
 
-    plt.figure(figsize=(5, 4))
+    fig = plt.figure(figsize=(5, 4))
 
     if node_colors is not None:
         nx.draw_networkx_nodes(
@@ -180,6 +230,8 @@ def plot_naq_graph(graph, edge_colors=None, node_colors=None, node_size=1):
         graph, nodelist=out_nodes, pos=positions, node_color="r", node_size=10
     )
     plt.gca().tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+
+    _savefig(graph, fig, folder, filename)
 
 
 def plot_pump_traj(modes_df, with_scatter=True, with_approx=True, ax=None):
