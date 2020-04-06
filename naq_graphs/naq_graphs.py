@@ -147,11 +147,14 @@ def pump_trajectories(modes_df, graph, return_approx=False):
                 pumped_modes[-1][i] = pumped_modes[-2][i]
 
     pool.close()
-
+    if "mode_trajectories" in modes_df:
+        del modes_df["mode_trajectories"]
     for D0, pumped_mode in zip(D0s, pumped_modes):
         modes_df["mode_trajectories", D0] = [to_complex(mode) for mode in pumped_mode]
 
     if return_approx:
+        if "mode_trajectories_approx" in modes_df:
+            del modes_df["mode_trajectories_approx"]
         for D0, pumped_mode_approx in zip(D0s, pumped_modes_approx):
             modes_df["mode_trajectories_approx", D0] = [
                 to_complex(mode) for mode in pumped_mode_approx
