@@ -46,6 +46,19 @@ def dispersion_relation_pump(freq, params=None):
 
 def set_dielectric_constant(graph, params, custom_values=None):
     """Set dielectric constant in the params file using various methods."""
+
+    if 'dielectric_params' in params and 'refraction_params' in params:
+        print('WARNING: dielectric_params and refraction_params are provided, so we will only use dielectric_params')
+
+    if 'dielectric_params' not in params:
+        if 'refraction_params' not in params:
+            raise Exception("Please provide dielectric_params or refraction_params!")
+        params["dielectric_params"] = {}
+        params["dielectric_params"]["method"] = params["refraction_params"]["method"]
+        params["dielectric_params"]["inner_value"] = params["refraction_params"]["inner_value"]**2 - params["refraction_params"]["loss"]**2
+        params["dielectric_params"]["loss"] = 2.0 * params["refraction_params"]["inner_value"] * params["refraction_params"]["loss"]
+        params["dielectric_params"]["outer_value"] = params["refraction_params"]["outer_value"]**2
+
     if params["dielectric_params"]["method"] == "uniform":
         for u, v in graph.edges:
             if graph[u][v]["inner"]:
