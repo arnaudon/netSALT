@@ -148,12 +148,13 @@ def plot_scan(
                 c="m",
             )
 
-    ax.axis([ks[0], ks[-1], alphas[-1], alphas[0]])
 
-    if with_trajectories and "mode_trajectories" in modes_df:
-        plot_pump_traj(
-            modes_df, with_scatter=with_scatter, with_approx=with_approx, ax=ax
-        )
+        if with_trajectories and "mode_trajectories" in modes_df:
+            plot_pump_traj(
+                modes_df, with_scatter=with_scatter, with_approx=with_approx, ax=ax
+            )
+
+    ax.axis([ks[0], ks[-1], alphas[-1], alphas[0]])
 
     _savefig(graph, fig, folder, filename)
     return ax

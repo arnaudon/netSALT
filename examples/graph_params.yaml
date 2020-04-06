@@ -28,7 +28,7 @@ SM_small:
         alpha_n: 50
         
         # params for mode search
-        quality_threshold: 0.001
+        quality_threshold: 1.e-5
         search_stepsize: 0.01 
         max_steps: 1000 
         max_tries_reduction: 20 
@@ -40,6 +40,8 @@ SM_small:
         D0_steps: 11
         k_a: 10.68 #15
         gamma_perp: 0.55 #3.0
+
+        exts: ['.png', '.svg']
 
         #WIP params
         pump_edges: 'all' #[8, 9]        
@@ -125,6 +127,8 @@ line_semi:
         k_a: 20 #40
         gamma_perp: 4.0
 
+        exts: ['.png', '.svg']
+
         #WIP params
         pump_edges: 'all' #[8, 9]        
         open_nodes: []
@@ -152,7 +156,7 @@ buffon:
         alpha_n: 300
         
         # params for mode search
-        quality_threshold: 1.e-2
+        quality_threshold: 1.e-5
         search_stepsize: 0.01 
         max_steps: 200
         max_tries_reduction: 10 
@@ -164,6 +168,8 @@ buffon:
         D0_steps: 11
         k_a: 10.68 #15
         gamma_perp: 0.55 #3.0
+
+        exts: ['.png', '.svg']
 
         #WIP params
         pump_edges: 'all' #[8, 9]        
