@@ -16,18 +16,21 @@ from .graph_construction import (
 from .utils import from_complex, to_complex
 
 
-def laplacian_quality(laplacian, method="eigenvalue"):
+def laplacian_quality(laplacian, method="singularvalue"):
     """Return the quality of a mode encoded in the naq laplacian."""
     if method == "eigenvalue":
         try:
             return abs(
                 sc.sparse.linalg.eigs(
-                    laplacian, k=1, sigma=0, return_eigenvectors=False
+                    laplacian, k=1, sigma=0, return_eigenvectors=False, which="LM"
                 )
             )[0]
         except sc.sparse.linalg.ArpackNoConvergence:
             # If eigenvalue solver did not converge, set to 1.0,
             return 1.0
+        except RuntimeError:
+            print("Runtime error, things may be bad!")
+            return 1.0e-20
     if method == "singularvalue":
         return sc.sparse.linalg.svds(
             laplacian, k=1, which="SM", return_singular_vectors=False

@@ -28,7 +28,7 @@ SM_small:
         alpha_n: 50
         
         # params for mode search
-        quality_threshold: 1.e-5
+        quality_threshold: 1.e-10
         search_stepsize: 0.01 
         max_steps: 1000 
         max_tries_reduction: 20 
@@ -74,7 +74,7 @@ line_PRA:
         alpha_n: 50
         
         # params for mode search
-        quality_threshold: 1.e-5
+        quality_threshold: 1.e-8
         search_stepsize: 0.01
         max_steps: 1000 
         max_tries_reduction: 20 

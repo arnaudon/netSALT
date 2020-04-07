@@ -15,11 +15,12 @@ from .utils import get_scan_grid, lorentzian, order_edges_by
 
 def _savefig(graph, fig, folder, filename):
     """Save figures in subfolders and with different extensions."""
-    for ext in graph.graph["params"]["exts"]:
-        folder_ext = Path(folder + "_" + ext.split(".")[-1])
-        if not folder_ext.exists():
-            os.mkdir(folder_ext)
-        plt.savefig((folder_ext / filename).with_suffix(ext), bbox_inches="tight")
+    if fig is not None:
+        for ext in graph.graph["params"]["exts"]:
+            folder_ext = Path(folder + "_" + ext.split(".")[-1])
+            if not folder_ext.exists():
+                os.mkdir(folder_ext)
+            fig.savefig((folder_ext / filename).with_suffix(ext), bbox_inches="tight")
 
 
 def plot_stem_spectra(
@@ -48,17 +49,17 @@ def plot_stem_spectra(
     ax.set_xlim(ks[0], ks[-1])
     ax.set_ylim(0, np.max(modal_amplitudes) * 1.3)
 
-    ax2 = ax.twinx().twiny()
+    ax2 = ax.twinx()
     ks = np.linspace(
         graph.graph["params"]["k_min"], graph.graph["params"]["k_max"], 1000
     )
-    lams = 2*np.pi/ks
-    ax2.plot(lams, lorentzian(ks, graph), "r--")
+    ax2.plot(ks, lorentzian(ks, graph), "r--")
     ax2.set_xlabel(r"$\lambda$")
     ax2.set_ylabel("Gain spectrum (a.u.)")
 
-    ax2.set_xlim(lams[0], lams[-1])
-    ax2.set_ylim(0, np.max(lorentzian(ks, graph)) * 1.3)
+    ax3 = ax.twiny()
+    lams = 2 * np.pi / ks
+    ax3.set_xlim(lams[0], lams[-1])
 
     _savefig(graph, fig, folder, filename)
 
@@ -149,7 +150,6 @@ def plot_scan(
                 -np.imag(modes_df["threshold_lasing_modes"].to_numpy()),
                 c="m",
             )
-
 
         if with_trajectories and "mode_trajectories" in modes_df:
             plot_pump_traj(

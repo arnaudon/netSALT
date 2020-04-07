@@ -1,4 +1,4 @@
-"""Main functions of NAQ graphs"""
+"eigenvalue" "Main functions of NAQ graphs" ""
 import multiprocessing
 
 import numpy as np
@@ -163,7 +163,7 @@ def pump_trajectories(modes_df, graph, return_approx=False):
     return modes_df
 
 
-def find_threshold_lasing_modes(modes_df, graph, threshold=1e-5):
+def find_threshold_lasing_modes(modes_df, graph):
     """Find the threshold lasing modes and associated lasing thresholds."""
     pool = multiprocessing.Pool(graph.graph["params"]["n_workers"])
     stepsize = graph.graph["params"]["search_stepsize"]
@@ -208,7 +208,7 @@ def find_threshold_lasing_modes(modes_df, graph, threshold=1e-5):
                     "A mode could not be updated, consider modifying the search parameters."
                 )
                 new_modes_tmp[mode_index] = new_modes[mode_index]
-            elif abs(new_modes_tmp[mode_index][1]) < threshold:
+            elif abs(new_modes_tmp[mode_index][1]) < params["quality_threshold"]:
                 to_delete.append(i)
                 threshold_lasing_modes[mode_index] = new_modes_tmp[mode_index]
                 lasing_thresholds[mode_index] = new_D0s[mode_index]
