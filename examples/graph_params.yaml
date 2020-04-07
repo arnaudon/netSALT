@@ -20,7 +20,7 @@ SM_small:
         plot_edgesize: 0.01
         
         #mode search params
-        k_min: 10.4
+        k_min: 10.36
         k_max: 11.0
         k_n: 100
         alpha_min: 0.0
@@ -39,13 +39,16 @@ SM_small:
         D0_max: 0.12
         D0_steps: 11
         k_a: 10.68 #15
-        gamma_perp: 0.55 #3.0
+        gamma_perp: 0.5 #3.0
 
         exts: ['.png', '.svg']
 
         #WIP params
         pump_edges: 'all' #[8, 9]        
         open_nodes: []
+
+        #figure format
+        exts: ['.png']
 
 line_PRA:
         #network params
@@ -84,11 +87,12 @@ line_PRA:
         k_a: 15 #0.1
         gamma_perp: 3.0 #0.04
 
-        exts: ['.png', '.svg']
-
         #WIP params
         pump_edges: 'all' #[8, 9]        
         open_nodes: []
+
+        #figure format
+        exts: ['.png', '.svg']
         
 line_semi:
         #network params
@@ -132,6 +136,9 @@ line_semi:
         #WIP params
         pump_edges: 'all' #[8, 9]        
         open_nodes: []
+
+        #figure format
+        exts: ['.png', '.svg']
         
 buffon:
         #network params
@@ -174,4 +181,7 @@ buffon:
         #WIP params
         pump_edges: 'all' #[8, 9]        
         open_nodes: []
+
+        #figure format
+        exts: ['.png', '.svg']
 

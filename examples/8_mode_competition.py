@@ -27,7 +27,7 @@ modes_df = naq.load_modes()
 
 mode_competition_matrix = naq.load_mode_competition_matrix()
 
-D0_max = 2 * params["D0_max"]
+D0_max = 10 * params["D0_max"]
 n_points = 1000
 pump_intensities = np.linspace(0, D0_max, n_points)
 
