@@ -48,14 +48,16 @@ def plot_stem_spectra(
     ax.set_xlim(ks[0], ks[-1])
     ax.set_ylim(0, np.max(modal_amplitudes) * 1.3)
 
-    ax2 = ax.twinx()
+    ax2 = ax.twinx().twiny()
     ks = np.linspace(
         graph.graph["params"]["k_min"], graph.graph["params"]["k_max"], 1000
     )
-    ax2.plot(ks, lorentzian(ks, graph), "r--")
+    lams = 2*np.pi/ks
+    ax2.plot(lams, lorentzian(ks, graph), "r--")
+    ax2.set_xlabel(r"$\lambda$")
     ax2.set_ylabel("Gain spectrum (a.u.)")
 
-    ax2.set_xlim(ks[0], ks[-1])
+    ax2.set_xlim(lams[0], lams[-1])
     ax2.set_ylim(0, np.max(lorentzian(ks, graph)) * 1.3)
 
     _savefig(graph, fig, folder, filename)
