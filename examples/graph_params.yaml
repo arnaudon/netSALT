@@ -13,7 +13,7 @@ SM_small:
         innerL: 20
         refraction_params: 
             method: 'uniform'
-            inner_value: 3.
+            inner_value: 3.0
             loss: 0.01
             outer_value: 1.
         open_model: 'open_ends'
@@ -28,7 +28,7 @@ SM_small:
         alpha_n: 50
         
         # params for mode search
-        quality_threshold: 1.e-8
+        quality_threshold: 1.e-4
         search_stepsize: 0.01 
         max_steps: 1000 
         max_tries_reduction: 50 
@@ -36,9 +36,9 @@ SM_small:
 
         #pumping parameters
         D0_min: 0.0
-        D0_max: 0.12
-        D0_steps: 11
-        k_a: 10.68 #15
+        D0_max: 0.08
+        D0_steps: 3
+        k_a: 10.68
         gamma_perp: 0.5 #3.0
 
         exts: ['.png', '.svg']
@@ -53,7 +53,7 @@ SM_small:
 line_PRA:
         #network params
         n_workers: 10
-        n: 103 #43 #103
+        n: 23
         lead_prob: -0.2
         seed: 2
         innerL: 1
@@ -74,7 +74,7 @@ line_PRA:
         alpha_n: 50
         
         # params for mode search
-        quality_threshold: 1.e-8
+        quality_threshold: 1.e-4
         search_stepsize: 0.01
         max_steps: 1000 
         max_tries_reduction: 20 

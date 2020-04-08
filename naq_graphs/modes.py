@@ -16,7 +16,7 @@ from .graph_construction import (
 from .utils import from_complex, to_complex
 
 
-def laplacian_quality(laplacian, method="singularvalue"):
+def laplacian_quality(laplacian, method="eigenvalue"):
     """Return the quality of a mode encoded in the naq laplacian."""
     if method == "eigenvalue":
         try:
@@ -30,10 +30,23 @@ def laplacian_quality(laplacian, method="singularvalue"):
             return 1.0
         except RuntimeError:
             print("Runtime error, things may be bad!")
+            return abs(
+                sc.sparse.linalg.eigs(
+                    laplacian + 1e-5 * sc.sparse.eye(laplacian.shape[0]),
+                    k=1,
+                    sigma=0,
+                    return_eigenvectors=False,
+                    which="LM",
+                )
+            )[0]
+
             return 1.0e-20
     if method == "singularvalue":
         return sc.sparse.linalg.svds(
-            laplacian, k=1, which="SM", return_singular_vectors=False
+            laplacian,
+            k=1,
+            which="SM",
+            return_singular_vectors=False,  # , v0=np.ones(laplacian.shape[0])
         )[0]
     return 1.0
 
@@ -113,8 +126,8 @@ def refine_mode_brownian_ratchet(
         if tries_counter > params["max_tries_reduction"]:
             search_stepsize *= params["reduction_factor"]
             tries_counter = 0
-        if search_stepsize < 1e-8:
-            print("Warning: mode search stepsize under 1e-8 for mode:", current_mode)
+        if search_stepsize < 1e-10:
+            print("Warning: mode search stepsize under 1e-10 for mode:", current_mode)
             print(
                 "We retry from a larger one, but consider fine tuning search parameters."
             )
@@ -124,6 +137,7 @@ def refine_mode_brownian_ratchet(
         if save_mode_trajectories:
             return np.array(mode_trajectories)
         return current_mode
+    raise Excpetion("Maximum number of tries attained and no mode found!")
 
 
 def clean_duplicate_modes(all_modes, k_size, alpha_size):
@@ -240,29 +254,28 @@ def pump_linear(mode_0, graph, D0_0, D0_1):
     )
 
 
-def mode_on_nodes(mode, graph, eigenvalue_max=1e-2):
+def mode_on_nodes(mode, graph):
     """Compute the mode solution on the nodes of the graph."""
     laplacian = construct_laplacian(to_complex(mode), graph)
-
     min_eigenvalue, node_solution = sc.sparse.linalg.eigs(
-        laplacian, k=1, sigma=0, v0=np.ones(len(graph))
+        laplacian, k=2, sigma=0, v0=np.ones(len(graph)), which="LM"
     )
 
-    if abs(min_eigenvalue) > eigenvalue_max:
+    if abs(min_eigenvalue[0]) > graph.graph["params"]["quality_threshold"]:
         raise Exception(
             "Not a mode, as quality is too high: "
-            + str(np.round(abs(min_eigenvalue[0]), 5))
+            + str(abs(min_eigenvalue[0]))
             + " > "
-            + str(eigenvalue_max)
+            + str(graph.graph["params"]["quality_threshold"])
         )
 
     return node_solution[:, 0]
 
 
-def flux_on_edges(mode, graph, eigenvalue_max=1e-2):
+def flux_on_edges(mode, graph):
     """Compute the flux on each edge (in both directions)."""
 
-    node_solution = mode_on_nodes(mode, graph, eigenvalue_max=eigenvalue_max)
+    node_solution = mode_on_nodes(mode, graph)
 
     BT, _ = construct_incidence_matrix(graph)
     Winv = construct_weight_matrix(graph, with_k=False)
@@ -270,9 +283,9 @@ def flux_on_edges(mode, graph, eigenvalue_max=1e-2):
     return Winv.dot(BT.T).dot(node_solution)
 
 
-def mean_mode_on_edges(mode, graph, eigenvalue_max=1e-2):
+def mean_mode_on_edges(mode, graph):
     """Compute the average |E|^2 on each edge."""
-    edge_flux = flux_on_edges(mode, graph, eigenvalue_max=eigenvalue_max)
+    edge_flux = flux_on_edges(mode, graph)
 
     mean_edge_solution = np.zeros(len(graph.edges))
     for ei in range(len(graph.edges)):

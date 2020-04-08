@@ -14,7 +14,7 @@ def generate_graph(tpe="SM", params={}):
 
         pos = np.array(
             [
-                [np.cos(2 * np.pi * i / len(G)), np.sin(2 * np.pi * i / len(G))]
+                [np.cos(2 * np.pi * i / len(G)), np.sin(2 * np.pi * i / len(G)) + np.random.normal(0, 0.01)]
                 for i in range(len(G))
             ]
         )
@@ -42,7 +42,7 @@ def generate_graph(tpe="SM", params={}):
     ):
         G = nx.grid_2d_graph(params["n"], 1, periodic=False)
         G = nx.convert_node_labels_to_integers(G)
-        pos = np.array([[i / (len(G) - 1), 0] for i in range(len(G))])
+        pos = np.array([[i / (len(G) - 1) + np.random.normal(0, 0.001), 0] for i in range(len(G))])
         # pos[0] = [-.05, 0]
 
     elif tpe == "SBM" or tpe == "SBM_2":

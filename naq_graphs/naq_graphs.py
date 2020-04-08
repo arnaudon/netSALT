@@ -224,6 +224,7 @@ def find_threshold_lasing_modes(modes_df, graph):
         new_modes = new_modes_tmp.copy()
 
     pool.close()
+
     modes_df["threshold_lasing_modes"] = [
         to_complex(mode) for mode in threshold_lasing_modes
     ]

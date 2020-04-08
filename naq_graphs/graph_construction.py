@@ -197,8 +197,10 @@ def construct_incidence_matrix(graph):
 
     m = len(graph.edges)
     n = len(graph.nodes)
-    BT = sc.sparse.csr_matrix((data, (col, row)), shape=(n, 2 * m))
-    Bout = sc.sparse.csr_matrix((data_out, (row, col)), shape=(2 * m, n))
+    BT = sc.sparse.csr_matrix((data, (col, row)), shape=(n, 2 * m), dtype=np.complex128)
+    Bout = sc.sparse.csr_matrix(
+        (data_out, (row, col)), shape=(2 * m, n), dtype=np.complex128
+    )
     return BT, Bout
 
 
@@ -210,6 +212,8 @@ def construct_weight_matrix(graph, with_k=True):
     data_tmp[mask] = 1.0 / (
         np.exp(2.0j * graph.graph["lengths"][mask] * graph.graph["ks"][mask]) - 1.0
     )
+    if any(data_tmp > 1e5):
+        print("WARNING: large values in Winv, it may not work!")
     if with_k:
         data_tmp[mask] *= graph.graph["ks"][mask]
     data_tmp[~mask] = -0.5 * graph.graph["lengths"][~mask]
@@ -218,7 +222,9 @@ def construct_weight_matrix(graph, with_k=True):
     data = np.repeat(data_tmp, 2)
 
     m = len(graph.edges)
-    return sc.sparse.csc_matrix((data, (row, row)), shape=(2 * m, 2 * m))
+    return sc.sparse.csc_matrix(
+        (data, (row, row)), shape=(2 * m, 2 * m), dtype=np.complex128
+    )
 
 
 def set_inner_edges(graph, params, outer_edges=None):
