@@ -28,10 +28,10 @@ SM_small:
         alpha_n: 50
         
         # params for mode search
-        quality_threshold: 1.e-10
+        quality_threshold: 1.e-8
         search_stepsize: 0.01 
         max_steps: 1000 
-        max_tries_reduction: 20 
+        max_tries_reduction: 50 
         reduction_factor: 0.80 
 
         #pumping parameters
