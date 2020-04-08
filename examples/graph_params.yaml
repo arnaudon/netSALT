@@ -140,6 +140,98 @@ line_semi:
         #figure format
         exts: ['.png', '.svg']
         
+coupled_rings:
+        #network params
+        n_workers: 10
+        n: 20
+        lead_prob: 0.0
+        seed: 2
+        innerL: 20
+        refraction_params: 
+            method: 'uniform'
+            inner_value: 1.5
+            loss: 0.005
+            outer_value: 1.
+        open_model: 'open_ends'
+        plot_edgesize: 0.01
+        
+        #mode search params
+        k_min: 10.36
+        k_max: 11.0
+        k_n: 100
+        alpha_min: 0.0
+        alpha_max: 0.07
+        alpha_n: 50
+        
+        # params for mode search
+        quality_threshold: 1.e-8
+        search_stepsize: 0.01 
+        max_steps: 1000 
+        max_tries_reduction: 50 
+        reduction_factor: 0.80 
+
+        #pumping parameters
+        D0_min: 0.0
+        D0_max: 0.12
+        D0_steps: 11
+        k_a: 10.68 #15
+        gamma_perp: 0.5 #3.0
+
+        exts: ['.png', '.svg']
+
+        #WIP params
+        pump_edges: 'all' #[8, 9]        
+        open_nodes: []
+
+        #figure format
+        exts: ['.png']
+
+knot:
+        #network params
+        n_workers: 10
+        n: 9
+        lead_prob: 0.0
+        seed: 2
+        innerL: 40
+        refraction_params: 
+            method: 'uniform'
+            inner_value: 1.5
+            loss: 0.005
+            outer_value: 1.
+        open_model: 'open_ends'
+        plot_edgesize: 0.01
+        
+        #mode search params
+        k_min: 10.36
+        k_max: 11.0
+        k_n: 200
+        alpha_min: 0.0
+        alpha_max: 0.14
+        alpha_n: 100
+        
+        # params for mode search
+        quality_threshold: 1.e-8
+        search_stepsize: 0.01 
+        max_steps: 1000 
+        max_tries_reduction: 50 
+        reduction_factor: 0.80 
+
+        #pumping parameters
+        D0_min: 0.0
+        D0_max: 0.12
+        D0_steps: 11
+        k_a: 10.68 #15
+        gamma_perp: 0.5 #3.0
+
+        exts: ['.png', '.svg']
+
+        #WIP params
+        pump_edges: 'all' #[8, 9]        
+        open_nodes: []
+
+        #figure format
+        exts: ['.png']
+
 buffon:
         #network params
         n_workers: 36
