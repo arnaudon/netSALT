@@ -56,12 +56,12 @@ def generate_graph(tpe="SM", params={}):
         G = nx.Graph(edges)
         pos = [np.array(
             [
-                np.cos(2 * np.pi * i / params["n"]), np.sin(2 * np.pi * i / params["n"])])
+                np.cos(2 * np.pi * i / params["n"]), np.sin(2 * np.pi * i / params["n"]) + np.random.normal(0, 0.001)])
                 for i in range(params["n"])
             ]
         pos += [np.array(
             [
-                2.1 - np.cos(2 * np.pi * i / params["n"]), np.sin(2 * np.pi * i / params["n"])])
+                2.1 - np.cos(2 * np.pi * i / params["n"]), np.sin(2 * np.pi * i / params["n"]) + np.random.normal(0, 0.001)])
                 for i in range(params["n"])
             ]
         pos = np.array(pos)
@@ -80,7 +80,7 @@ def generate_graph(tpe="SM", params={}):
         G = nx.Graph(edges)
         pos = [np.array(
             [
-                np.sin(2 * np.pi * i / params["n"]), -np.cos(2 * np.pi * i / params["n"])])
+                np.sin(2 * np.pi * i / params["n"]), -np.cos(2 * np.pi * i / params["n"]) + np.random.normal(0, 0.001)])
                 for i in range(params["n"])
             ]
         ringL = 2*params["n"]*np.sin(np.pi/params["n"])
@@ -94,7 +94,6 @@ def generate_graph(tpe="SM", params={}):
             ]
         pos += [np.array([ringL/2+0.5, -1.05])]
         pos = np.array(pos)
->>>>>>> e9c921e83dc4bd85ce9fe9e7cfc5fe5d5ebef975
 
     elif tpe == "SBM" or tpe == "SBM_2":
         import SBM as sbm
