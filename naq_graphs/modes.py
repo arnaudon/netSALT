@@ -114,7 +114,7 @@ def refine_mode_brownian_ratchet(
             search_stepsize *= params["reduction_factor"]
             tries_counter = 0
         if search_stepsize < 1e-8:
-            print("Warning: mode search stepsize under 1e-8 for mode:", mode)
+            print("Warning: mode search stepsize under 1e-8 for mode:", current_mode)
             print(
                 "We retry from a larger one, but consider fine tuning search parameters."
             )
