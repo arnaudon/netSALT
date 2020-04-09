@@ -14,7 +14,7 @@ def generate_graph(tpe="SM", params={}):
 
         pos = np.array(
             [
-                [np.cos(2 * np.pi * i / len(G)), np.sin(2 * np.pi * i / len(G)) + np.random.normal(0, 0.01)]
+                [np.cos(2 * np.pi * i / len(G)), np.sin(2 * np.pi * i / len(G))]
                 for i in range(len(G))
             ]
         )
@@ -41,7 +41,7 @@ def generate_graph(tpe="SM", params={}):
     ):
         G = nx.grid_2d_graph(params["n"], 1, periodic=False)
         G = nx.convert_node_labels_to_integers(G)
-        pos = np.array([[i / (len(G) - 1) + np.random.normal(0, 0.001), 0] for i in range(len(G))])
+        pos = np.array([[i / (len(G) - 1), 0] for i in range(len(G))])
         
     elif tpe == 'coupled_rings':
         edges = []
@@ -94,7 +94,6 @@ def generate_graph(tpe="SM", params={}):
             ]
         pos += [np.array([ringL/2+0.5, -1.05])]
         pos = np.array(pos)
->>>>>>> e9c921e83dc4bd85ce9fe9e7cfc5fe5d5ebef975
 
     elif tpe == "SBM" or tpe == "SBM_2":
         import SBM as sbm

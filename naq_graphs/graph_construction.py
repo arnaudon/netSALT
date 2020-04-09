@@ -10,8 +10,20 @@ def create_naq_graph(graph, params, positions=None, lengths=None):
     """append a networkx graph with necessary attributes for being a NAQ graph"""
     set_node_positions(graph, positions)
     set_edge_lengths(graph, lengths=lengths)
+    _verify_lengths(graph)
     set_inner_edges(graph, params)
     update_parameters(graph, params)
+
+
+def _verify_lengths(graph):
+    """Add noise to lenghts if many are equal."""
+    lengths = [graph[u][v]['length'] for u, v in graph.edges]
+    if max(np.unique(np.around(lengths, 5), return_counts=True)) > 0.5 * len(graph.edges):
+        print("""WARNING: you have more than half of the edges of the same length,
+               so we add some small noise for safety for the numerics.""")
+        for u in graph:
+            graph.nodes[u]['position'][0] += np.random.normal(0, 0.01 * min(lengths))
+        set_edge_lengths(graph)
 
 
 def _not_equal(data1, data2, force=False):
