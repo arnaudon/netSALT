@@ -56,12 +56,12 @@ def generate_graph(tpe="SM", params={}):
         G = nx.Graph(edges)
         pos = [np.array(
             [
-                np.cos(2 * np.pi * i / params["n"]), np.sin(2 * np.pi * i / params["n"])])
+                np.cos(2 * np.pi * i / params["n"]), np.sin(2 * np.pi * i / params["n"]) + np.random.normal(0, 0.001)])
                 for i in range(params["n"])
             ]
         pos += [np.array(
             [
-                2.1 - np.cos(2 * np.pi * i / params["n"]), np.sin(2 * np.pi * i / params["n"])])
+                2.1 - np.cos(2 * np.pi * i / params["n"]), np.sin(2 * np.pi * i / params["n"]) + np.random.normal(0, 0.001)])
                 for i in range(params["n"])
             ]
         pos = np.array(pos)
@@ -80,7 +80,7 @@ def generate_graph(tpe="SM", params={}):
         G = nx.Graph(edges)
         pos = [np.array(
             [
-                np.sin(2 * np.pi * i / params["n"]), -np.cos(2 * np.pi * i / params["n"])])
+                np.sin(2 * np.pi * i / params["n"]), -np.cos(2 * np.pi * i / params["n"]) + np.random.normal(0, 0.001)])
                 for i in range(params["n"])
             ]
         ringL = 2*params["n"]*np.sin(np.pi/params["n"])
