@@ -31,6 +31,6 @@ naq.save_modes(modes_df)
 qualities = naq.load_qualities()
 
 ax = plotting.plot_scan(
-    graph, qualities, modes_df, filename="scan_with_threshold_modes"
+    graph, qualities, modes_df, filename="scan_with_threshold_modes", relax_upper=True
 )
 plt.show()

@@ -258,7 +258,7 @@ def mode_on_nodes(mode, graph):
     """Compute the mode solution on the nodes of the graph."""
     laplacian = construct_laplacian(to_complex(mode), graph)
     min_eigenvalue, node_solution = sc.sparse.linalg.eigs(
-        laplacian, k=2, sigma=0, v0=np.ones(len(graph)), which="LM"
+        laplacian, k=1, sigma=0, v0=np.ones(len(graph)), which="LM"
     )
 
     if abs(min_eigenvalue[0]) > graph.graph["params"]["quality_threshold"]:
@@ -424,8 +424,11 @@ def _compute_mode_competition_element(lengths, params, data):
 
 def compute_mode_competition_matrix(graph, modes_df):
     """Compute the mode competition matrix, or T matrix."""
-    threshold_modes = modes_df["threshold_lasing_modes"]
-    lasing_thresholds = modes_df["lasing_thresholds"]
+    threshold_modes = modes_df["threshold_lasing_modes"].to_numpy()
+    lasing_thresholds = modes_df["lasing_thresholds"].to_numpy()
+
+    lasing_thresholds = lasing_thresholds[abs(threshold_modes) > 0]
+    threshold_modes = threshold_modes[abs(threshold_modes) > 0]
 
     pool = multiprocessing.Pool(graph.graph["params"]["n_workers"])
 
@@ -434,6 +437,7 @@ def compute_mode_competition_matrix(graph, modes_df):
         graph,
         _get_mask_matrices(graph.graph["params"])[1],
     )
+
     precomp_results = list(
         tqdm(
             pool.imap(precomp, zip(threshold_modes, lasing_thresholds)),
@@ -513,11 +517,18 @@ def _find_next_lasing_mode(
 
 
 def compute_modal_intensities(
-    modes_df, pump_intensities, mode_competition_matrix,
+    modes_df, pump_intensities, mode_competition_matrix_reduc,
 ):
     """Compute the modal intensities of the modes up to D0, with D0_steps."""
     threshold_modes = modes_df["threshold_lasing_modes"]
     lasing_thresholds = modes_df["lasing_thresholds"]
+
+    mode_competition_matrix = np.zeros([len(lasing_thresholds), len(lasing_thresholds)])
+    mode_competition_matrix[
+        np.ix_(abs(threshold_modes) > 0, abs(threshold_modes) > 0)
+    ] = mode_competition_matrix_reduc
+    # lasing_thresholds = lasing_thresholds[abs(threshold_modes) > 0]
+    # threshold_modes = threshold_modes[abs(threshold_modes) > 0]
 
     next_lasing_mode_id = np.argmin(lasing_thresholds)
     next_lasing_threshold = lasing_thresholds[next_lasing_mode_id]
@@ -554,10 +565,17 @@ def compute_modal_intensities(
         :-1
     ]
     modes_df["interacting_lasing_thresholds"] = interacting_lasing_thresholds_all
+
     if "modal_intensities" in modes_df:
         del modes_df["modal_intensities"]
-    for pump_intensity, modal_intensity in zip(
-        pump_intensities, np.array(modal_intensities).T
-    ):
+
+    modal_intensities = np.array(modal_intensities).T
+    for pump_intensity, modal_intensity in zip(pump_intensities, modal_intensities):
         modes_df["modal_intensities", pump_intensity] = modal_intensity
+    print(
+        len(np.where(modal_intensities[-1] > 0)[0]),
+        "lasing modes out of",
+        len(modal_intensities[-1]),
+    )
+
     return modes_df

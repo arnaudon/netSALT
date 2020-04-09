@@ -112,6 +112,7 @@ def plot_scan(
     with_approx=True,
     folder="plots",
     filename="scan",
+    relax_upper=False,
 ):
     """plot the scan with the mode found"""
 
@@ -157,6 +158,12 @@ def plot_scan(
             )
 
     ax.axis([ks[0], ks[-1], alphas[-1], alphas[0]])
+
+    if relax_upper:
+        ax.set_ylim(
+            graph.graph["params"]["alpha_max"],
+            -np.max(np.imag(modes_df["mode_trajectories"].to_numpy())),
+        )
 
     _savefig(graph, fig, folder, filename)
     return ax

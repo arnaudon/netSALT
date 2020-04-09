@@ -103,8 +103,17 @@ def find_modes(graph, qualities):
     )
     print("Found", len(true_modes), "after refinements.")
 
+    modes_sorted = true_modes[np.argsort(true_modes[:, 1])]
+    if graph.graph["params"]["n_modes_max"]:
+        print(
+            "...but we will use the top",
+            graph.graph["params"]["n_modes_max"],
+            "modes only",
+        )
+        modes_sorted = modes_sorted[: graph.graph["params"]["n_modes_max"]]
+
     modes_df = _init_dataframe()
-    modes_df["passive"] = [to_complex(true_mode) for true_mode in true_modes]
+    modes_df["passive"] = [to_complex(mode_sorted) for mode_sorted in modes_sorted]
     return modes_df
 
 
@@ -130,7 +139,15 @@ def pump_trajectories(modes_df, graph, return_approx=False):
 
     pumped_modes = [[from_complex(mode) for mode in modes_df["passive"]]]
     pumped_modes_approx = pumped_modes.copy()
-    for d in tqdm(range(len(D0s) - 1)):
+    for d in range(len(D0s) - 1):
+        print(
+            "Step "
+            + str(d + 1)
+            + "/"
+            + str(len(D0s) - 1)
+            + ", computing for D0="
+            + str(D0s[d + 1])
+        )
         pumped_modes_approx.append(pumped_modes[-1].copy())
         for m in range(n_modes):
             pumped_modes_approx[-1][m] = modes.pump_linear(
@@ -140,7 +157,9 @@ def pump_trajectories(modes_df, graph, return_approx=False):
         worker_modes = WorkerModes(
             pumped_modes_approx[-1], graph, D0s=n_modes * [D0s[d + 1]]
         )
-        pumped_modes.append(pool.map(worker_modes, range(n_modes)))
+        pumped_modes.append(
+            list(tqdm(pool.imap(worker_modes, range(n_modes)), total=n_modes))
+        )
         for i, mode in enumerate(pumped_modes[-1]):
             if mode is None:
                 print("Mode not be updated, consider changing the search parameters.")
