@@ -51,6 +51,22 @@ elif graph_tpe == "line_semi":
     custom_index[-1] = 1.0 ** 2
     naq.set_dielectric_constant(graph, params, custom_values=custom_index)
 
+elif graph_tpe == "coupled_rings" or graph_tpe == "knot":
+    custom_index = []
+    for u, v in graph.edges:
+        if v <= params["n"]:
+            custom_index.append((params["refraction_params"]["inner_value"] 
+                + 1.0j * params["refraction_params"]["loss"])**2)
+        else:
+            custom_index.append((params["refraction_params"]["inner_value"]*params["refraction_params"]["detuning"] 
+                + 1.0j * params["refraction_params"]["loss"])**2) # change index on second cavity
+
+    custom_index[2] = custom_index[2]*params["refraction_params"]["coupling"] # change index on linking edge
+    if graph_tpe == "knot":
+        custom_index[params["n"]+1] = params["refraction_params"]["outer_value"]**2
+        custom_index[-1] = params["refraction_params"]["outer_value"]**2
+    naq.set_dielectric_constant(graph, params, custom_values=custom_index)
+
 else:
     naq.set_dielectric_constant(graph, params)  # for "uniform" and all other graphs
 
