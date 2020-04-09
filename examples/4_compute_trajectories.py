@@ -8,6 +8,7 @@ import yaml
 
 import naq_graphs as naq
 from naq_graphs import plotting
+from graph_generator import generate_pump
 
 if len(sys.argv) > 1:
     graph_tpe = sys.argv[-1]
@@ -21,18 +22,7 @@ os.chdir(graph_tpe)
 graph = naq.load_graph()
 modes_df = naq.load_modes()
 
-if graph_tpe == "line_PRA" and params["dielectric_params"]["method"] == "custom":
-    # set pump profile for PRA example
-    pump_edges = round(len(graph.edges()) / 2)
-    nopump_edges = len(graph.edges()) - pump_edges
-    params["pump"] = np.append(np.ones(pump_edges), np.zeros(nopump_edges))
-    params["pump"][0] = 0  # first edge is outside
-else:
-    params["pump"] = np.zeros(len(graph.edges()))  # uniform pump on inner edges
-    for i, (u, v) in enumerate(graph.edges()):
-        if graph[u][v]["inner"]:
-            params["pump"][i] = 1
-
+generate_pump(graph_tpe, graph, params)
 naq.update_parameters(graph, params)
 naq.save_graph(graph)
 

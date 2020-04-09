@@ -27,9 +27,10 @@ modes_df = naq.load_modes()
 
 mode_competition_matrix = naq.load_mode_competition_matrix()
 
-D0_max = 2 * params["D0_max"]
+D0_max = 8.0 * np.min(modes_df["lasing_thresholds"])
+D0_min = 0.8 * np.min(modes_df["lasing_thresholds"])
 n_points = 1000
-pump_intensities = np.linspace(0, D0_max, n_points)
+pump_intensities = np.linspace(D0_min, D0_max, n_points)
 
 modes_df = naq.compute_modal_intensities(
     modes_df, pump_intensities, mode_competition_matrix
@@ -37,7 +38,7 @@ modes_df = naq.compute_modal_intensities(
 
 naq.save_modes(modes_df)
 
-plotting.plot_ll_curve(graph, modes_df)
+plotting.plot_ll_curve(graph, modes_df, with_legend=False)
 
 plotting.plot_stem_spectra(graph, modes_df, -1)
 

@@ -71,7 +71,7 @@ def plot_ll_curve(
     colors = cycle(["C{}".format(i) for i in range(10)])
     pump_intensities = modes_df["modal_intensities"].columns.values
     if ax == None:
-        fig = plt.figure(figsize=(5, 3))
+        fig = plt.figure(figsize=(4, 6))
         ax = plt.gca()
     else:
         fig = None
@@ -80,14 +80,16 @@ def plot_ll_curve(
         intens = np.real(mode["modal_intensities"].to_numpy())
         color = next(colors)
         if intens[-1] > 0:
-            ax.plot(pump_intensities, intens, label="mode " + str(index), c=color)
-            ax.axvline(
-                modes_df["lasing_thresholds"][index],
-                c=color,
-                ls="dotted",
-                ymin=0,
-                ymax=0.2,
+            ax.plot(
+                pump_intensities, intens, label="mode " + str(index), c=color, lw=0.5
             )
+            # ax.axvline(
+            #    modes_df["lasing_thresholds"][index],
+            #    c=color,
+            #    ls="dotted",
+            #    ymin=0,
+            #    ymax=0.2,
+            # )
     ax.axhline(0, lw=0.5, c="k")
 
     if with_legend:
@@ -131,7 +133,7 @@ def plot_scan(
         origin="lower",
         cmap=plt.get_cmap("Blues_r"),
     )
-
+    plt.axhline(0, c="k")
     cbaxes = inset_axes(ax, width="2%", height="40%", loc="lower center")
     cbar = plt.colorbar(im, cax=cbaxes)
     cbar.set_label(r"$log_{10}(quality)$", fontsize=8)

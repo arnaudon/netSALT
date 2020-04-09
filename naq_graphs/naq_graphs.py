@@ -98,6 +98,10 @@ def find_modes(graph, qualities):
     if len(refined_modes) == 0:
         raise Exception("No modes found!")
 
+    refined_modes = [
+        refined_mode for refined_mode in refined_modes if refined_mode is not None
+    ]
+
     true_modes = modes.clean_duplicate_modes(
         refined_modes, ks[1] - ks[0], alphas[1] - alphas[0]
     )
@@ -129,9 +133,7 @@ def pump_trajectories(modes_df, graph, return_approx=False):
     """For a sequence of D0s, find the mode positions of the modes modes."""
 
     D0s = np.linspace(
-        graph.graph["params"]["D0_min"],
-        graph.graph["params"]["D0_max"],
-        graph.graph["params"]["D0_steps"],
+        0, graph.graph["params"]["D0_max"], graph.graph["params"]["D0_steps"],
     )
 
     pool = multiprocessing.Pool(graph.graph["params"]["n_workers"])
@@ -187,9 +189,7 @@ def find_threshold_lasing_modes(modes_df, graph):
     pool = multiprocessing.Pool(graph.graph["params"]["n_workers"])
     stepsize = graph.graph["params"]["search_stepsize"]
 
-    D0_steps = (
-        graph.graph["params"]["D0_max"] - graph.graph["params"]["D0_min"]
-    ) / graph.graph["params"]["D0_steps"]
+    D0_steps = graph.graph["params"]["D0_max"] / graph.graph["params"]["D0_steps"]
 
     new_modes = modes_df["passive"].to_numpy()
 

@@ -3,6 +3,24 @@ import numpy as np
 import math
 
 
+def generate_pump(tpe, graph, params):
+    if tpe == "line_PRA":
+        # set pump profile for PRA example
+        pump_edges = round(len(graph.edges()) / 2)
+        nopump_edges = len(graph.edges()) - pump_edges
+        params["pump"] = np.append(np.ones(pump_edges), np.zeros(nopump_edges))
+        params["pump"][0] = 0  # first edge is outside
+
+    else:
+        # uniform pump on inner edges
+        params["pump"] = np.zeros(len(graph.edges()))
+        for i, (u, v) in enumerate(graph.edges()):
+            if graph[u][v]["inner"]:
+                params["pump"][i] = 1
+
+        print("Using uniform pump.")
+
+
 def generate_graph(tpe="SM", params={}):
 
     pos = []

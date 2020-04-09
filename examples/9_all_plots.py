@@ -40,6 +40,7 @@ ll_axis.xaxis.label.set_size(8)
 ll_axis.yaxis.label.set_size(8)
 
 fig.savefig("final_plot.png", bbox_inches="tight")
+plt.show()
 
 lasing_mode_id = np.where(modes_df["modal_intensities"].to_numpy()[:, -1] > 0)[0]
 
