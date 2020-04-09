@@ -13,8 +13,8 @@ SM_small:
         innerL: 20
         refraction_params: 
             method: 'uniform'
-            inner_value: 3.0
-            loss: 0.01
+            inner_value: 1.5
+            loss: 0.005
             outer_value: 1.
         open_model: 'open_ends'
         plot_edgesize: 0.01
@@ -40,8 +40,6 @@ SM_small:
         D0_steps: 3
         k_a: 10.68
         gamma_perp: 0.5 #3.0
-
-        exts: ['.png', '.svg']
 
         #WIP params
         pump_edges: 'all' #[8, 9]        
@@ -131,8 +129,6 @@ line_semi:
         k_a: 20 #40
         gamma_perp: 4.0
 
-        exts: ['.png', '.svg']
-
         #WIP params
         pump_edges: 'all' #[8, 9]        
         open_nodes: []
@@ -176,8 +172,6 @@ coupled_rings:
         D0_steps: 11
         k_a: 10.68 #15
         gamma_perp: 0.5 #3.0
-
-        exts: ['.png', '.svg']
 
         #WIP params
         pump_edges: 'all' #[8, 9]        
@@ -223,8 +217,6 @@ knot:
         k_a: 10.68 #15
         gamma_perp: 0.5 #3.0
 
-        exts: ['.png', '.svg']
-
         #WIP params
         pump_edges: 'all' #[8, 9]        
         open_nodes: []
@@ -238,11 +230,11 @@ buffon:
         lead_prob: 0
         seed: 2
         innerL: 3000
-        dielectric_params: 
+        refraction_params: 
             method: 'uniform'
-            inner_value: 2.25
-            loss: 0.0
-            outer_value: 2.25
+            inner_value: 1.5
+            loss: 0.001
+            outer_value: 1.5
         open_model: 'open_ends'
         plot_edgesize: 0.1
         
@@ -263,12 +255,10 @@ buffon:
 
         #pumping parameters
         D0_min: 0.0
-        D0_max: 0.0002 #10.
+        D0_max: 0.002 #10.
         D0_steps: 11
         k_a: 10.68 #15
-        gamma_perp: 0.55 #3.0
-
-        exts: ['.png', '.svg']
+        gamma_perp: 0.5 #3.0
 
         #WIP params
         pump_edges: 'all' #[8, 9]        
