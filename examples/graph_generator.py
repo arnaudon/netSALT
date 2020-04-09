@@ -2,6 +2,7 @@ import networkx as nx
 import numpy as np
 import math
 
+
 def generate_graph(tpe="SM", params={}):
 
     pos = []
@@ -34,65 +35,71 @@ def generate_graph(tpe="SM", params={}):
         G = nx.grid_2d_graph(params["n"], params["m"], periodic=True)
         G = nx.convert_node_labels_to_integers(G)
 
-    elif (
-        tpe == "line"
-        or tpe == "line_semi"
-        or tpe == "line_PRA"
-    ):
+    elif tpe == "line" or tpe == "line_semi" or tpe == "line_PRA":
         G = nx.grid_2d_graph(params["n"], 1, periodic=False)
         G = nx.convert_node_labels_to_integers(G)
         pos = np.array([[i / (len(G) - 1), 0] for i in range(len(G))])
-        
-    elif tpe == 'coupled_rings':
+
+    elif tpe == "coupled_rings":
         edges = []
-        for i in range (params["n"] - 1):
-            edges.append((i,i+1))
-        edges.append((0,params["n"]-1))
-        for i in range (params["n"] - 1):
-            edges.append((params["n"]+i,params["n"]+i+1))
-        edges.append((params["n"],2*params["n"]-1))
-        edges.append((0,params["n"]))
+        for i in range(params["n"] - 1):
+            edges.append((i, i + 1))
+        edges.append((0, params["n"] - 1))
+        for i in range(params["n"] - 1):
+            edges.append((params["n"] + i, params["n"] + i + 1))
+        edges.append((params["n"], 2 * params["n"] - 1))
+        edges.append((0, params["n"]))
 
         G = nx.Graph(edges)
-        pos = [np.array(
-            [
-                np.cos(2 * np.pi * i / params["n"]), np.sin(2 * np.pi * i / params["n"]) + np.random.normal(0, 0.001)])
-                for i in range(params["n"])
-            ]
-        pos += [np.array(
-            [
-                2.1 - np.cos(2 * np.pi * i / params["n"]), np.sin(2 * np.pi * i / params["n"]) + np.random.normal(0, 0.001)])
-                for i in range(params["n"])
-            ]
+        pos = [
+            np.array(
+                [
+                    np.cos(2 * np.pi * i / params["n"]),
+                    np.sin(2 * np.pi * i / params["n"]),
+                ]
+            )
+            for i in range(params["n"])
+        ]
+        pos += [
+            np.array(
+                [
+                    2.1 - np.cos(2 * np.pi * i / params["n"]),
+                    np.sin(2 * np.pi * i / params["n"]),
+                ]
+            )
+            for i in range(params["n"])
+        ]
         pos = np.array(pos)
-        
-    elif tpe == 'knot':
-        edges = []
-        for i in range (params["n"] - 1):
-            edges.append((i,i+1))
-        edges.append((0,params["n"]-1))
-        
-        for i in range (params["n"]+1):
-            edges.append((params["n"]+i,params["n"]+i+1))
 
-        edges.append((0,math.ceil(len(edges)-params["n"]/2)-1))
-        
+    elif tpe == "knot":
+        edges = []
+        for i in range(params["n"] - 1):
+            edges.append((i, i + 1))
+        edges.append((0, params["n"] - 1))
+
+        for i in range(params["n"] + 1):
+            edges.append((params["n"] + i, params["n"] + i + 1))
+
+        edges.append((0, math.ceil(len(edges) - params["n"] / 2) - 1))
+
         G = nx.Graph(edges)
-        pos = [np.array(
-            [
-                np.sin(2 * np.pi * i / params["n"]), -np.cos(2 * np.pi * i / params["n"]) + np.random.normal(0, 0.001)])
-                for i in range(params["n"])
-            ]
-        ringL = 2*params["n"]*np.sin(np.pi/params["n"])
-        
-        nline = round(len(G)/2)-1
-        pos += [np.array([-ringL/2-0.5, -1.05])]
-        pos += [np.array(
-            [
-                ringL*(i/(nline-1)-0.5), -1.05])
-                for i in range(nline)
-            ]
-        pos += [np.array([ringL/2+0.5, -1.05])]
+        pos = [
+            np.array(
+                [
+                    np.sin(2 * np.pi * i / params["n"]),
+                    -np.cos(2 * np.pi * i / params["n"]),
+                ]
+            )
+            for i in range(params["n"])
+        ]
+        ringL = 2 * params["n"] * np.sin(np.pi / params["n"])
+
+        nline = round(len(G) / 2) - 1
+        pos += [np.array([-ringL / 2 - 0.5, -1.05])]
+        pos += [
+            np.array([ringL * (i / (nline - 1) - 0.5), -1.05]) for i in range(nline)
+        ]
+        pos += [np.array([ringL / 2 + 0.5, -1.05])]
         pos = np.array(pos)
 
     elif tpe == "SBM" or tpe == "SBM_2":
