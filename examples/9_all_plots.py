@@ -44,7 +44,7 @@ fig.savefig("final_plot.png", bbox_inches="tight")
 lasing_mode_id = np.where(modes_df["modal_intensities"].to_numpy()[:, -1] > 0)[0]
 
 fig, axes = plt.subplots(
-    nrows=int(np.round(len(lasing_mode_id) / 3.0)), ncols=3, figsize=(12, 4)
+    nrows=int(np.ceil(len(lasing_mode_id) / 3.0)), ncols=3, figsize=(12, 4)
 )
 for ax, index in zip(axes.flatten(), lasing_mode_id):
     plotting.plot_single_mode(
