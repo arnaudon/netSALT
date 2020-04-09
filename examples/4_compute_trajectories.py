@@ -42,4 +42,5 @@ naq.save_modes(modes_df)
 qualities = naq.load_qualities()
 
 ax = plotting.plot_scan(graph, qualities, modes_df, filename="scan_with_trajectories")
+ax.set_ylim(graph.graph['params']['alpha_max'], -np.max(np.imag(modes_df['mode_trajectories'].to_numpy())))
 plt.show()
