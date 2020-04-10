@@ -432,8 +432,8 @@ def compute_mode_competition_matrix(graph, modes_df):
     threshold_modes = modes_df["threshold_lasing_modes"].to_numpy()
     lasing_thresholds = modes_df["lasing_thresholds"].to_numpy()
 
-    lasing_thresholds = lasing_thresholds[abs(threshold_modes) > 0]
-    threshold_modes = threshold_modes[abs(threshold_modes) > 0]
+    threshold_modes = threshold_modes[lasing_thresholds < np.inf]
+    lasing_thresholds = lasing_thresholds[lasing_thresholds < np.inf]
 
     pool = multiprocessing.Pool(graph.graph["params"]["n_workers"])
 
@@ -486,7 +486,17 @@ def compute_mode_competition_matrix(graph, modes_df):
 
     pool.close()
 
-    return np.real(mode_competition_matrix)
+    mode_competition_matrix_full = np.zeros(
+        [
+            len(modes_df["threshold_lasing_modes"]),
+            len(modes_df["threshold_lasing_modes"]),
+        ]
+    )
+    mode_competition_matrix_full[
+        np.ix_(lasing_thresholds < np.inf, lasing_thresholds < np.inf)
+    ] = np.real(mode_competition_matrix)
+
+    return mode_competition_matrix_full
 
 
 def _find_next_lasing_mode(
@@ -513,10 +523,7 @@ def _find_next_lasing_mode(
                     1.0 / lasing_thresholds[lasing_mode_ids]
                 )
             )
-            if factor > 1:  # if negative, it means the mode will never lase
-                if factor < 1:
-                    print(factor)
-                    factor = 1.0
+            if factor > 1.0:  # if < 1, it means the mode will never lase
                 interacting_lasing_thresholds[mu] = lasing_thresholds[mu] * factor
 
     next_lasing_mode_id = np.argmin(interacting_lasing_thresholds)
@@ -524,19 +531,10 @@ def _find_next_lasing_mode(
     return next_lasing_mode_id, next_lasing_threshold
 
 
-def compute_modal_intensities(
-    modes_df, pump_intensities, mode_competition_matrix_reduc,
-):
+def compute_modal_intensities(modes_df, pump_intensities, mode_competition_matrix):
     """Compute the modal intensities of the modes up to D0, with D0_steps."""
     threshold_modes = modes_df["threshold_lasing_modes"]
     lasing_thresholds = modes_df["lasing_thresholds"]
-
-    mode_competition_matrix = np.zeros([len(lasing_thresholds), len(lasing_thresholds)])
-    mode_competition_matrix[
-        np.ix_(abs(threshold_modes) > 0, abs(threshold_modes) > 0)
-    ] = mode_competition_matrix_reduc
-    # lasing_thresholds = lasing_thresholds[abs(threshold_modes) > 0]
-    # threshold_modes = threshold_modes[abs(threshold_modes) > 0]
 
     next_lasing_mode_id = np.argmin(lasing_thresholds)
     next_lasing_threshold = lasing_thresholds[next_lasing_mode_id]

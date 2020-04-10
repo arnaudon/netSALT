@@ -227,10 +227,7 @@ def find_threshold_lasing_modes(modes_df, graph):
                     "A mode could not be updated, consider modifying the search parameters."
                 )
                 new_modes_tmp[mode_index] = new_modes[mode_index]
-            elif (
-                abs(new_modes_tmp[mode_index][1])
-                < graph.graph["params"]["quality_threshold"]
-            ):
+            elif abs(new_modes_tmp[mode_index][1]) < 1e-8:
                 to_delete.append(i)
                 threshold_lasing_modes[mode_index] = new_modes_tmp[mode_index]
                 lasing_thresholds[mode_index] = new_D0s[mode_index]

@@ -2,10 +2,13 @@
 import numpy as np
 
 
+def linewidth(k, k_center, width):
+    return width ** 2 / ((k - k_center) ** 2 + width ** 2)
+
+
 def lorentzian(k, graph):
-    return graph.graph["params"]["gamma_perp"] ** 2 / (
-        (k - graph.graph["params"]["k_a"]) ** 2
-        + graph.graph["params"]["gamma_perp"] ** 2
+    return linewidth(
+        k, graph.graph["params"]["k_a"], graph.graph["params"]["gamma_perp"]
     )
 
 

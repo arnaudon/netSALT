@@ -241,7 +241,7 @@ buffon:
             outer_value: 1.5
         open_model: 'open_ends'
         plot_edgesize: 0.1
-        n_modes_max: 100
+        n_modes_max: 70
         
         #mode search params
         k_min: 10.38
@@ -252,9 +252,9 @@ buffon:
         alpha_n: 100
         
         # params for mode search
-        quality_threshold: 1.e-3
+        quality_threshold: 1.e-4
         search_stepsize: 0.0001 
-        max_steps: 1000
+        max_steps: 2000
         max_tries_reduction: 50 
         reduction_factor: 0.80 
 

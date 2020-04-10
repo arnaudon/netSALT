@@ -10,7 +10,7 @@ import numpy as np
 from tqdm import tqdm
 
 from .modes import mean_mode_on_edges, mode_on_nodes
-from .utils import get_scan_grid, lorentzian, order_edges_by
+from .utils import get_scan_grid, lorentzian, order_edges_by, linewidth
 
 
 def _savefig(graph, fig, folder, filename):
@@ -23,8 +23,48 @@ def _savefig(graph, fig, folder, filename):
             fig.savefig((folder_ext / filename).with_suffix(ext), bbox_inches="tight")
 
 
+def plot_spectra(
+    graph,
+    modes_df,
+    pump_index=-1,
+    width=0.0005,
+    ax=None,
+    folder="plots",
+    filename="spectra",
+):
+    """Plot spectra with linewidths."""
+    threshold_modes = np.real(modes_df["threshold_lasing_modes"])
+    modal_amplitudes = np.real(modes_df["modal_intensities"].iloc[:, pump_index])
+
+    if ax == None:
+        fig = plt.figure(figsize=(5, 2))
+        ax = plt.gca()
+    else:
+        fig = None
+
+    ks = np.linspace(
+        graph.graph["params"]["k_min"], graph.graph["params"]["k_max"], 1000
+    )
+    spectra = np.zeros(len(ks))
+    for mode, amplitude in zip(threshold_modes, modal_amplitudes):
+        if amplitude > 0:
+            spectra += amplitude * linewidth(ks, np.real(mode), width)
+
+    ax.plot(ks, spectra)
+
+    ax2 = ax.twinx()
+    ks = np.linspace(
+        graph.graph["params"]["k_min"], graph.graph["params"]["k_max"], 1000
+    )
+    ax2.plot(ks, lorentzian(ks, graph), "r--")
+    ax2.set_xlabel(r"$\lambda$")
+    ax2.set_ylabel("Gain spectrum (a.u.)")
+
+    _savefig(graph, fig, folder, filename)
+
+
 def plot_stem_spectra(
-    graph, modes_df, pump_index, ax=None, folder="plots", filename="stem_spectra"
+    graph, modes_df, pump_index=-1, ax=None, folder="plots", filename="stem_spectra"
 ):
     """Plot spectra with stem plots."""
     threshold_modes = np.real(modes_df["threshold_lasing_modes"])
@@ -65,7 +105,14 @@ def plot_stem_spectra(
 
 
 def plot_ll_curve(
-    graph, modes_df, with_legend=True, ax=None, folder="plots", filename="ll_curve"
+    graph,
+    modes_df,
+    with_legend=True,
+    ax=None,
+    with_colors=True,
+    with_thresholds=True,
+    folder="plots",
+    filename="ll_curve",
 ):
     """Plot LL curves."""
     colors = cycle(["C{}".format(i) for i in range(10)])
@@ -78,18 +125,22 @@ def plot_ll_curve(
 
     for index, mode in modes_df.iterrows():
         intens = np.real(mode["modal_intensities"].to_numpy())
-        color = next(colors)
+        if with_colors:
+            color = next(colors)
+        else:
+            color = "k"
         if intens[-1] > 0:
             ax.plot(
                 pump_intensities, intens, label="mode " + str(index), c=color, lw=0.5
             )
-            # ax.axvline(
-            #    modes_df["lasing_thresholds"][index],
-            #    c=color,
-            #    ls="dotted",
-            #    ymin=0,
-            #    ymax=0.2,
-            # )
+            if with_thresholds:
+                ax.axvline(
+                    modes_df["lasing_thresholds"][index],
+                    c=color,
+                    ls="dotted",
+                    ymin=0,
+                    ymax=0.2,
+                )
     ax.axhline(0, lw=0.5, c="k")
 
     if with_legend:
