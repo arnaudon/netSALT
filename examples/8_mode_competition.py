@@ -27,9 +27,9 @@ modes_df = naq.load_modes()
 
 mode_competition_matrix = naq.load_mode_competition_matrix()
 
-D0_max = 8.0 * np.min(modes_df["lasing_thresholds"])
+D0_max = np.max(modes_df["lasing_thresholds"])
 D0_min = 0.8 * np.min(modes_df["lasing_thresholds"])
-n_points = 5000
+n_points = 1000
 pump_intensities = np.linspace(D0_min, D0_max, n_points)
 
 modes_df = naq.compute_modal_intensities(

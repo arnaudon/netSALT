@@ -128,13 +128,13 @@ def refine_mode_brownian_ratchet(
         if tries_counter > params["max_tries_reduction"]:
             search_stepsize *= params["reduction_factor"]
             tries_counter = 0
-        if search_stepsize < 1e-7:
+        if search_stepsize < 1e-10:
             disp = True
             print("Warning: mode search stepsize under 1e-10 for mode:", current_mode)
             print(
                 "We retry from a larger one, but consider fine tuning search parameters."
             )
-            search_stepsize = 1e-5
+            search_stepsize = 1e-8
         step_counter += 1
     if current_quality < params["quality_threshold"]:
         if save_mode_trajectories:
@@ -500,7 +500,11 @@ def compute_mode_competition_matrix(graph, modes_df):
 
 
 def _find_next_lasing_mode(
-    threshold_modes, lasing_thresholds, lasing_mode_ids, mode_competition_matrix
+    pump_intensity,
+    threshold_modes,
+    lasing_thresholds,
+    lasing_mode_ids,
+    mode_competition_matrix,
 ):
     """Find next interacting lasing mode."""
     interacting_lasing_thresholds = np.ones(len(threshold_modes)) * 1e10
@@ -523,7 +527,7 @@ def _find_next_lasing_mode(
                     1.0 / lasing_thresholds[lasing_mode_ids]
                 )
             )
-            if factor > 1.0:  # if < 1, it means the mode will never lase
+            if lasing_thresholds[mu] * factor > pump_intensity:
                 interacting_lasing_thresholds[mu] = lasing_thresholds[mu] * factor
 
     next_lasing_mode_id = np.argmin(interacting_lasing_thresholds)
@@ -542,17 +546,19 @@ def compute_modal_intensities(modes_df, pump_intensities, mode_competition_matri
     modal_intensities = np.zeros([len(threshold_modes), len(pump_intensities)])
 
     lasing_mode_ids = []
-    interacting_lasing_thresholds = [next_lasing_threshold]
+    interacting_lasing_thresholds = np.inf * np.ones(len(modes_df))
+    interacting_lasing_thresholds[next_lasing_mode_id] = next_lasing_threshold
     for i, pump_intensity in enumerate(pump_intensities):
         while pump_intensity > next_lasing_threshold:
             lasing_mode_ids.append(next_lasing_mode_id)
             next_lasing_mode_id, next_lasing_threshold = _find_next_lasing_mode(
+                pump_intensity,
                 threshold_modes,
                 lasing_thresholds,
                 lasing_mode_ids,
                 mode_competition_matrix,
             )
-            interacting_lasing_thresholds.append(next_lasing_threshold)
+            interacting_lasing_thresholds[next_lasing_mode_id] = next_lasing_threshold
 
         if len(lasing_mode_ids) > 0:
             mode_competition_matrix_inv = np.linalg.inv(
@@ -566,11 +572,7 @@ def compute_modal_intensities(modes_df, pump_intensities, mode_competition_matri
                 1
             )
 
-    interacting_lasing_thresholds_all = np.inf * np.ones(len(modes_df))
-    interacting_lasing_thresholds_all[lasing_mode_ids] = interacting_lasing_thresholds[
-        :-1
-    ]
-    modes_df["interacting_lasing_thresholds"] = interacting_lasing_thresholds_all
+    modes_df["interacting_lasing_thresholds"] = interacting_lasing_thresholds
 
     if "modal_intensities" in modes_df:
         del modes_df["modal_intensities"]
