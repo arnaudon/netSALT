@@ -7,7 +7,7 @@ import numpy as np
 import yaml as yaml
 
 import naq_graphs as naq
-from graph_generator import generate_graph
+from graph_generator import generate_graph, generate_index
 from naq_graphs import plotting
 
 if len(sys.argv) > 1:
@@ -27,61 +27,8 @@ os.chdir(graph_tpe)
 naq.create_naq_graph(graph, params, positions=positions)
 naq.set_total_length(graph, params["innerL"], inner=True)
 
-if graph_tpe == "line_PRA" and params["dielectric_params"]["method"] == "custom":
-    custom_index = []  # line PRA example
-    for u, v in graph.edges:
-        custom_index.append(3.0 ** 2)
-    custom_index[0] = 1.0 ** 2
-    custom_index[-1] = 1.0 ** 2
-
-    count_inedges = len(graph.edges) - 2.0
-    print("Number of inner edges", count_inedges)
-    if count_inedges % 4 == 0:
-        for i in range(round(count_inedges / 4)):
-            custom_index[i + 1] = 1.5 ** 2
-    else:
-        print("Change number of inner edges to be multiple of 4")
-    naq.set_dielectric_constant(graph, params, custom_values=custom_index)
-
-elif graph_tpe == "line_semi":
-    custom_index = []  # line OSA example or Esterhazy PRA 2014
-    for u, v in graph.edges:
-        custom_index.append(params["dielectric_params"]["inner_value"])
-    custom_index[0] = 100.0 ** 2
-    custom_index[-1] = 1.0 ** 2
-    naq.set_dielectric_constant(graph, params, custom_values=custom_index)
-
-elif graph_tpe == "coupled_rings" or graph_tpe == "knot":
-    custom_index = []
-    for u, v in graph.edges:
-        if v <= params["n"]:
-            custom_index.append(
-                (
-                    params["refraction_params"]["inner_value"]
-                    + 1.0j * params["refraction_params"]["loss"]
-                )
-                ** 2
-            )
-        else:
-            custom_index.append(
-                (
-                    params["refraction_params"]["inner_value"]
-                    * params["refraction_params"]["detuning"]
-                    + 1.0j * params["refraction_params"]["loss"]
-                )
-                ** 2
-            )  # change index on second cavity
-
-    custom_index[2] = (
-        custom_index[2] * params["refraction_params"]["coupling"]
-    )  # change index on linking edge
-    if graph_tpe == "knot":
-        custom_index[params["n"] + 1] = params["refraction_params"]["outer_value"] ** 2
-        custom_index[-1] = params["refraction_params"]["outer_value"] ** 2
-    naq.set_dielectric_constant(graph, params, custom_values=custom_index)
-
-else:
-    naq.set_dielectric_constant(graph, params)  # for "uniform" and all other graphs
+custom_index = generate_index(graph_tpe, graph, params)
+naq.set_dielectric_constant(graph, params, custom_values=custom_index)
 
 naq.set_dispersion_relation(
     graph, naq.dispersion_relations.dispersion_relation_pump, params
