@@ -246,7 +246,7 @@ buffon:
         #mode search params
         k_min: 10.38
         k_max: 10.98
-        k_n: 2000
+        k_n: 1200
         alpha_min: .006
         alpha_max: 0.009
         alpha_n: 100
