@@ -26,6 +26,10 @@ generate_pump(graph_tpe, graph, params)
 naq.update_parameters(graph, params)
 naq.save_graph(graph)
 
+plotting.plot_naq_graph(graph, edge_colors=params["pump"], node_size=0.1)
+plt.savefig("pump_profile.svg")
+plt.show()
+
 modes_df = naq.pump_trajectories(modes_df, graph, return_approx=True)
 naq.save_modes(modes_df)
 

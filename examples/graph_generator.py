@@ -11,6 +11,25 @@ def generate_pump(tpe, graph, params):
         params["pump"] = np.append(np.ones(pump_edges), np.zeros(nopump_edges))
         params["pump"][0] = 0  # first edge is outside
 
+    elif tpe == "buffon":
+        # uniform pump on inner edges
+        params["pump"] = np.zeros(len(graph.edges()))
+        for i, (u, v) in enumerate(graph.edges()):
+            if graph[u][v]["inner"]:
+                params["pump"][i] = 1
+        if params["pump_edges"] != "all":
+            if params["pump_edges"] == "centre":
+                # switch off pump on edges based on node position
+                positions = [graph.nodes[u]["position"] for u in graph]
+                for i, (u, v) in enumerate(graph.edges()):
+                    if np.linalg.norm(positions[u])<25 and np.linalg.norm(positions[v])<25:
+                        params["pump"][i] = 0
+            else: 
+                # switch off pump on given set of edges
+                off_edges = np.array(params["pump_edges"])
+                for i, j in enumerate(off_edges):
+                    params["pump"][j] = 0
+
     else:
         # uniform pump on inner edges
         params["pump"] = np.zeros(len(graph.edges()))
@@ -147,10 +166,11 @@ def generate_graph(tpe="SM", params={}):
     elif tpe == "buffon":
         import scipy.io as io
 
-        mat = io.loadmat("datasets/buffonX_log3.mat")
-        G = nx.Graph(mat["Adj"])
+        mat = io.loadmat("datasets/buffonX_small.mat")
+        GG = nx.Graph(mat["Adj"])
         # get only the largest connected component
-        G = G.subgraph(max(nx.connected_components(G), key=len))
+        GG = GG.subgraph(max(nx.connected_components(GG), key=len))
+        G = nx.Graph(GG)
         pos = mat["V"][list(G.nodes)]
 
     elif (
@@ -300,7 +320,7 @@ def generate_graph(tpe="SM", params={}):
         for n in hull_nodes:
             G.add_node(n_tot + k)
             G.add_edge(n, n_tot + k)
-            pos = np.append(pos, [pos[n] * 1.4], axis=0)
+            pos = np.append(pos, [pos[n] * 1.04], axis=0)
             k += 1
 
     elif params["lead_prob"] == -2:

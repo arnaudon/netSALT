@@ -231,9 +231,9 @@ knot:
 buffon:
         #network params
         n_workers: 10
-        lead_prob: 0
+        lead_prob: -1. #0
         seed: 2
-        innerL: 3000
+        innerL: 2000
         refraction_params: 
             method: 'uniform'
             inner_value: 1.5
@@ -241,31 +241,31 @@ buffon:
             outer_value: 1.5
         open_model: 'open_ends'
         plot_edgesize: 0.1
-        n_modes_max: 70
+        n_modes_max: 150
         
         #mode search params
         k_min: 10.38
         k_max: 10.98
-        k_n: 2000
+        k_n: 3000
         alpha_min: .006
         alpha_max: 0.009
         alpha_n: 100
         
         # params for mode search
-        quality_threshold: 1.e-4
+        quality_threshold: 2.e-4 #1.e-4
         search_stepsize: 0.0001 
         max_steps: 2000
         max_tries_reduction: 50 
         reduction_factor: 0.80 
 
         #pumping parameters
-        D0_max: 0.004
-        D0_steps: 2
+        D0_max: 0.006
+        D0_steps: 4 #2
         k_a: 10.68
         gamma_perp: 0.5
 
         #WIP params
-        pump_edges: 'all' #[8, 9]        
+        pump_edges: 'all' #'centre' #[100, 101, 103, 132]
         open_nodes: []
 
         #figure format
