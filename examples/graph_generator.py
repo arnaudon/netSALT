@@ -30,6 +30,18 @@ def generate_pump(tpe, graph, params):
                 for i, j in enumerate(off_edges):
                     params["pump"][j] = 0
 
+    elif tpe == "knot":
+        # uniform pump on inner edges
+        params["pump"] = np.zeros(len(graph.edges()))
+        for i, (u, v) in enumerate(graph.edges()):
+            if graph[u][v]["inner"]:
+                params["pump"][i] = 1
+        if params["pump_edges"] != "all":
+            # switch off pump on given set of edges
+            off_edges = np.array(params["pump_edges"])
+            for i, j in enumerate(off_edges):
+                params["pump"][j] = 0
+
     else:
         # uniform pump on inner edges
         params["pump"] = np.zeros(len(graph.edges()))
@@ -192,11 +204,11 @@ def generate_graph(tpe="SM", params={}):
         ringL = 2 * params["n"] * np.sin(np.pi / params["n"])
 
         nline = round(len(G) / 2) - 1
-        pos += [np.array([-ringL / 2 - 0.5, -1.05])]
+        pos += [np.array([-ringL / 2 - 0.5, -1.000015])]
         pos += [
-            np.array([ringL * (i / (nline - 1) - 0.5), -1.05]) for i in range(nline)
+            np.array([ringL * (i / (nline - 1) - 0.5), -1.000015]) for i in range(nline)
         ]
-        pos += [np.array([ringL / 2 + 0.5, -1.05])]
+        pos += [np.array([ringL / 2 + 0.5, -1.000015])]
         pos = np.array(pos)
 
     elif tpe == "SBM" or tpe == "SBM_2":
