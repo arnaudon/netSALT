@@ -513,7 +513,7 @@ def _find_next_lasing_mode(
             sub_mode_comp_matrix_mu = mode_competition_matrix[
                 np.ix_(lasing_mode_ids + [mu,], lasing_mode_ids)
             ]
-            sub_mode_comp_matrix_inv = np.linalg.inv(
+            sub_mode_comp_matrix_inv = np.linalg.pinv(
                 mode_competition_matrix[np.ix_(lasing_mode_ids, lasing_mode_ids)]
             )
             sub_mode_comp_matrix_mu_inv = sub_mode_comp_matrix_mu[-1, :].dot(
@@ -548,7 +548,7 @@ def compute_modal_intensities(modes_df, pump_intensities, mode_competition_matri
     lasing_mode_ids = []
     interacting_lasing_thresholds = np.inf * np.ones(len(modes_df))
     interacting_lasing_thresholds[next_lasing_mode_id] = next_lasing_threshold
-    for i, pump_intensity in enumerate(pump_intensities):
+    for i, pump_intensity in tqdm(enumerate(pump_intensities), total=len(pump_intensities)):
         while pump_intensity > next_lasing_threshold:
             lasing_mode_ids.append(next_lasing_mode_id)
             next_lasing_mode_id, next_lasing_threshold = _find_next_lasing_mode(
@@ -561,7 +561,7 @@ def compute_modal_intensities(modes_df, pump_intensities, mode_competition_matri
             interacting_lasing_thresholds[next_lasing_mode_id] = next_lasing_threshold
 
         if len(lasing_mode_ids) > 0:
-            mode_competition_matrix_inv = np.linalg.inv(
+            mode_competition_matrix_inv = np.linalg.pinv(
                 mode_competition_matrix[np.ix_(lasing_mode_ids, lasing_mode_ids)]
             )
             modal_intensities[
