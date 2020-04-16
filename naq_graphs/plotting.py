@@ -233,7 +233,7 @@ def plot_naq_graph(
     """plot the graph"""
     positions = [graph.nodes[u]["position"] for u in graph]
 
-    fig = plt.figure(figsize=(5, 4))
+    fig = plt.figure(figsize=(14, 3)) #5,4
 
     if node_colors is not None:
         nx.draw_networkx_nodes(
@@ -340,7 +340,7 @@ def plot_single_mode(
     edge_solution = mean_mode_on_edges(mode, graph)
 
     if ax == None:
-        plt.figure(figsize=(6, 4))
+        plt.figure(figsize=(14, 3)) #6,4
         ax = plt.gca()
 
     nodes = nx.draw_networkx_nodes(

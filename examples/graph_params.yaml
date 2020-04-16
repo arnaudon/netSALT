@@ -188,14 +188,14 @@ knot:
         n: 9
         lead_prob: 0.0
         seed: 2
-        innerL: 40
+        innerL: 40 #30
         refraction_params: 
             method: 'custom'
             inner_value: 1.5
             loss: 0.002
-            outer_value: 10.
+            outer_value: 1.
             coupling: 1. #0.01
-            detuning: 1.0005
+            detuning: 1. #1.0005
         open_model: 'open_ends'
         plot_edgesize: 0.01
         n_modes_max: False
@@ -216,13 +216,13 @@ knot:
         reduction_factor: 0.80 
 
         #pumping parameters
-        D0_max: 0.06
+        D0_max: 0.08 #0.06
         D0_steps: 5
-        k_a: 10.68 #15
-        gamma_perp: 0.5 #3.0
+        k_a: 10.68
+        gamma_perp: 0.5
 
         #WIP params
-        pump_edges: 'all' #[8, 9]        
+        pump_edges: [12, 13, 14, 15, 16, 17, 18, 19] #[1, 2, 3, 4, 5, 6, 7, 8, 9, 10] #'all'        
         open_nodes: []
 
         #figure format

@@ -102,6 +102,10 @@ def generate_index(tpe, graph, params):
         custom_index[2] = (
             custom_index[2] * params["refraction_params"]["coupling"]
         )  # change index on linking edge
+        #custom_index[2] = (
+        #    params["refraction_params"]["inner_value"] 
+        #    + 1.0j * params["refraction_params"]["coupling"]
+        #)**2  # change loss on linking edge
         if tpe == "knot":
             custom_index[params["n"] + 1] = (
                 params["refraction_params"]["outer_value"] ** 2
