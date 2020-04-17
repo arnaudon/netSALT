@@ -21,6 +21,7 @@ setup(
         'networkx',
         'matplotlib',
         'scikit-image',
+        'tables',
     ],
     packages=find_packages(),
 )

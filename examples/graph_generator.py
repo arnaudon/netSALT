@@ -22,9 +22,12 @@ def generate_pump(tpe, graph, params):
                 # switch off pump on edges based on node position
                 positions = [graph.nodes[u]["position"] for u in graph]
                 for i, (u, v) in enumerate(graph.edges()):
-                    if np.linalg.norm(positions[u])<25 and np.linalg.norm(positions[v])<25:
+                    if (
+                        np.linalg.norm(positions[u]) < 25
+                        and np.linalg.norm(positions[v]) < 25
+                    ):
                         params["pump"][i] = 0
-            else: 
+            else:
                 # switch off pump on given set of edges
                 off_edges = np.array(params["pump_edges"])
                 for i, j in enumerate(off_edges):
@@ -102,10 +105,10 @@ def generate_index(tpe, graph, params):
         custom_index[2] = (
             custom_index[2] * params["refraction_params"]["coupling"]
         )  # change index on linking edge
-        #custom_index[2] = (
-        #    params["refraction_params"]["inner_value"] 
+        # custom_index[2] = (
+        #    params["refraction_params"]["inner_value"]
         #    + 1.0j * params["refraction_params"]["coupling"]
-        #)**2  # change loss on linking edge
+        # )**2  # change loss on linking edge
         if tpe == "knot":
             custom_index[params["n"] + 1] = (
                 params["refraction_params"]["outer_value"] ** 2

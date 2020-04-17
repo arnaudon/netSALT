@@ -4,7 +4,7 @@ from functools import partial
 import numpy as np
 
 
-def _gamma(freq, params):
+def gamma(freq, params):
     """Gamma function."""
     return params["gamma_perp"] / (
         np.real(freq) - params["k_a"] + 1.0j * params["gamma_perp"]
@@ -40,7 +40,7 @@ def dispersion_relation_pump(freq, params=None):
 
     return freq * np.sqrt(
         params["dielectric_constant"]
-        + _gamma(freq, params) * params["D0"] * params["pump"]
+        + gamma(freq, params) * params["D0"] * params["pump"]
     )
 
 

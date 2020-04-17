@@ -7,7 +7,7 @@ import scipy as sc
 from skimage.feature import peak_local_max
 from tqdm import tqdm
 
-from .dispersion_relations import _gamma
+from .dispersion_relations import gamma
 from .graph_construction import (
     construct_incidence_matrix,
     construct_laplacian,
@@ -95,8 +95,8 @@ def refine_mode_brownian_ratchet(
             * np.random.uniform(-1, 1, 2)
         )
 
-        new_mode[0] = np.clip(new_mode[0], params["k_min"], params["k_max"])
-        new_mode[1] = np.clip(new_mode[1], None, params["alpha_max"])
+        new_mode[0] = np.clip(new_mode[0], 0.8 * params["k_min"], 1.2 * params["k_max"])
+        new_mode[1] = np.clip(new_mode[1], None, 1.2 * params["alpha_max"])
 
         new_quality = mode_quality(new_mode, graph)
 
@@ -208,6 +208,36 @@ def _graph_norm(BT, Bout, Winv, z_matrix, node_solution, mask):
     return norm
 
 
+def compute_overlapping_single_edges(passive_mode, graph):
+    """Compute the overlappin factor of a mode with the pump."""
+    dielectric_constant = _get_dielectric_constant_matrix(graph.graph["params"])
+    in_mask, pump_mask = _get_mask_matrices(graph.graph["params"])
+    inner_dielectric_constants = dielectric_constant.dot(in_mask)
+
+    node_solution = mode_on_nodes(passive_mode, graph)
+
+    z_matrix = compute_z_matrix(graph)
+
+    BT, Bout = construct_incidence_matrix(graph)
+    Winv = construct_weight_matrix(graph, with_k=False)
+
+    inner_norm = np.real(
+        _graph_norm(BT, Bout, Winv, z_matrix, node_solution, inner_dielectric_constants)
+    )
+
+    pump_norm = np.zeros(len(graph.edges))
+    for pump_edge, inner in enumerate(graph.graph["params"]["inner"]):
+        if inner:
+            mask = np.zeros(len(graph.edges))
+            mask[pump_edge] = 1.0
+            pump_mask = sc.sparse.diags(_convert_edges(mask))
+            pump_norm[pump_edge] = np.real(
+                _graph_norm(BT, Bout, Winv, z_matrix, node_solution, pump_mask)
+            )
+
+    return pump_norm / inner_norm
+
+
 def compute_overlapping_factor(passive_mode, graph):
     """Compute the overlappin factor of a mode with the pump."""
     dielectric_constant = _get_dielectric_constant_matrix(graph.graph["params"])
@@ -235,7 +265,7 @@ def lasing_threshold_linear(mode, graph, D0):
     overlapping_factor = -compute_overlapping_factor(mode, graph)
     return 1.0 / (
         q_value(mode)
-        * np.imag(_gamma(to_complex(mode), graph.graph["params"]))
+        * np.imag(gamma(to_complex(mode), graph.graph["params"]))
         * np.real(overlapping_factor)
     )
 
@@ -251,7 +281,7 @@ def pump_linear(mode_0, graph, D0_0, D0_1):
     graph.graph["params"]["D0"] = D0_0
     overlapping_factor = compute_overlapping_factor(mode_0, graph)
     freq = to_complex(mode_0)
-    gamma_overlap = _gamma(freq, graph.graph["params"]) * overlapping_factor
+    gamma_overlap = gamma(freq, graph.graph["params"]) * overlapping_factor
     return from_complex(
         freq * np.sqrt((1.0 + gamma_overlap * D0_0) / (1.0 + gamma_overlap * D0_1))
     )
@@ -331,9 +361,9 @@ def _precomputations_mode_competition(graph, pump_mask, mode_threshold):
 
     edge_flux = flux_on_edges(mode, graph) / np.sqrt(pump_norm)
     k_mu = graph.graph["ks"]
-    gamma = _gamma(to_complex(mode), graph.graph["params"])
+    gam = gamma(to_complex(mode), graph.graph["params"])
 
-    return k_mu, edge_flux, gamma
+    return k_mu, edge_flux, gam
 
 
 def _compute_mode_competition_element(lengths, params, data):
@@ -548,7 +578,9 @@ def compute_modal_intensities(modes_df, pump_intensities, mode_competition_matri
     lasing_mode_ids = []
     interacting_lasing_thresholds = np.inf * np.ones(len(modes_df))
     interacting_lasing_thresholds[next_lasing_mode_id] = next_lasing_threshold
-    for i, pump_intensity in tqdm(enumerate(pump_intensities), total=len(pump_intensities)):
+    for i, pump_intensity in tqdm(
+        enumerate(pump_intensities), total=len(pump_intensities)
+    ):
         while pump_intensity > next_lasing_threshold:
             lasing_mode_ids.append(next_lasing_mode_id)
             next_lasing_mode_id, next_lasing_threshold = _find_next_lasing_mode(

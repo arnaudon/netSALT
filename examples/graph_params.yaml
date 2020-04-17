@@ -30,8 +30,8 @@ SM_small:
         
         # params for mode search
         quality_threshold: 1.e-4
-        search_stepsize: 0.001 
-        max_steps: 1000 
+        search_stepsize: 0.1 
+        max_steps: 10000 
         max_tries_reduction: 50 
         reduction_factor: 0.80 
 
@@ -51,7 +51,7 @@ SM_small:
 line_PRA:
         #network params
         n_workers: 10
-        n: 23
+        n: 103 #43 #103
         lead_prob: -0.2
         seed: 2
         innerL: 1
@@ -67,15 +67,15 @@ line_PRA:
         #mode search params
         k_min: 12 
         k_max: 19 
-        k_n: 200
+        k_n: 100
         alpha_min: -0.0
         alpha_max: 1.0 
-        alpha_n: 50
+        alpha_n: 30
         
         # params for mode search
         quality_threshold: 1.e-4
-        search_stepsize: 0.01
-        max_steps: 1000 
+        search_stepsize: 0.5
+        max_steps: 10000 
         max_tries_reduction: 20 
         reduction_factor: 0.80 
 

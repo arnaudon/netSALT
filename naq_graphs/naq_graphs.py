@@ -213,7 +213,9 @@ def find_threshold_lasing_modes(modes_df, graph):
 
         # this is a trick to reduce the stepsizes as we are near the solution
         graph.graph["params"]["search_stepsize"] = (
-            stepsize * np.mean(abs(new_D0s - D0s)) / np.mean(new_D0s)
+            stepsize
+            * np.mean(abs(new_D0s[new_D0s > 0] - D0s[new_D0s > 0]))
+            / np.mean(new_D0s[new_D0s > 0])
         )
 
         worker_modes = WorkerModes(new_modes_approx, graph, D0s=new_D0s)
