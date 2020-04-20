@@ -245,7 +245,7 @@ def generate_graph(tpe="SM", params={}):
     elif tpe == "buffon":
         import scipy.io as io
 
-        mat = io.loadmat("datasets/buffonX_small.mat")
+        mat = io.loadmat("datasets/buffon_likeExp.mat")
         GG = nx.Graph(mat["Adj"])
         # get only the largest connected component
         GG = GG.subgraph(max(nx.connected_components(GG), key=len))

@@ -231,7 +231,7 @@ knot:
 buffon:
         #network params
         n_workers: 10
-        lead_prob: -1. #0
+        lead_prob: 0 #-1.
         seed: 2
         innerL: 2000
         refraction_params: 
@@ -244,9 +244,9 @@ buffon:
         n_modes_max: False
         
         #mode search params
-        k_min: 10.35
-        k_max: 11.00
-        k_n: 4000
+        k_min: 10.35 #10.60
+        k_max: 11.00 #10.76
+        k_n: 4000 #1000
         alpha_min: 0.006
         alpha_max: 0.012
         alpha_n: 200
