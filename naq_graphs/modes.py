@@ -211,7 +211,7 @@ def _graph_norm(BT, Bout, Winv, z_matrix, node_solution, mask):
 def compute_overlapping_single_edges(passive_mode, graph):
     """Compute the overlappin factor of a mode with the pump."""
     dielectric_constant = _get_dielectric_constant_matrix(graph.graph["params"])
-    in_mask, pump_mask = _get_mask_matrices(graph.graph["params"])
+    in_mask, _ = _get_mask_matrices(graph.graph["params"])
     inner_dielectric_constants = dielectric_constant.dot(in_mask)
 
     node_solution = mode_on_nodes(passive_mode, graph)
