@@ -29,10 +29,12 @@ def laplacian_quality(laplacian, method="eigenvalue"):
             # If eigenvalue solver did not converge, set to 1.0,
             return 1.0
         except RuntimeError:
-            print("Runtime error, things may be bad!")
+            print(
+                "Runtime error, we add a small diagonal to laplacian, but things may be bad!"
+            )
             return abs(
                 sc.sparse.linalg.eigs(
-                    laplacian + 1e-5 * sc.sparse.eye(laplacian.shape[0]),
+                    laplacian + 1e-6 * sc.sparse.eye(laplacian.shape[0]),
                     k=1,
                     sigma=0,
                     return_eigenvectors=False,
@@ -95,8 +97,8 @@ def refine_mode_brownian_ratchet(
             * np.random.uniform(-1, 1, 2)
         )
 
-        new_mode[0] = np.clip(new_mode[0], 0.8 * params["k_min"], 1.2 * params["k_max"])
-        new_mode[1] = np.clip(new_mode[1], None, 1.2 * params["alpha_max"])
+        # new_mode[0] = np.clip(new_mode[0], 0.8 * params["k_min"], 1.2 * params["k_max"])
+        # new_mode[1] = np.clip(new_mode[1], None, 1.2 * params["alpha_max"])
 
         new_quality = mode_quality(new_mode, graph)
 
@@ -140,7 +142,19 @@ def refine_mode_brownian_ratchet(
         if save_mode_trajectories:
             return np.array(mode_trajectories)
         return current_mode
-    print("WARNING: Maximum number of tries attained and no mode found!")
+    print(
+        "WARNING: Maximum number of tries attained and no mode found, we retry from scratch!",
+        search_stepsize,
+        current_mode,
+    )
+    params["search_stepsize"] *= 5
+    return refine_mode_brownian_ratchet(
+        initial_mode,
+        graph,
+        params,
+        disp=disp,
+        save_mode_trajectories=save_mode_trajectories,
+    )
 
 
 def clean_duplicate_modes(all_modes, k_size, alpha_size):
@@ -262,11 +276,10 @@ def compute_overlapping_factor(passive_mode, graph):
 def lasing_threshold_linear(mode, graph, D0):
     """Find the linear approximation of the new wavenumber."""
     graph.graph["params"]["D0"] = D0
-    overlapping_factor = -compute_overlapping_factor(mode, graph)
     return 1.0 / (
         q_value(mode)
-        * np.imag(gamma(to_complex(mode), graph.graph["params"]))
-        * np.real(overlapping_factor)
+        * -np.imag(gamma(to_complex(mode), graph.graph["params"]))
+        * np.real(compute_overlapping_factor(mode, graph))
     )
 
 

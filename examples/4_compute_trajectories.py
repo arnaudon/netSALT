@@ -22,13 +22,13 @@ os.chdir(graph_tpe)
 graph = naq.load_graph()
 modes_df = naq.load_modes()
 
-#params["pump"] = pickle.load(open("optimal_pump.pkl", "rb"))
-generate_pump(graph_tpe, graph, params)
+graph.graph['params']["pump"] = pickle.load(open("optimal_pump.pkl", "rb"))
 
 naq.update_parameters(graph, params)
 naq.save_graph(graph)
 
-plotting.plot_naq_graph(graph, edge_colors=params["pump"], node_size=0.1)
+
+plotting.plot_naq_graph(graph, edge_colors=graph.graph['params']["pump"], node_size=0.1)
 plt.savefig("pump_profile.svg")
 plt.show()
 

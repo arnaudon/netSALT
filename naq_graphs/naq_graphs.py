@@ -187,7 +187,7 @@ def pump_trajectories(modes_df, graph, return_approx=False):
 def find_threshold_lasing_modes(modes_df, graph):
     """Find the threshold lasing modes and associated lasing thresholds."""
     pool = multiprocessing.Pool(graph.graph["params"]["n_workers"])
-    stepsize = graph.graph["params"]["search_stepsize"]
+    stepsize = graph.graph["params"]["search_stepsize"] * 10
 
     D0_steps = graph.graph["params"]["D0_max"] / graph.graph["params"]["D0_steps"]
 
@@ -203,9 +203,10 @@ def find_threshold_lasing_modes(modes_df, graph):
         new_D0s = np.zeros(len(modes_df))
         new_modes_approx = np.empty([len(new_modes), 2])
         for i in current_modes:
-            new_D0s[i] = D0s[i] + modes.lasing_threshold_linear(
-                new_modes[i], graph, D0s[i]
+            new_D0s[i] = abs(
+                D0s[i] + modes.lasing_threshold_linear(new_modes[i], graph, D0s[i])
             )
+
             new_D0s[i] = min(new_D0s[i], D0_steps + D0s[i])
             new_modes_approx[i] = modes.pump_linear(
                 new_modes[i], graph, D0s[i], new_D0s[i]
@@ -213,14 +214,15 @@ def find_threshold_lasing_modes(modes_df, graph):
 
         # this is a trick to reduce the stepsizes as we are near the solution
         graph.graph["params"]["search_stepsize"] = (
-            stepsize
-            * np.mean(abs(new_D0s[new_D0s > 0] - D0s[new_D0s > 0]))
-            / np.mean(new_D0s[new_D0s > 0])
+            stepsize * np.mean(abs(new_D0s[new_D0s > 0] - D0s[new_D0s > 0])) / D0_steps
         )
 
+        print("Current search_stepsize:", graph.graph["params"]["search_stepsize"])
         worker_modes = WorkerModes(new_modes_approx, graph, D0s=new_D0s)
         new_modes_tmp = np.zeros([len(modes_df), 2])
-        new_modes_tmp[current_modes] = pool.map(worker_modes, current_modes)
+        new_modes_tmp[current_modes] = list(
+            tqdm(pool.imap(worker_modes, current_modes), total=len(current_modes))
+        )
 
         to_delete = []
         for i, mode_index in enumerate(current_modes):
@@ -229,7 +231,7 @@ def find_threshold_lasing_modes(modes_df, graph):
                     "A mode could not be updated, consider modifying the search parameters."
                 )
                 new_modes_tmp[mode_index] = new_modes[mode_index]
-            elif abs(new_modes_tmp[mode_index][1]) < 1e-8:
+            elif abs(new_modes_tmp[mode_index][1]) < 1e-6:
                 to_delete.append(i)
                 threshold_lasing_modes[mode_index] = new_modes_tmp[mode_index]
                 lasing_thresholds[mode_index] = new_D0s[mode_index]
