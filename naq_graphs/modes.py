@@ -550,7 +550,7 @@ def _find_next_lasing_mode(
     mode_competition_matrix,
 ):
     """Find next interacting lasing mode."""
-    interacting_lasing_thresholds = np.ones(len(threshold_modes)) * 1e10
+    interacting_lasing_thresholds = np.ones(len(threshold_modes)) * np.inf
     for mu in range(len(threshold_modes)):
         if mu not in lasing_mode_ids:
             sub_mode_comp_matrix_mu = mode_competition_matrix[
@@ -603,7 +603,8 @@ def compute_modal_intensities(modes_df, pump_intensities, mode_competition_matri
                 lasing_mode_ids,
                 mode_competition_matrix,
             )
-            interacting_lasing_thresholds[next_lasing_mode_id] = next_lasing_threshold
+            if next_lasing_threshold < np.inf:
+                interacting_lasing_thresholds[next_lasing_mode_id] = next_lasing_threshold
 
         if len(lasing_mode_ids) > 0:
             mode_competition_matrix_inv = np.linalg.pinv(
