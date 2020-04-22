@@ -187,7 +187,7 @@ def pump_trajectories(modes_df, graph, return_approx=False):
 def find_threshold_lasing_modes(modes_df, graph):
     """Find the threshold lasing modes and associated lasing thresholds."""
     pool = multiprocessing.Pool(graph.graph["params"]["n_workers"])
-    stepsize = graph.graph["params"]["search_stepsize"] * 10
+    stepsize = graph.graph["params"]["search_stepsize"]
 
     D0_steps = graph.graph["params"]["D0_max"] / graph.graph["params"]["D0_steps"]
 
