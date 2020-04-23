@@ -5,12 +5,12 @@
 SM_small:
         #network params
         n_workers: 10
-        n: 20
+        n: 200 #20
         k: 2
         p: 0 #0.2
         lead_prob: 0.0 #0.3
         seed: 2
-        innerL: 20
+        innerL: 2 #20
         refraction_params: 
             method: 'uniform'
             inner_value: 1.5
@@ -21,11 +21,11 @@ SM_small:
         n_modes_max: False
         
         #mode search params
-        k_min: 10.36
-        k_max: 11.0
+        k_min: 12 #10.36
+        k_max: 19 #11.0
         k_n: 100
         alpha_min: 0.0
-        alpha_max: 0.07
+        alpha_max: 0.15 #0.07
         alpha_n: 50
         
         # params for mode search
@@ -36,10 +36,10 @@ SM_small:
         reduction_factor: 0.80 
 
         #pumping parameters
-        D0_max: 0.02
+        D0_max: 0.05 #0.02
         D0_steps: 3
-        k_a: 10.68
-        gamma_perp: 0.5 #3.0
+        k_a: 15 #10.68
+        gamma_perp: 3.0 #0.5
 
         #WIP params
         pump_edges: 'all' #[8, 9]        

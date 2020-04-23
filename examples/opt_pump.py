@@ -81,10 +81,20 @@ def optimize_pump(
 
 
 lasing_modes_id = [2]
+
+fig = plt.figure()
+ax = plt.gca()
+plotting.plot_single_mode(
+    graph, modes_df, lasing_modes_id[0], df_entry="passive", colorbar=True, ax = ax
+)
+
+fig.savefig("mode_for_optimisation.png", bbox_inches="tight")
+plt.show()
+
 optimal_pump, pump_overlapps = optimize_pump(
     modes_df, graph, lasing_modes_id=lasing_modes_id, pump_min_size=0.5
 )
-#pickle.dump(optimal_pump, open("optimal_pump.pkl", "wb"))
+pickle.dump(optimal_pump, open("optimal_pump.pkl", "wb"))
 
 
 plt.figure(figsize=(20, 5))

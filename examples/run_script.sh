@@ -9,7 +9,7 @@ echo Step 2
 python3 2_compute_passive_modes.py $1
 echo Step 3
 #python3 3_plot_modes.py $1
-#python opt_pump.py $1
+python opt_pump.py $1
 echo Step 4
 python3 4_compute_trajectories.py $1
 echo Step 5
