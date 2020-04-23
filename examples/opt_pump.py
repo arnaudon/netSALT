@@ -100,10 +100,31 @@ pickle.dump(optimal_pump, open("optimal_pump.pkl", "wb"))
 plt.figure(figsize=(20, 5))
 for lasing_mode in lasing_modes_id:
     plt.plot(pump_overlapps[lasing_mode])
-for mode in range(len(pump_overlapps)):
-    plt.plot(pump_overlapps[mode], lw=0.5, c="k")
+#for mode in range(len(pump_overlapps)):
+#    plt.plot(pump_overlapps[mode], lw=0.5, c="k")
 plt.twinx()
-plt.plot(optimal_pump, "+")
+plt.plot(optimal_pump, "r+")
 plt.gca().set_ylim(0.5, 1.5)
 plt.savefig("pump.png")
+
+D_invs = [];
+for mode in range(len(pump_overlapps)):
+    D_invs.append(pump_overlapps[mode])
+
+fig, (ax0, ax1) = plt.subplots(nrows=2, sharex=True, gridspec_kw={'height_ratios':[4,1]})
+fig.subplots_adjust(wspace=0, hspace=0)
+im = ax0.imshow(D_invs, aspect='auto', cmap='plasma')
+cbar = fig.colorbar(im, ax=ax0)
+cbar.set_label('D_inv')
+ax0.set(ylabel = r'$modes$')
+ax0.set_yticks(np.arange(len(modes_df)))
+ax0.set_ylim(len(modes_df)-0.5,-0.5)
+
+impump = ax1.imshow(np.array([optimal_pump]*10),'gray')
+cbar = fig.colorbar(impump, ax=ax1)
+cbar.set_label('pump')
+ax1.set(xlabel = r'$edges$')
+ax1.set_yticks([])
+
+plt.savefig('D_invs_matrix.png')
 plt.show()
