@@ -97,7 +97,7 @@ def generate_index(tpe, graph, params):
                     (
                         params["refraction_params"]["inner_value"]
                         * params["refraction_params"]["detuning"]
-                        + 1.0j * params["refraction_params"]["loss"]
+                        + 1.5j * params["refraction_params"]["loss"]
                     )
                     ** 2
                 )  # change index on second cavity

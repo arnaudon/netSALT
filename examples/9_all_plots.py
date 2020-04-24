@@ -25,7 +25,7 @@ graph = naq.oversample_graph(graph, params)
 modes_df = naq.load_modes()
 qualities = naq.load_qualities()
 
-plotting.plot_spectra(graph, modes_df, width=0.05)
+plotting.plot_spectra(graph, modes_df, width=1/(params["innerL"]*params["k_a"]))
 
 fig = plt.figure()
 ax = plt.gca()
@@ -43,7 +43,10 @@ plotting.plot_ll_curve(
     ax=ll_axis,
 )
 
-ll_axis.axis([0.0025, 0.0075, -0.01, 100])
+D0s = modes_df["modal_intensities"].columns.values
+top = np.max(modes_df["modal_intensities"].to_numpy()[:, round(0.3*len(D0s))])
+ll_axis.axis([D0s[0], D0s[ round(0.3*len(D0s))], -0.01, top ])
+
 ll_axis.tick_params(axis="both", which="major", labelsize=5)
 ll_axis.xaxis.label.set_size(8)
 ll_axis.yaxis.label.set_size(8)
@@ -62,7 +65,10 @@ plotting.plot_pump_traj(modes_df, with_scatter=False, with_approx=False, ax=axes
 fig.savefig("final_plot.png", bbox_inches="tight")
 plt.show()
 
-lasing_mode_id = np.where(modes_df["modal_intensities"].to_numpy()[:, -1] > 0)[0]
+lasing_modes_list = np.where(modes_df["modal_intensities"].to_numpy()[:, -1] > 0)[0]
+lasing_modes_ordered = np.argsort(modes_df["modal_intensities"].to_numpy()[:, -1])[::-1]
+lasing_mode_id = lasing_modes_ordered[range(len(lasing_modes_list))]
+print('lasing modes: ', lasing_mode_id)
 
 fig, axes = plt.subplots(
     # nrows=int(np.ceil(len(lasing_mode_id) / 3.0)), ncols=3, figsize=(12, 4)

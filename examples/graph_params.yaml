@@ -139,17 +139,17 @@ line_semi:
 coupled_rings:
         #network params
         n_workers: 10
-        n: 20
+        n: 200
         lead_prob: 0.0
         seed: 2
-        innerL: 20
+        innerL: 30
         refraction_params: 
             method: 'custom'
             inner_value: 1.5
             loss: 0.005
             outer_value: 1.
-            coupling: 0.1
-            detuning: 1.1
+            coupling: 0.7 #0.1
+            detuning: 1. #1.1
         open_model: 'open_ends'
         plot_edgesize: 0.01
         n_modes_max: False
@@ -163,15 +163,15 @@ coupled_rings:
         alpha_n: 50
         
         # params for mode search
-        quality_threshold: 1.e-3
+        quality_threshold: 1.e-4
         search_stepsize: 0.001 
         max_steps: 1000 
         max_tries_reduction: 50 
         reduction_factor: 0.80 
 
         #pumping parameters
-        D0_max: 0.03
-        D0_steps: 5
+        D0_max: 0.05
+        D0_steps: 6
         k_a: 10.68 #15
         gamma_perp: 0.5 #3.0
 

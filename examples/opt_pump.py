@@ -111,16 +111,15 @@ D_invs = [];
 for mode in range(len(pump_overlapps)):
     D_invs.append(pump_overlapps[mode])
 
-fig, (ax0, ax1) = plt.subplots(nrows=2, sharex=True, gridspec_kw={'height_ratios':[4,1]})
-fig.subplots_adjust(wspace=0, hspace=0)
-im = ax0.imshow(D_invs, aspect='auto', cmap='plasma')
+fig, (ax0, ax1) = plt.subplots(nrows=2, gridspec_kw={'height_ratios':[4,1]})
+im = ax0.imshow(D_invs, aspect='auto',  cmap='plasma')
 cbar = fig.colorbar(im, ax=ax0)
 cbar.set_label('D_inv')
 ax0.set(ylabel = r'$modes$')
 ax0.set_yticks(np.arange(len(modes_df)))
 ax0.set_ylim(len(modes_df)-0.5,-0.5)
 
-impump = ax1.imshow(np.array([optimal_pump]*10),'gray')
+impump = ax1.imshow(np.array([optimal_pump]*10), aspect='auto', cmap='gray')
 cbar = fig.colorbar(impump, ax=ax1)
 cbar.set_label('pump')
 ax1.set(xlabel = r'$edges$')
