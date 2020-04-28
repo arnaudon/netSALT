@@ -175,6 +175,7 @@ def oversample_graph(graph, params):
 
     oversampled_graph = nx.convert_node_labels_to_integers(oversampled_graph)
     set_edge_lengths(oversampled_graph)
+    params['inner'] = [oversampled_graph[u][v]['inner'] for u, v in oversampled_graph.edges]
     update_params_dielectric_constant(oversampled_graph, params)
     _set_pump_on_params(oversampled_graph, params)
     update_parameters(oversampled_graph, params, force=True)
