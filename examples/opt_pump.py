@@ -80,7 +80,7 @@ def optimize_pump(
     return optimal_pump, pump_overlapps
 
 
-lasing_modes_id = [2]
+lasing_modes_id = [8]
 
 fig = plt.figure()
 ax = plt.gca()

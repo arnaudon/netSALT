@@ -69,6 +69,7 @@ def plot_stem_spectra(
     """Plot spectra with stem plots."""
     threshold_modes = np.real(modes_df["threshold_lasing_modes"])
     modal_amplitudes = np.real(modes_df["modal_intensities"].iloc[:, pump_index])
+    print(len(threshold_modes[modal_amplitudes>0]),'lasing modes in spectrum')
 
     ks, alphas = get_scan_grid(graph)
 
@@ -78,16 +79,17 @@ def plot_stem_spectra(
     else:
         fig = None
 
-    markerline, stemlines, baseline = ax.stem(threshold_modes, modal_amplitudes, "-")
+    #markerline, stemlines, baseline = ax.stem(threshold_modes, modal_amplitudes, "-")
+    markerline, stemlines, baseline = ax.stem(threshold_modes, modal_amplitudes, "-", linefmt="grey", markerfmt=" ")
 
-    colors = cycle(["C{}".format(i) for i in range(10)])
+    #colors = cycle(["C{}".format(i) for i in range(10)])
     markerline.set_markerfacecolor("white")
     plt.setp(baseline, "color", "grey", "linewidth", 1)
     ax.set_xlabel(r"$k$")
     ax.set_ylabel("Intensity (a.u.)")
 
     ax.set_xlim(ks[0], ks[-1])
-    ax.set_ylim(0, np.max(modal_amplitudes) * 1.3)
+    ax.set_ylim(-0.05 * np.max(modal_amplitudes), np.max(modal_amplitudes) * 1.3)
 
     ax2 = ax.twinx()
     ks = np.linspace(
@@ -224,6 +226,8 @@ def plot_scan(
 
 def plot_naq_graph(
     graph,
+    figsize=(5, 4),
+    ax=None,
     edge_colors=None,
     node_colors=None,
     node_size=1,
@@ -233,7 +237,11 @@ def plot_naq_graph(
     """plot the graph"""
     positions = [graph.nodes[u]["position"] for u in graph]
 
-    fig = plt.figure(figsize=(5, 4))  # 14,3
+    if ax == None:
+        fig = plt.figure(figsize=figsize)
+        ax = plt.gca()
+    else:
+        fig = None
 
     if node_colors is not None:
         nx.draw_networkx_nodes(
@@ -257,7 +265,7 @@ def plot_naq_graph(
             graph, pos=positions, node_size=node_size, node_color="k"
         )
 
-    nx.draw_networkx_edges(graph, pos=positions)
+    #nx.draw_networkx_edges(graph, pos=positions)
 
     if edge_colors is not None:
         edge_colors = np.real(edge_colors)
@@ -267,16 +275,16 @@ def plot_naq_graph(
                 pos=positions,
                 edgelist=[e,],
                 edge_color=[np.sort(edge_colors)[ei],],
-                edge_cmap=plt.get_cmap("plasma"),
-                width=5,
-                alpha=0.7,
+                edge_cmap=plt.get_cmap("Accent_r"), #plasma
+                width=2, #5
+                alpha=1, #0.7
                 edge_vmin=0,
                 edge_vmax=np.max(edge_colors),
             )
 
         edges = plt.cm.ScalarMappable(
             norm=plt.cm.colors.Normalize(0, np.max(edge_colors)),
-            cmap=plt.get_cmap("plasma"),
+            cmap=plt.get_cmap("Accent_r"),
         )
 
         plt.colorbar(edges, label=r"edge values")
@@ -290,7 +298,7 @@ def plot_naq_graph(
                 out_nodes.append(e[1])
 
     nx.draw_networkx_nodes(
-        graph, nodelist=out_nodes, pos=positions, node_color="r", node_size=10
+        graph, nodelist=out_nodes, pos=positions, node_color="r", node_size=node_size
     )
     plt.gca().tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
 
@@ -348,7 +356,7 @@ def plot_single_mode(
         pos=positions,
         node_color=abs(node_solution) ** 2,
         node_size=0,
-        cmap=plt.get_cmap("Blues"),
+        cmap=plt.get_cmap("PuRd"), #Blues
         ax=ax,
     )
 
@@ -358,8 +366,8 @@ def plot_single_mode(
         graph,
         pos=positions,
         edge_color=edge_solution,
-        width=5,
-        edge_cmap=plt.get_cmap("Blues"),
+        width=2, #5
+        edge_cmap=plt.get_cmap("PuRd"), #Blues
         ax=ax,
     )
 

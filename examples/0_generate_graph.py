@@ -34,6 +34,7 @@ naq.set_dispersion_relation(
     graph, naq.dispersion_relations.dispersion_relation_pump, params
 )
 
+#graph = naq.oversample_graph(graph, params)
 naq.update_parameters(graph, params)
 naq.save_graph(graph)
 

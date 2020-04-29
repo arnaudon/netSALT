@@ -67,7 +67,9 @@ plt.show()
 
 lasing_modes_list = np.where(modes_df["modal_intensities"].to_numpy()[:, -1] > 0)[0]
 lasing_modes_ordered = np.argsort(modes_df["modal_intensities"].to_numpy()[:, -1])[::-1]
-lasing_mode_id = lasing_modes_ordered[range(len(lasing_modes_list))]
+#### list lasing modes in order of intensity at specific D0 or in order of interacting threshold ####
+#lasing_mode_id = lasing_modes_ordered[range(len(lasing_modes_list))]
+lasing_mode_id = np.argsort(modes_df["interacting_lasing_thresholds"].to_numpy())
 print('lasing modes: ', lasing_mode_id)
 
 fig, axes = plt.subplots(
