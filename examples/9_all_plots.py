@@ -25,7 +25,10 @@ graph = naq.oversample_graph(graph, params)
 modes_df = naq.load_modes()
 qualities = naq.load_qualities()
 
-plotting.plot_spectra(graph, modes_df, width=1/(params["innerL"]*params["k_a"]))
+linewidth = 1/(params["innerL"]*params["k_a"])
+if linewidth < 5e-4:
+    linewidth = 5.e-4
+plotting.plot_spectra(graph, modes_df, width=linewidth)
 
 fig = plt.figure()
 ax = plt.gca()

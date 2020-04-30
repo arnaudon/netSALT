@@ -42,7 +42,7 @@ gs = gridspec.GridSpec(ncols=3, nrows=3, figure=fig)
 ax0 = fig.add_subplot(gs[0,0], aspect=1)
 ax0.set_title('pump profile')
 #plotting.plot_naq_graph(graph, edge_colors=params["dielectric_constant"], node_size=0.1, ax=ax0)
-plotting.plot_naq_graph(graph, edge_colors=graph.graph['params']["pump"], node_size=0.5, ax=ax0)
+plotting.plot_naq_graph(graph, edge_colors=graph.graph["params"]["pump"], node_size=0.5, ax=ax0)
 
 ax1 = fig.add_subplot(gs[1,0], aspect=1)
 ax1.set_title('mode profile')

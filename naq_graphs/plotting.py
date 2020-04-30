@@ -43,7 +43,7 @@ def plot_spectra(
         fig = None
 
     ks = np.linspace(
-        graph.graph["params"]["k_min"], graph.graph["params"]["k_max"], 1000
+        graph.graph["params"]["k_min"], graph.graph["params"]["k_max"], 10000
     )
     spectra = np.zeros(len(ks))
     for mode, amplitude in zip(threshold_modes, modal_amplitudes):
