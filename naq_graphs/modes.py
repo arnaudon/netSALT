@@ -3,6 +3,7 @@ import multiprocessing
 from functools import partial
 
 import numpy as np
+import pandas as pd
 import scipy as sc
 from skimage.feature import peak_local_max
 from tqdm import tqdm
@@ -578,7 +579,7 @@ def _find_next_lasing_mode(
     return next_lasing_mode_id, next_lasing_threshold
 
 
-def compute_modal_intensities(modes_df, pump_intensities, mode_competition_matrix):
+def compute_modal_intensities_old(modes_df, pump_intensities, mode_competition_matrix):
     """Compute the modal intensities of the modes up to D0, with D0_steps."""
     threshold_modes = modes_df["threshold_lasing_modes"]
     lasing_thresholds = modes_df["lasing_thresholds"]
@@ -604,7 +605,9 @@ def compute_modal_intensities(modes_df, pump_intensities, mode_competition_matri
                 mode_competition_matrix,
             )
             if next_lasing_threshold < np.inf:
-                interacting_lasing_thresholds[next_lasing_mode_id] = next_lasing_threshold
+                interacting_lasing_thresholds[
+                    next_lasing_mode_id
+                ] = next_lasing_threshold
 
         if len(lasing_mode_ids) > 0:
             mode_competition_matrix_inv = np.linalg.pinv(
@@ -630,6 +633,67 @@ def compute_modal_intensities(modes_df, pump_intensities, mode_competition_matri
         len(np.where(modal_intensities[-1] > 0)[0]),
         "lasing modes out of",
         len(modal_intensities[-1]),
+    )
+
+    return modes_df
+
+
+def compute_modal_intensities(modes_df, pump_intensities, mode_competition_matrix):
+    """Compute the modal intensities of the modes up to D0, with D0_steps."""
+    threshold_modes = modes_df["threshold_lasing_modes"]
+    lasing_thresholds = modes_df["lasing_thresholds"]
+
+    next_lasing_mode_id = np.argmin(lasing_thresholds)
+    next_lasing_threshold = lasing_thresholds[next_lasing_mode_id]
+    modal_intensities = pd.DataFrame(index=range(len(threshold_modes)))
+
+    lasing_mode_ids = []
+    interacting_lasing_thresholds = np.inf * np.ones(len(modes_df))
+    interacting_lasing_thresholds[next_lasing_mode_id] = next_lasing_threshold
+    modal_intensities.loc[next_lasing_mode_id, next_lasing_threshold] = 0
+
+    pump_intensity = next_lasing_threshold
+    while pump_intensity < pump_intensities[-1]:
+        lasing_mode_ids.append(next_lasing_mode_id)
+        modal_intensities.loc[next_lasing_mode_id, pump_intensity] = 0
+        next_lasing_mode_id, next_lasing_threshold = _find_next_lasing_mode(
+            pump_intensity,
+            threshold_modes,
+            lasing_thresholds,
+            lasing_mode_ids,
+            mode_competition_matrix,
+        )
+        if next_lasing_threshold < np.inf:
+            interacting_lasing_thresholds[next_lasing_mode_id] = next_lasing_threshold
+            pump_intensity = next_lasing_threshold
+        else:
+            pump_intensity = pump_intensities[-1] * 1.1
+
+        if len(lasing_mode_ids) > 0:
+            mode_competition_matrix_inv = np.linalg.pinv(
+                mode_competition_matrix[np.ix_(lasing_mode_ids, lasing_mode_ids)]
+            )
+            modal_intensities.loc[
+                lasing_mode_ids, pump_intensity
+            ] = pump_intensity * mode_competition_matrix_inv.dot(
+                1.0 / lasing_thresholds[lasing_mode_ids]
+            ) - mode_competition_matrix_inv.sum(
+                1
+            )
+
+    modes_df["interacting_lasing_thresholds"] = interacting_lasing_thresholds
+
+    if "modal_intensities" in modes_df:
+        del modes_df["modal_intensities"]
+
+    for pump_intensity in modal_intensities:
+        modes_df["modal_intensities", pump_intensity] = modal_intensities[
+            pump_intensity
+        ]
+    print(
+        len(np.where(modal_intensities.to_numpy()[:, -1] > 0)[0]),
+        "lasing modes out of",
+        len(modal_intensities.index),
     )
 
     return modes_df
