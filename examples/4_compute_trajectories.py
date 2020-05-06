@@ -22,9 +22,9 @@ os.chdir(graph_tpe)
 graph = naq.load_graph()
 modes_df = naq.load_modes()
 
-#graph.graph['params']["pump"] = pickle.load(open("optimal_pump.pkl", "rb"))
-generate_pump(graph_tpe, graph, params)
-graph.graph['params']["pump"] = params["pump"]
+graph.graph['params']["pump"] = pickle.load(open("optimal_pump.pkl", "rb"))
+#generate_pump(graph_tpe, graph, params)
+#graph.graph['params']["pump"] = params["pump"]
 
 naq.update_parameters(graph, params)
 naq.save_graph(graph)

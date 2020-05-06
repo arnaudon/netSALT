@@ -1,6 +1,9 @@
 import networkx as nx
 import numpy as np
 import math
+import naq_graphs as naq
+from naq_graphs import modes
+from naq_graphs.modes import mean_mode_on_edges, mode_on_nodes
 
 
 def generate_pump(tpe, graph, params):
@@ -26,6 +29,15 @@ def generate_pump(tpe, graph, params):
                         np.linalg.norm(positions[u]) < 25
                         and np.linalg.norm(positions[v]) < 25
                     ):
+                        params["pump"][i] = 0
+            elif params["pump_edges"] == "mode":
+                # pump pattern using mode profile
+                modes_df = naq.load_modes()
+                mode = modes_df["passive"][19]
+                edge_solution = mean_mode_on_edges(mode, graph)
+                params["pump"] = np.where(edge_solution > 0.1*max(edge_solution), 0, 1)
+                for i, (u, v) in enumerate(graph.edges()):
+                    if graph[u][v]["inner"]==False:
                         params["pump"][i] = 0
             else:
                 # switch off pump on given set of edges

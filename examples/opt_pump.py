@@ -33,7 +33,9 @@ def cost(pump_min_edge_number, mode_mask, pump_overlapps, pump):
 
     a = pump_overlapps[mode_mask][:, pump==1].sum(axis=1)
     b = pump_overlapps[~mode_mask][:, pump==1].sum(axis=1)
-    return np.max(b) - np.min(a)
+    c = sorted(b, reverse=True)
+    #return np.percentile(b, 100) - np.min(a)
+    return np.mean(c[0:10])**2 - np.min(a)**2
 
 def overlap_matrix_element(graph, mode):
     return list(-naq.modes.q_value(mode) * naq.modes.compute_overlapping_single_edges(mode, graph) * np.imag(
@@ -48,8 +50,8 @@ def optimize_pump(
     graph,
     lasing_modes_id,
     pump_min_size=0.5,
-    maxiter=1000,
-    popsize=10,
+    maxiter=5000, # 1000
+    popsize=10, # 20
     disp=True,
 ):
     """Optimise the pump for lasing a set of modes."""
@@ -70,7 +72,7 @@ def optimize_pump(
     bounds = len(graph.edges) * [(0, 1)]
     
     result = optimize.differential_evolution(
-        costf, bounds, maxiter=maxiter, disp=disp, popsize=popsize, workers=graph.graph['params']['n_workers'] 
+        costf, bounds, maxiter=maxiter, disp=disp, popsize=popsize, workers=graph.graph['params']['n_workers'], seed=1, strategy='randtobest1bin'
     )
     optimal_pump = np.round(result.x, 0)
 
@@ -80,7 +82,7 @@ def optimize_pump(
     return optimal_pump, pump_overlapps
 
 
-lasing_modes_id = [8]
+lasing_modes_id = [17]
 
 fig = plt.figure()
 ax = plt.gca()
@@ -92,7 +94,7 @@ fig.savefig("mode_for_optimisation.png", bbox_inches="tight")
 plt.show()
 
 optimal_pump, pump_overlapps = optimize_pump(
-    modes_df, graph, lasing_modes_id=lasing_modes_id, pump_min_size=0.5
+    modes_df, graph, lasing_modes_id=lasing_modes_id, pump_min_size=0.
 )
 pickle.dump(optimal_pump, open("optimal_pump.pkl", "wb"))
 

@@ -125,7 +125,7 @@ def plot_ll_curve(
     colors = cycle(["C{}".format(i) for i in range(10)])
     pump_intensities = modes_df["modal_intensities"].columns.values
     if ax == None:
-        fig = plt.figure(figsize=(4, 6))
+        fig = plt.figure(figsize=(6, 6))
         ax = plt.gca()
     else:
         fig = None
@@ -135,7 +135,7 @@ def plot_ll_curve(
         if with_colors:
             color = next(colors)
         else:
-            color = "k"
+            color = "grey"
         if intens[-1] > 0:
             ax.plot(
                 pump_intensities, intens, label="mode " + str(index), c=color, lw=0.5
@@ -153,8 +153,8 @@ def plot_ll_curve(
     if with_legend:
         ax.legend()
 
-    top = np.max(modes_df["modal_intensities"].to_numpy())
-    # ax.axis([pump_intensities[0], pump_intensities[-1], -0.02 * top, top])
+    top = np.max(np.nan_to_num(modes_df["modal_intensities"].to_numpy()))
+    ax.axis([0, pump_intensities[-1], -0.02 * top, top])
     ax.set_xlabel(r"$D_0$")
     ax.set_ylabel("Intensity (a.u)")
 
