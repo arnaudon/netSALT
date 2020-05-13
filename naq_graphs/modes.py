@@ -1,177 +1,171 @@
 """Functions related to modes."""
 import multiprocessing
+import warnings
 from functools import partial
 
 import numpy as np
 import pandas as pd
 import scipy as sc
-from skimage.feature import peak_local_max
 from tqdm import tqdm
 
-from .dispersion_relations import gamma
-from .graph_construction import (
+from .algorithm import (
+    clean_duplicate_modes,
+    find_rough_modes_from_scan,
+    refine_mode_brownian_ratchet,
+)
+from .physics import gamma, q_value
+from .quantum_graph import (
     construct_incidence_matrix,
     construct_laplacian,
     construct_weight_matrix,
+    mode_quality,
 )
-from .utils import from_complex, to_complex
+from .utils import from_complex, get_scan_grid, to_complex
+
+warnings.filterwarnings("ignore")
+warnings.filterwarnings("error", category=np.ComplexWarning)
 
 
-def laplacian_quality(laplacian, method="eigenvalue"):
-    """Return the quality of a mode encoded in the naq laplacian."""
-    if method == "eigenvalue":
-        try:
-            return abs(
-                sc.sparse.linalg.eigs(
-                    laplacian, k=1, sigma=0, return_eigenvectors=False, which="LM"
-                )
-            )[0]
-        except sc.sparse.linalg.ArpackNoConvergence:
-            # If eigenvalue solver did not converge, set to 1.0,
-            return 1.0
-        except RuntimeError:
-            print(
-                "Runtime error, we add a small diagonal to laplacian, but things may be bad!"
-            )
-            return abs(
-                sc.sparse.linalg.eigs(
-                    laplacian + 1e-6 * sc.sparse.eye(laplacian.shape[0]),
-                    k=1,
-                    sigma=0,
-                    return_eigenvectors=False,
-                    which="LM",
-                )
-            )[0]
+class WorkerModes:
+    """Worker to find modes."""
 
-            return 1.0e-20
-    if method == "singularvalue":
-        return sc.sparse.linalg.svds(
-            laplacian,
-            k=1,
-            which="SM",
-            return_singular_vectors=False,  # , v0=np.ones(laplacian.shape[0])
-        )[0]
-    return 1.0
+    def __init__(self, estimated_modes, graph, D0s=None, search_radii=None):
+        """Init function of the worker."""
+        self.graph = graph
+        self.params = graph.graph["params"]
+        self.estimated_modes = estimated_modes
+        self.D0s = D0s
+        self.search_radii = search_radii
+
+    def set_search_radii(self, mode):
+        """This fixes a local search region set by search radii."""
+        if self.search_radii is not None:
+            self.params["k_min"] = mode[0] - self.search_radii[0]
+            self.params["k_max"] = mode[0] + self.search_radii[0]
+            self.params["alpha_min"] = mode[1] - self.search_radii[1]
+            self.params["alpha_max"] = mode[1] + self.search_radii[1]
+            # the 0.1 is hardcoded, and seems to be a good value
+            self.params["search_stepsize"] = 0.1 * np.linalg.norm(self.search_radii)
+
+    def __call__(self, mode_id):
+        """Call function of the worker."""
+        if self.D0s is not None:
+            self.params["D0"] = self.D0s[mode_id]
+        mode = self.estimated_modes[mode_id]
+        self.set_search_radii(mode)
+        return refine_mode_brownian_ratchet(mode, self.graph, self.params)
 
 
-def mode_quality(mode, graph):
-    """Quality of a mode, small means good quality."""
-    laplacian = construct_laplacian(to_complex(mode), graph)
-    return laplacian_quality(laplacian)
+class WorkerScan:
+    """Worker to scan complex frequency."""
+
+    def __init__(self, graph):
+        self.graph = graph
+
+    def __call__(self, freq):
+        return mode_quality(to_complex(freq), self.graph)
 
 
-def find_rough_modes_from_scan(ks, alphas, qualities, min_distance=2, threshold_abs=10):
-    """Use scipy.ndimage algorithms to detect minima in the scan."""
-    data = 1.0 / (1e-10 + qualities)
-    rough_mode_ids = peak_local_max(
-        data, min_distance=min_distance, threshold_abs=threshold_abs
+def scan_frequencies(graph):
+    """Scan a range of complex frequencies and return mode qualities."""
+    ks, alphas = get_scan_grid(graph)
+    freqs = [[k, a] for k in ks for a in alphas]
+
+    worker_scan = WorkerScan(graph)
+    pool = multiprocessing.Pool(graph.graph["params"]["n_workers"])
+    qualities_list = list(
+        tqdm(pool.imap(worker_scan, freqs, chunksize=10), total=len(freqs),)
     )
-    return [
-        [ks[rough_mode_id[0]], alphas[rough_mode_id[1]]]
-        for rough_mode_id in rough_mode_ids
+    pool.close()
+
+    id_k = [k_i for k_i in range(len(ks)) for a_i in range(len(alphas))]
+    id_a = [a_i for k_i in range(len(ks)) for a_i in range(len(alphas))]
+    qualities = sc.sparse.coo_matrix(
+        (qualities_list, (id_k, id_a)),
+        shape=(graph.graph["params"]["k_n"], graph.graph["params"]["alpha_n"]),
+    ).toarray()
+
+    return qualities
+
+
+def _init_dataframe():
+    """Initialize multicolumn dataframe."""
+    indexes = pd.MultiIndex(
+        levels=[[], []], codes=[[], []], names=["data", "D0"], dtype=np.float
+    )
+    return pd.DataFrame(columns=indexes)
+
+
+def find_modes(graph, qualities):
+    """Find the modes from a scan."""
+    ks, alphas = get_scan_grid(graph)
+    estimated_modes = find_rough_modes_from_scan(
+        ks, alphas, qualities, min_distance=2, threshold_abs=1.0
+    )
+    print("Found", len(estimated_modes), "mode candidates.")
+    search_radii = [1 * (ks[1] - ks[0]), 1 * (alphas[1] - alphas[0])]
+    worker_modes = WorkerModes(estimated_modes, graph, search_radii=search_radii)
+    pool = multiprocessing.Pool(graph.graph["params"]["n_workers"])
+    refined_modes = list(
+        tqdm(
+            pool.imap(worker_modes, range(len(estimated_modes))),
+            total=len(estimated_modes),
+        )
+    )
+    pool.close()
+
+    if len(refined_modes) == 0:
+        raise Exception("No modes found!")
+
+    refined_modes = [
+        refined_mode for refined_mode in refined_modes if refined_mode is not None
     ]
 
+    true_modes = clean_duplicate_modes(
+        refined_modes, ks[1] - ks[0], alphas[1] - alphas[0]
+    )
+    print("Found", len(true_modes), "after refinements.")
 
-def refine_mode_brownian_ratchet(
-    initial_mode, graph, params, disp=False, save_mode_trajectories=False,
-):
-    """Accurately find a mode from an initial guess, using brownian ratchet algorithm."""
-    current_mode = initial_mode.copy()
-    if save_mode_trajectories:
-        mode_trajectories = [current_mode.copy()]
-
-    initial_quality = mode_quality(current_mode, graph)
-    current_quality = initial_quality
-
-    search_stepsize = params["search_stepsize"]
-    tries_counter = 0
-    step_counter = 0
-    while (
-        current_quality > params["quality_threshold"]
-        and step_counter < params["max_steps"]
-    ):
-        new_mode = (
-            current_mode
-            + search_stepsize
-            * current_quality
-            / initial_quality
-            * np.random.uniform(-1, 1, 2)
+    modes_sorted = true_modes[np.argsort(true_modes[:, 1])]
+    if graph.graph["params"]["n_modes_max"]:
+        print(
+            "...but we will use the top",
+            graph.graph["params"]["n_modes_max"],
+            "modes only",
         )
+        modes_sorted = modes_sorted[: graph.graph["params"]["n_modes_max"]]
 
-        # new_mode[0] = np.clip(new_mode[0], 0.8 * params["k_min"], 1.2 * params["k_max"])
-        # new_mode[1] = np.clip(new_mode[1], None, 1.2 * params["alpha_max"])
-
-        new_quality = mode_quality(new_mode, graph)
-
-        if disp:
-            print(
-                "New quality:",
-                new_quality,
-                "Step size:",
-                search_stepsize,
-                "Current mode: ",
-                current_mode,
-                "New mode:",
-                new_mode,
-                "step",
-                step_counter,
-            )
-
-        # if the quality improves, update the mode
-        if new_quality < current_quality:
-            current_quality = new_quality
-            current_mode = new_mode
-            tries_counter = 0
-            if save_mode_trajectories:
-                mode_trajectories.append(current_mode.copy())
-        else:
-            tries_counter += 1
-
-        # if no improvements after some iterations, multiply the steps by reduction factor
-        if tries_counter > params["max_tries_reduction"]:
-            search_stepsize *= params["reduction_factor"]
-            tries_counter = 0
-        if search_stepsize < 1e-10:
-            disp = True
-            print("Warning: mode search stepsize under 1e-10 for mode:", current_mode)
-            print(
-                "We retry from a larger one, but consider fine tuning search parameters."
-            )
-            search_stepsize = 1e-8
-        step_counter += 1
-    if current_quality < params["quality_threshold"]:
-        if save_mode_trajectories:
-            return np.array(mode_trajectories)
-        return current_mode
-    print(
-        "WARNING: Maximum number of tries attained and no mode found, we retry from scratch!",
-        search_stepsize,
-        current_mode,
-    )
-    params["search_stepsize"] *= 5
-    return refine_mode_brownian_ratchet(
-        initial_mode,
-        graph,
-        params,
-        disp=disp,
-        save_mode_trajectories=save_mode_trajectories,
-    )
+    modes_df = _init_dataframe()
+    modes_df["passive"] = [to_complex(mode_sorted) for mode_sorted in modes_sorted]
+    return modes_df
 
 
-def clean_duplicate_modes(all_modes, k_size, alpha_size):
-    """Clean duplicate modes."""
-    duplicate_mode_ids = []
-    for mode_id_0, mode_0 in enumerate(all_modes):
-        for mode_id_1, mode_1 in enumerate(all_modes[mode_id_0 + 1 :]):
-            if (
-                mode_id_1 + mode_id_0 + 1 not in duplicate_mode_ids
-                and abs(mode_0[0] - mode_1[0]) < k_size
-                and abs(mode_0[1] - mode_1[1]) < alpha_size
-            ):
-                duplicate_mode_ids.append(mode_id_0)
-                break
+def _convert_edges(vector):
+    """Convert single edge values to double edges."""
+    edge_vector = np.zeros(2 * len(vector), dtype=np.complex)
+    edge_vector[::2] = vector
+    edge_vector[1::2] = vector
+    return edge_vector
 
-    return np.delete(np.array(all_modes), duplicate_mode_ids, axis=0)
+
+def _get_dielectric_constant_matrix(params):
+    """Return sparse diagonal matrix of dielectric constants."""
+    return sc.sparse.diags(_convert_edges(params["dielectric_constant"]))
+
+
+def _get_mask_matrices(params):
+    """Return sparse diagonal matrices of pump and inner edge masks."""
+    in_mask = sc.sparse.diags(_convert_edges(np.array(params["inner"])))
+    pump_mask = sc.sparse.diags(_convert_edges(params["pump"])).dot(in_mask)
+    return in_mask, pump_mask
+
+
+def _graph_norm(BT, Bout, Winv, z_matrix, node_solution, mask):
+    """Compute the norm of the node solution on the graph."""
+    weight_matrix = Winv.dot(z_matrix).dot(Winv)
+    inner_matrix = BT.dot(weight_matrix).dot(mask).dot(Bout)
+    norm = node_solution.T.dot(inner_matrix.dot(node_solution))
+    return norm
 
 
 def compute_z_matrix(graph):
@@ -193,34 +187,6 @@ def compute_z_matrix(graph):
         [2 * edge_ids, 2 * edge_ids + 1, 2 * edge_ids + 1, 2 * edge_ids]
     ).flatten()
     return sc.sparse.csc_matrix((data, (col, row)), shape=(2 * m, 2 * m))
-
-
-def _convert_edges(vector):
-    edge_vector = np.zeros(2 * len(vector), dtype=np.complex)
-    edge_vector[::2] = vector
-    edge_vector[1::2] = vector
-    return edge_vector
-
-
-def _get_dielectric_constant_matrix(params):
-    """Return sparse diagonal matrix of dielectric constants."""
-    return sc.sparse.diags(_convert_edges(params["dielectric_constant"]))
-
-
-def _get_mask_matrices(params):
-    """Return sparse diagonal matrices of pump and inner edge masks."""
-    in_mask = sc.sparse.diags(_convert_edges(np.array(params["inner"])))
-    pump_mask = sc.sparse.diags(_convert_edges(params["pump"])).dot(in_mask)
-    return in_mask, pump_mask
-
-
-def _graph_norm(BT, Bout, Winv, z_matrix, node_solution, mask):
-    """Compute the norm of the node solution on the graph."""
-
-    weight_matrix = Winv.dot(z_matrix).dot(Winv)
-    inner_matrix = BT.dot(weight_matrix).dot(mask).dot(Bout)
-    norm = node_solution.T.dot(inner_matrix.dot(node_solution))
-    return norm
 
 
 def compute_overlapping_single_edges(passive_mode, graph):
@@ -272,22 +238,6 @@ def compute_overlapping_factor(passive_mode, graph):
     )
 
     return pump_norm / inner_norm
-
-
-def lasing_threshold_linear(mode, graph, D0):
-    """Find the linear approximation of the new wavenumber."""
-    graph.graph["params"]["D0"] = D0
-    return 1.0 / (
-        q_value(mode)
-        * -np.imag(gamma(to_complex(mode), graph.graph["params"]))
-        * np.real(compute_overlapping_factor(mode, graph))
-    )
-
-
-def q_value(mode):
-    """Compute the q_value of a mode."""
-    mode = from_complex(mode)
-    return 0.5 * mode[0] / mode[1]
 
 
 def pump_linear(mode_0, graph, D0_0, D0_1):
@@ -579,65 +529,6 @@ def _find_next_lasing_mode(
     return next_lasing_mode_id, next_lasing_threshold
 
 
-def compute_modal_intensities_old(modes_df, pump_intensities, mode_competition_matrix):
-    """Compute the modal intensities of the modes up to D0, with D0_steps."""
-    threshold_modes = modes_df["threshold_lasing_modes"]
-    lasing_thresholds = modes_df["lasing_thresholds"]
-
-    next_lasing_mode_id = np.argmin(lasing_thresholds)
-    next_lasing_threshold = lasing_thresholds[next_lasing_mode_id]
-
-    modal_intensities = np.zeros([len(threshold_modes), len(pump_intensities)])
-
-    lasing_mode_ids = []
-    interacting_lasing_thresholds = np.inf * np.ones(len(modes_df))
-    interacting_lasing_thresholds[next_lasing_mode_id] = next_lasing_threshold
-    for i, pump_intensity in tqdm(
-        enumerate(pump_intensities), total=len(pump_intensities)
-    ):
-        while pump_intensity > next_lasing_threshold:
-            lasing_mode_ids.append(next_lasing_mode_id)
-            next_lasing_mode_id, next_lasing_threshold = _find_next_lasing_mode(
-                pump_intensity,
-                threshold_modes,
-                lasing_thresholds,
-                lasing_mode_ids,
-                mode_competition_matrix,
-            )
-            if next_lasing_threshold < np.inf:
-                interacting_lasing_thresholds[
-                    next_lasing_mode_id
-                ] = next_lasing_threshold
-
-        if len(lasing_mode_ids) > 0:
-            mode_competition_matrix_inv = np.linalg.pinv(
-                mode_competition_matrix[np.ix_(lasing_mode_ids, lasing_mode_ids)]
-            )
-            modal_intensities[
-                lasing_mode_ids, i
-            ] = pump_intensity * mode_competition_matrix_inv.dot(
-                1.0 / lasing_thresholds[lasing_mode_ids]
-            ) - mode_competition_matrix_inv.sum(
-                1
-            )
-
-    modes_df["interacting_lasing_thresholds"] = interacting_lasing_thresholds
-
-    if "modal_intensities" in modes_df:
-        del modes_df["modal_intensities"]
-
-    modal_intensities = np.array(modal_intensities).T
-    for pump_intensity, modal_intensity in zip(pump_intensities, modal_intensities):
-        modes_df["modal_intensities", pump_intensity] = modal_intensity
-    print(
-        len(np.where(modal_intensities[-1] > 0)[0]),
-        "lasing modes out of",
-        len(modal_intensities[-1]),
-    )
-
-    return modes_df
-
-
 def compute_modal_intensities(modes_df, pump_intensities, mode_competition_matrix):
     """Compute the modal intensities of the modes up to D0, with D0_steps."""
     threshold_modes = modes_df["threshold_lasing_modes"]
@@ -697,3 +588,134 @@ def compute_modal_intensities(modes_df, pump_intensities, mode_competition_matri
     )
 
     return modes_df
+
+
+def pump_trajectories(modes_df, graph, return_approx=False):
+    """For a sequence of D0s, find the mode positions of the modes modes."""
+
+    D0s = np.linspace(
+        0, graph.graph["params"]["D0_max"], graph.graph["params"]["D0_steps"],
+    )
+
+    pool = multiprocessing.Pool(graph.graph["params"]["n_workers"])
+    n_modes = len(modes_df)
+
+    pumped_modes = [[from_complex(mode) for mode in modes_df["passive"]]]
+    pumped_modes_approx = pumped_modes.copy()
+    for d in range(len(D0s) - 1):
+        print(
+            "Step "
+            + str(d + 1)
+            + "/"
+            + str(len(D0s) - 1)
+            + ", computing for D0="
+            + str(D0s[d + 1])
+        )
+        pumped_modes_approx.append(pumped_modes[-1].copy())
+        for m in range(n_modes):
+            pumped_modes_approx[-1][m] = pump_linear(
+                pumped_modes[-1][m], graph, D0s[d], D0s[d + 1]
+            )
+
+        worker_modes = WorkerModes(
+            pumped_modes_approx[-1], graph, D0s=n_modes * [D0s[d + 1]]
+        )
+        pumped_modes.append(
+            list(tqdm(pool.imap(worker_modes, range(n_modes)), total=n_modes))
+        )
+        for i, mode in enumerate(pumped_modes[-1]):
+            if mode is None:
+                print("Mode not be updated, consider changing the search parameters.")
+                pumped_modes[-1][i] = pumped_modes[-2][i]
+
+    pool.close()
+    if "mode_trajectories" in modes_df:
+        del modes_df["mode_trajectories"]
+    for D0, pumped_mode in zip(D0s, pumped_modes):
+        modes_df["mode_trajectories", D0] = [to_complex(mode) for mode in pumped_mode]
+
+    if return_approx:
+        if "mode_trajectories_approx" in modes_df:
+            del modes_df["mode_trajectories_approx"]
+        for D0, pumped_mode_approx in zip(D0s, pumped_modes_approx):
+            modes_df["mode_trajectories_approx", D0] = [
+                to_complex(mode) for mode in pumped_mode_approx
+            ]
+
+    return modes_df
+
+
+def find_threshold_lasing_modes(modes_df, graph):
+    """Find the threshold lasing modes and associated lasing thresholds."""
+    pool = multiprocessing.Pool(graph.graph["params"]["n_workers"])
+    stepsize = graph.graph["params"]["search_stepsize"]
+
+    D0_steps = graph.graph["params"]["D0_max"] / graph.graph["params"]["D0_steps"]
+
+    new_modes = modes_df["passive"].to_numpy()
+
+    threshold_lasing_modes = np.zeros([len(modes_df), 2])
+    lasing_thresholds = np.inf * np.ones(len(modes_df))
+    D0s = np.zeros(len(modes_df))
+    current_modes = np.arange(len(modes_df))
+    while len(current_modes) > 0:
+        print(len(current_modes), "modes left to find")
+
+        new_D0s = np.zeros(len(modes_df))
+        new_modes_approx = np.empty([len(new_modes), 2])
+        for i in current_modes:
+            new_D0s[i] = abs(
+                D0s[i] + lasing_threshold_linear(new_modes[i], graph, D0s[i])
+            )
+
+            new_D0s[i] = min(new_D0s[i], D0_steps + D0s[i])
+            new_modes_approx[i] = pump_linear(new_modes[i], graph, D0s[i], new_D0s[i])
+
+        # this is a trick to reduce the stepsizes as we are near the solution
+        graph.graph["params"]["search_stepsize"] = (
+            stepsize * np.mean(abs(new_D0s[new_D0s > 0] - D0s[new_D0s > 0])) / D0_steps
+        )
+
+        print("Current search_stepsize:", graph.graph["params"]["search_stepsize"])
+        worker_modes = WorkerModes(new_modes_approx, graph, D0s=new_D0s)
+        new_modes_tmp = np.zeros([len(modes_df), 2])
+        new_modes_tmp[current_modes] = list(
+            tqdm(pool.imap(worker_modes, current_modes), total=len(current_modes))
+        )
+
+        to_delete = []
+        for i, mode_index in enumerate(current_modes):
+            if new_modes_tmp[mode_index] is None:
+                print(
+                    "A mode could not be updated, consider modifying the search parameters."
+                )
+                new_modes_tmp[mode_index] = new_modes[mode_index]
+            elif abs(new_modes_tmp[mode_index][1]) < 1e-6:
+                to_delete.append(i)
+                threshold_lasing_modes[mode_index] = new_modes_tmp[mode_index]
+                lasing_thresholds[mode_index] = new_D0s[mode_index]
+
+            elif new_D0s[mode_index] > graph.graph["params"]["D0_max"]:
+                to_delete.append(i)
+
+        current_modes = np.delete(current_modes, to_delete)
+        D0s = new_D0s.copy()
+        new_modes = new_modes_tmp.copy()
+
+    pool.close()
+
+    modes_df["threshold_lasing_modes"] = [
+        to_complex(mode) for mode in threshold_lasing_modes
+    ]
+    modes_df["lasing_thresholds"] = lasing_thresholds
+    return modes_df
+
+
+def lasing_threshold_linear(mode, graph, D0):
+    """Find the linear approximation of the new wavenumber."""
+    graph.graph["params"]["D0"] = D0
+    return 1.0 / (
+        q_value(mode)
+        * -np.imag(gamma(to_complex(mode), graph.graph["params"]))
+        * np.real(compute_overlapping_factor(mode, graph))
+    )

@@ -27,7 +27,7 @@ modes_df = naq.load_modes()
 
 mode_competition_matrix = naq.load_mode_competition_matrix()
 
-D0_max = 0.01 #5 * np.max(modes_df["lasing_thresholds"][modes_df["lasing_thresholds"] < 100])
+D0_max = 5 * np.max(modes_df["lasing_thresholds"][modes_df["lasing_thresholds"] < 100])
 D0_min = 0.8 * np.min(modes_df["lasing_thresholds"])
 print(D0_min, D0_max)
 n_points = 1000

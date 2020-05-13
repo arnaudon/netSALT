@@ -62,7 +62,11 @@ def optimize_pump(
         pump_overlapps = np.empty([len(modes_df["passive"]), len(graph.edges)])
         for mode_id, overlapp in tqdm(enumerate(overlapp_iter), total=len(pump_overlapps)):
             pump_overlapps[mode_id] = overlapp
-
+    plt.figure()
+    plt.imshow(pump_overlapps, aspect='auto')
+    plt.figure()
+    plt.plot(pump_overlapps.sum(1))
+    plt.show()
     mode_mask = np.array(len(pump_overlapps) * [False])
     mode_mask[lasing_modes_id] = True
     pump_min_edge_number = int(
@@ -82,7 +86,7 @@ def optimize_pump(
     return optimal_pump, pump_overlapps
 
 
-lasing_modes_id = [17]
+lasing_modes_id = [0]
 
 fig = plt.figure()
 ax = plt.gca()

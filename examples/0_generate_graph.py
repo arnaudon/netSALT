@@ -31,7 +31,7 @@ custom_index = generate_index(graph_tpe, graph, params)
 naq.set_dielectric_constant(graph, params, custom_values=custom_index)
 
 naq.set_dispersion_relation(
-    graph, naq.dispersion_relations.dispersion_relation_pump, params
+    graph, naq.physics.dispersion_relation_pump, params
 )
 
 graph = naq.oversample_graph(graph, params)

@@ -66,6 +66,7 @@ def generate_pump(tpe, graph, params):
 
         print("Using uniform pump.")
 
+    graph.graph['params']["pump"] = params["pump"]
 
 def generate_index(tpe, graph, params):
     """Set non-uniform dielectric constants."""

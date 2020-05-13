@@ -3,7 +3,8 @@ import networkx as nx
 import numpy as np
 import scipy as sc
 
-from .dispersion_relations import update_params_dielectric_constant
+from .physics import update_params_dielectric_constant
+from .utils import to_complex
 
 
 def create_naq_graph(graph, params, positions=None, lengths=None):
@@ -292,3 +293,46 @@ def set_edge_lengths(graph, lengths=None):
             graph[u][v]["length"] = lengths[ei]
 
     graph.graph["lengths"] = np.array([graph[u][v]["length"] for u, v in graph.edges])
+
+
+def laplacian_quality(laplacian, method="eigenvalue"):
+    """Return the quality of a mode encoded in the naq laplacian."""
+    if method == "eigenvalue":
+        try:
+            return abs(
+                sc.sparse.linalg.eigs(
+                    laplacian, k=1, sigma=0, return_eigenvectors=False, which="LM"
+                )
+            )[0]
+        except sc.sparse.linalg.ArpackNoConvergence:
+            # If eigenvalue solver did not converge, set to 1.0,
+            return 1.0
+        except RuntimeError:
+            print(
+                "Runtime error, we add a small diagonal to laplacian, but things may be bad!"
+            )
+            return abs(
+                sc.sparse.linalg.eigs(
+                    laplacian + 1e-6 * sc.sparse.eye(laplacian.shape[0]),
+                    k=1,
+                    sigma=0,
+                    return_eigenvectors=False,
+                    which="LM",
+                )
+            )[0]
+
+            return 1.0e-20
+    if method == "singularvalue":
+        return sc.sparse.linalg.svds(
+            laplacian,
+            k=1,
+            which="SM",
+            return_singular_vectors=False,  # , v0=np.ones(laplacian.shape[0])
+        )[0]
+    return 1.0
+
+
+def mode_quality(mode, graph):
+    """Quality of a mode, small means good quality."""
+    laplacian = construct_laplacian(to_complex(mode), graph)
+    return laplacian_quality(laplacian)
