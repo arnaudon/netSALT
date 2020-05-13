@@ -283,7 +283,7 @@ def flux_on_edges(mode, graph):
 
 
 def mean_mode_on_edges(mode, graph):
-    """Compute the average |E|^2 on each edge."""
+    r"""Compute the average :math:`|E|^2` on each edge."""
     edge_flux = flux_on_edges(mode, graph)
 
     mean_edge_solution = np.zeros(len(graph.edges))
