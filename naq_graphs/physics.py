@@ -7,33 +7,65 @@ from .utils import from_complex, to_complex
 
 
 def gamma(freq, params):
-    """Gamma function."""
+    r"""Gamma function.
+    
+    The gamma function is 
+
+    .. math:: 
+
+        \gamma(k) = \frac{\gamma_\perp}{ \mathrm{real}(k) - k_a + j\gamma_\perp}
+
+    Args:
+        freq (float): frequency
+        params (dict): parameters, must include 'gamma_perp' and 'k_a'
+    """
     return params["gamma_perp"] / (
         np.real(freq) - params["k_a"] + 1.0j * params["gamma_perp"]
     )
 
 
 def set_dispersion_relation(graph, dispersion_relation, params):
-    """Set the dispersion relation on the graph."""
+    """Set the dispersion relation on the graph.
+    
+    Args:
+        graph (networkx graph): current graph
+        dispersion_relation (function): dispersion relation function
+        params (dict): parameters, must include 'gamma_perp' and 'k_a'
+        """
     graph.graph["dispersion_relation"] = partial(dispersion_relation, params=params)
 
 
 def dispersion_relation_linear(freq, params=None):
-    """Linear dispersion relation with wavespeed."""
+    """Linear dispersion relation with wavespeed.
+
+    Args:
+        freq (float): frequency
+        params (dict): parameters, must include 'gamma_perp' and 'k_a'
+    """
     if not params:
         raise Exception("Please provide dispersion parameters")
     return freq / params["c"]
 
 
 def dispersion_relation_dielectric(freq, params=None):
-    """Linear dispersion relation with dielectric constant."""
+    """Linear dispersion relation with dielectric constant.
+
+    Args:
+        freq (float): frequency
+        params (dict): parameters, must include 'gamma_perp' and 'k_a'
+    """
     if not params:
         raise Exception("Please provide dispersion parameters")
     return freq * np.sqrt(params["dielectric_constant"])
 
 
 def dispersion_relation_pump(freq, params=None):
-    """Dispersion relation with dielectric constant and pump."""
+    """Dispersion relation with dielectric constant and pump.
+
+    Args:
+        freq (float): frequency
+        params (dict): parameters, must include 'gamma_perp' and 'k_a'
+    """
     if not params:
         raise Exception("Please provide dispersion parameters")
 
@@ -47,7 +79,13 @@ def dispersion_relation_pump(freq, params=None):
 
 
 def set_dielectric_constant(graph, params, custom_values=None):
-    """Set dielectric constant in the params file using various methods."""
+    """Set dielectric constant in the params file using various methods.
+
+    Args:
+        graph (networkx graph): current graph
+        params (dict): parameters, must include 'gamma_perp' and 'k_a'
+        custom_values (list): custum edge values for dielectric constant
+    """
 
     if "dielectric_params" in params and "refraction_params" in params:
         print(
@@ -100,13 +138,28 @@ def set_dielectric_constant(graph, params, custom_values=None):
 
 
 def update_params_dielectric_constant(graph, params):
-    """Update the dielectric constant values in the params dictionary."""
+    """Update the dielectric constant values in the params dictionary.
+    
+    Args:
+        graph (networkx graph): current graph
+        params (dict): parameters, must include 'gamma_perp' and 'k_a'
+    """
     params["dielectric_constant"] = [
         graph[u][v]["dielectric_constant"] for u, v in graph.edges
     ]
 
 
 def q_value(mode):
-    """Compute the q_value of a mode."""
+    r"""Compute the :math:`\mathcal Q` value of a mode.
+    
+    It is defined as 
+
+    .. math::
+        
+        \mathcal Q = \frac{\mathrm{Real} k}{2 \mathrm{Im}(k)}
+
+    Args:
+        mode (complex): complex values mode 
+    """
     mode = from_complex(mode)
     return 0.5 * mode[0] / mode[1]
