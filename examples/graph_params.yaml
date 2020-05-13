@@ -51,7 +51,7 @@ SM_small:
 line_PRA:
         #network params
         n_workers: 10
-        n: 103 #43 #103
+        n: 43 #103
         lead_prob: -0.2
         seed: 2
         innerL: 1
@@ -74,7 +74,7 @@ line_PRA:
         
         # params for mode search
         quality_threshold: 1.e-4
-        search_stepsize: 0.5
+        search_stepsize: 0.001
         max_steps: 10000 
         max_tries_reduction: 20 
         reduction_factor: 0.80 

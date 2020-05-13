@@ -1,16 +1,16 @@
 """plotting function"""
 import os
-from pathlib import Path
 from itertools import cycle
+from pathlib import Path
 
 import matplotlib.pyplot as plt
-from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 import networkx as nx
 import numpy as np
+from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 from tqdm import tqdm
 
 from .modes import mean_mode_on_edges, mode_on_nodes
-from .utils import get_scan_grid, lorentzian, order_edges_by, linewidth
+from .utils import get_scan_grid, linewidth, lorentzian, order_edges_by
 
 
 def _savefig(graph, fig, folder, filename):
@@ -199,7 +199,7 @@ def plot_scan(
 
     ax.set_xlabel(r"$Real(k)$")
     ax.set_ylabel(r"$\alpha = -Im(k)$")
-
+    print(modes_df)
     if modes_df is not None:
         for index, modes in modes_df.iterrows():
             k = np.real(modes["passive"][0])
@@ -214,6 +214,7 @@ def plot_scan(
             )
 
         if with_trajectories and "mode_trajectories" in modes_df:
+            print("lkj")
             plot_pump_traj(
                 modes_df, with_scatter=with_scatter, with_approx=with_approx, ax=ax
             )

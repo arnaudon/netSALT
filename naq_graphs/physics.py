@@ -1,7 +1,9 @@
-"""Dispersion relations."""
+"""All physics-related functions."""
 from functools import partial
 
 import numpy as np
+
+from .utils import from_complex, to_complex
 
 
 def gamma(freq, params):
@@ -102,3 +104,9 @@ def update_params_dielectric_constant(graph, params):
     params["dielectric_constant"] = [
         graph[u][v]["dielectric_constant"] for u, v in graph.edges
     ]
+
+
+def q_value(mode):
+    """Compute the q_value of a mode."""
+    mode = from_complex(mode)
+    return 0.5 * mode[0] / mode[1]
