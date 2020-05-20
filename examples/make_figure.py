@@ -63,12 +63,14 @@ ax3.set_xlabel(r'$k (\mu m)$')
 ax3.set_ylabel('Intensity')
 D0s = modes_df["modal_intensities"].columns.values
 D0_id = -1
+print('spectrum at D0=', D0s[D0_id])
 plotting.plot_stem_spectra(graph, modes_df, D0_id, ax=ax3)
 
 #plot chosen mode on top in colour in spectrum
 opt_mode_kth = np.real(modes_df["threshold_lasing_modes"].iloc[lasing_mode_id])
 opt_modal_amplitude = np.real(modes_df["modal_intensities"].iloc[lasing_mode_id, D0_id])
 ax3.stem(opt_mode_kth*np.ones(2), [0,opt_modal_amplitude], "C0-", markerfmt=" ")
+#ax3.axis([10.36, 11.0, 0, 220])
 
 ax4 = fig.add_subplot(gs[1:,1:])
 ax4.set_title('LL')
@@ -93,6 +95,7 @@ D0s = modes_df["modal_intensities"].columns.values
 top = np.max(np.nan_to_num(modes_df["modal_intensities"].to_numpy()[:, D0_id]))
 #top = np.max(total_intensity[D0_id])
 ax4.axis([0, D0s[ D0_id], -0.01, top ])
+#ax4.axis([0.002, 0.008, 0, 200])
 
 #ax4.tick_params(axis="both", which="major", labelsize=5)
 #ax4.xaxis.label.set_size(8)

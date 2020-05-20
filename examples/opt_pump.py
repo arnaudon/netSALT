@@ -44,7 +44,6 @@ def overlap_matrix_element(graph, mode):
                 )
             ))
 
-
 def optimize_pump(
     modes_df,
     graph,
@@ -75,12 +74,22 @@ def optimize_pump(
         costf, bounds, maxiter=maxiter, disp=disp, popsize=popsize, workers=graph.graph['params']['n_workers'], seed=1, strategy='randtobest1bin'
     )
     optimal_pump = np.round(result.x, 0)
-
     print("Final cost is:", costf(optimal_pump))
     if costf(optimal_pump) > 0:
         print("This pump may not provide single lasing!")
     return optimal_pump, pump_overlapps
 
+
+def plot_Dinvs(graph, pump_overlaps, folder="Dinvs", ext=".png"):
+    """Plot Dinvs on the graph."""
+
+    for mode_id in range(len(pump_overlapps)):
+        plotting.plot_naq_graph(graph, edge_colors=pump_overlapps[mode_id], node_size=0.1, color_map="viridis", cbar_min=np.min(pump_overlapps[mode_id]), cbar_max=np.max(pump_overlapps[mode_id]), save_option=False)
+
+        plt.savefig(folder + "/mode_" + str(mode_id) + ext)
+        plt.close()
+
+#### MAIN CODE ####
 
 lasing_modes_id = [17]
 
@@ -98,6 +107,7 @@ optimal_pump, pump_overlapps = optimize_pump(
 )
 pickle.dump(optimal_pump, open("optimal_pump.pkl", "wb"))
 
+##### PLOTTING ####
 
 plt.figure(figsize=(20, 5))
 for lasing_mode in lasing_modes_id:
@@ -109,6 +119,7 @@ plt.plot(optimal_pump, "r+")
 plt.gca().set_ylim(0.5, 1.5)
 plt.savefig("pump.png")
 
+#### PLOT pump_overlapps as a matrix
 D_invs = [];
 for mode in range(len(pump_overlapps)):
     D_invs.append(pump_overlapps[mode])
@@ -129,3 +140,12 @@ ax1.set_yticks([])
 
 plt.savefig('D_invs_matrix.png')
 plt.show()
+
+#### PLOT pump_overlapps for each mode on the graph
+if not os.path.isdir("Dinvs"):
+    os.mkdir("Dinvs")
+
+plot_Dinvs(
+    graph, D_invs, folder="Dinvs"
+)
+

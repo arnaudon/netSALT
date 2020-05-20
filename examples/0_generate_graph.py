@@ -37,8 +37,8 @@ naq.set_dispersion_relation(
 graph = naq.oversample_graph(graph, params)
 naq.update_parameters(graph, params)
 naq.save_graph(graph)
-
-plotting.plot_naq_graph(graph, edge_colors=params["dielectric_constant"], node_size=0.1)
+#print(graph.graph["edgelabel"])
+plotting.plot_naq_graph(graph, edge_colors=params["dielectric_constant"], node_size=0.1, color_map="plasma", cbar_min=1, cbar_max=np.max(np.abs(params["dielectric_constant"])))
 
 plt.savefig("original_graph.svg")
 plt.show()

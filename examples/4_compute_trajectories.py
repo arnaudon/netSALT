@@ -22,15 +22,19 @@ os.chdir(graph_tpe)
 graph = naq.load_graph()
 modes_df = naq.load_modes()
 
-graph.graph['params']["pump"] = pickle.load(open("optimal_pump.pkl", "rb"))
-#generate_pump(graph_tpe, graph, params)
-#graph.graph['params']["pump"] = params["pump"]
+# LOAD FROM FILE
+# graph.graph['params']["pump"] = pickle.load(open("optimal_pump.pkl", "rb"))
+# graph.graph['params']["pump"] = pickle.load(open("pump_missing_edge60.pkl", "rb"))
+
+# OR GENERATE PUMP PROFILE BASED ON PARAMS["PUMP_EDGES"]
+generate_pump(graph_tpe, graph, params)
+graph.graph['params']["pump"] = params["pump"]
 
 naq.update_parameters(graph, params)
 naq.save_graph(graph)
 
 
-plotting.plot_naq_graph(graph, edge_colors=graph.graph['params']["pump"], node_size=0.1)
+plotting.plot_naq_graph(graph, edge_colors=graph.graph['params']["pump"], node_size=0.1, save_option=False)
 plt.savefig("pump_profile.svg")
 plt.show()
 

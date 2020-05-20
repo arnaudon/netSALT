@@ -86,6 +86,7 @@ def plot_stem_spectra(
 
     # colors = cycle(["C{}".format(i) for i in range(10)])
     markerline.set_markerfacecolor("white")
+    #plt.setp(stemlines, "alpha", 0.5, "linewidth", 2)
     plt.setp(baseline, "color", "grey", "linewidth", 1)
     ax.set_xlabel(r"$k$")
     ax.set_ylabel("Intensity (a.u.)")
@@ -236,8 +237,12 @@ def plot_naq_graph(
     edge_colors=None,
     node_colors=None,
     node_size=1,
+    color_map="Accent_r", # coolwarm plasma
+    cbar_min=0,
+    cbar_max=1,
     folder="plots",
     filename="original_graph",
+    save_option=True,
 ):
     """plot the graph"""
     positions = [graph.nodes[u]["position"] for u in graph]
@@ -256,11 +261,11 @@ def plot_naq_graph(
             node_color=node_colors,
             vmin=0,
             vmax=np.max(node_colors),
-            cmap=plt.get_cmap("plasma"),
+            cmap=plt.get_cmap(color_map),
         )
         nodes = plt.cm.ScalarMappable(
             norm=plt.cm.colors.Normalize(0, np.max(node_colors)),
-            cmap=plt.get_cmap("plasma"),
+            cmap=plt.get_cmap(color_map),
         )
 
         plt.colorbar(nodes, label=r"node values")
@@ -271,6 +276,11 @@ def plot_naq_graph(
         )
 
     # nx.draw_networkx_edges(graph, pos=positions)
+    
+    # for edge labeling:
+    # labels = nx.get_edge_attributes(graph,'edgelabel')
+    # labels = dict([((u, v), i) for i, (u, v) in enumerate(graph.edges())]) 
+    # nx.draw_networkx_edge_labels(graph, pos=positions, edge_labels=labels)
 
     if edge_colors is not None:
         edge_colors = np.real(edge_colors)
@@ -280,16 +290,16 @@ def plot_naq_graph(
                 pos=positions,
                 edgelist=[e,],
                 edge_color=[np.sort(edge_colors)[ei],],
-                edge_cmap=plt.get_cmap("Accent_r"),  # plasma
+                edge_cmap=plt.get_cmap(color_map),
                 width=2,  # 5
                 alpha=1,  # 0.7
-                edge_vmin=0,
-                edge_vmax=np.max(edge_colors),
+                edge_vmin=cbar_min,
+                edge_vmax=cbar_max,
             )
 
         edges = plt.cm.ScalarMappable(
-            norm=plt.cm.colors.Normalize(0, np.max(edge_colors)),
-            cmap=plt.get_cmap("Accent_r"),
+            norm=plt.cm.colors.Normalize(cbar_min, cbar_max),
+            cmap=plt.get_cmap(color_map),
         )
 
         plt.colorbar(edges, label=r"edge values")
@@ -307,7 +317,8 @@ def plot_naq_graph(
     )
     plt.gca().tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
 
-    _savefig(graph, fig, folder, filename)
+    if save_option == True:
+        _savefig(graph, fig, folder, filename)
 
 
 def plot_pump_traj(modes_df, with_scatter=True, with_approx=True, ax=None):

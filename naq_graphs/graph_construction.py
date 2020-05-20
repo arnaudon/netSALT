@@ -51,6 +51,7 @@ def update_parameters(graph, params, force=False):
         "k_a",
         "gamma_perp",
         "dielectric_params",
+        "edgelabel",
     ]
     if "params" not in graph.graph:
         graph.graph["params"] = params
@@ -129,7 +130,7 @@ def oversample_graph(graph, params):
 
     _set_pump_on_graph(graph, params)
     oversampled_graph = graph.copy()
-    for u, v in graph.edges:
+    for ei, (u, v) in enumerate(graph.edges):
         last_node = len(oversampled_graph)
         if graph[u][v]["inner"]:
             n_nodes = int(graph[u][v]["length"] / params["plot_edgesize"])
@@ -163,6 +164,7 @@ def oversample_graph(graph, params):
                         inner=True,
                         dielectric_constant=dielectric_constant,
                         pump=pump,
+                        edgelabel=ei,
                     )
 
                 oversampled_graph.add_edge(
@@ -171,6 +173,7 @@ def oversample_graph(graph, params):
                     inner=True,
                     dielectric_constant=dielectric_constant,
                     pump=pump,
+                    edgelabel=ei,
                 )
 
     oversampled_graph = nx.convert_node_labels_to_integers(oversampled_graph)
@@ -254,7 +257,7 @@ def set_inner_edges(graph, params, outer_edges=None):
         )
 
     params["inner"] = []
-    for u, v in graph.edges():
+    for ei, (u, v) in enumerate(graph.edges()):
         if params["open_model"] == "open_ends" and (
             len(graph[u]) == 1 or len(graph[v]) == 1
         ):
@@ -266,6 +269,8 @@ def set_inner_edges(graph, params, outer_edges=None):
         else:
             graph[u][v]["inner"] = True
             params["inner"].append(True)
+        graph[u][v]["edgelabel"] = ei
+    graph.graph["edgelabel"] = np.array([graph[u][v]["edgelabel"] for u, v in graph.edges])
 
 
 def set_node_positions(graph, positions=None):
