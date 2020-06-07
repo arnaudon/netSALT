@@ -13,8 +13,8 @@ Installation
 
 To install the dev version from `GitHub <https://github.com/imperialcollegelondon/hcga/>`_ with the commands::
 
-       $ git clone git@github.com:ImperialCollegeLondon/NAQ-graphs.git
-       $ cd NAQ-graphs
+       $ git clone git@github.com:ImperialCollegeLondon/netSALT.git
+       $ cd netSALT 
        $ pip install .
 
 There is no PyPi release version yet, but stay tuned for more!
@@ -22,7 +22,8 @@ There is no PyPi release version yet, but stay tuned for more!
 
 Usage
 *****
-In progress...
+
+See the folder `example` with the sequence of scripts, from 0 to 0.
 
 Citing
 ******
