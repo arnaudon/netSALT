@@ -5,9 +5,9 @@
 # from the environment for the first two.
 SPHINXOPTS    = # -W  # treats warning as srrors
 SPHINXBUILD   = sphinx-build
-SPHINXPROJ    = pynetsalt
+SPHINXPROJ    = netsalt
 SOURCEDIR     = source
-BUILDDIR      = ../../pynetsalt-docs
+BUILDDIR      = ../../netsalt-docs
 PDFBUILDER    = /tmp
 PDF 	      = ../manual.pdf
 

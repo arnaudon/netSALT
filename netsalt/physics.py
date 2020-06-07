@@ -1,6 +1,5 @@
 """All physics-related functions."""
 from functools import partial
-
 import numpy as np
 
 from .utils import from_complex, to_complex
@@ -8,10 +7,10 @@ from .utils import from_complex, to_complex
 
 def gamma(freq, params):
     r"""Gamma function.
-    
-    The gamma function is 
 
-    .. math:: 
+    The gamma function is
+
+    .. math::
 
         \gamma(k) = \frac{\gamma_\perp}{ \mathrm{real}(k) - k_a + j\gamma_\perp}
 
@@ -30,20 +29,26 @@ def set_dispersion_relation(graph, dispersion_relation, params):
     Args:
         graph (networkx graph): current graph
         dispersion_relation (function): dispersion relation function
-        params (dict): parameters, must include 'gamma_perp' and 'k_a'
+        params (dict): parameters
         """
     graph.graph["dispersion_relation"] = partial(dispersion_relation, params=params)
 
 
 def dispersion_relation_linear(freq, params=None):
-    """Linear dispersion relation with wavespeed.
+    r"""Linear dispersion relation with wavespeed.
+
+    The dispersion relation is
+
+    .. math::
+
+        \omega(k) = \frac{k}{c}
 
     Args:
         freq (float): frequency
-        params (dict): parameters, must include 'gamma_perp' and 'k_a'
+        params (dict): parameters, must include wavespeed 'c'
     """
-    if not params:
-        raise Exception("Please provide dispersion parameters")
+    if not params or 'c' not in params:
+        raise Exception("Please correct provide dispersion parameters")
     return freq / params["c"]
 
 
@@ -60,11 +65,25 @@ def dispersion_relation_dielectric(freq, params=None):
 
 
 def dispersion_relation_pump(freq, params=None):
-    """Dispersion relation with dielectric constant and pump.
+    r"""Dispersion relation with dielectric constant and pump.
+
+    If a pump is given in params 
+
+    .. math::
+
+        \omega(k) = k \sqrt{\epsilon + \gamma(k) D_0 \delta_\mathrm{pump}}
+
+    otherwise
+
+    .. math::
+
+        \omega(k) = k \sqrt{\epsilon}
 
     Args:
         freq (float): frequency
-        params (dict): parameters, must include 'gamma_perp' and 'k_a'
+        params (dict): parameters, must include the dielectric_constant in params, 
+            if pump is in params, it must include D0 and necessary parameter
+            for the computation of :math:`gamma`
     """
     if not params:
         raise Exception("Please provide dispersion parameters")
@@ -79,11 +98,11 @@ def dispersion_relation_pump(freq, params=None):
 
 
 def set_dielectric_constant(graph, params, custom_values=None):
-    """Set dielectric constant in the params file using various methods.
+    """Set dielectric constant in params, from dielectric constant or refraction index.
 
     Args:
         graph (networkx graph): current graph
-        params (dict): parameters, must include 'gamma_perp' and 'k_a'
+        params (dict): parameters
         custom_values (list): custum edge values for dielectric constant
     """
 
