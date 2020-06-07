@@ -23,7 +23,7 @@ from .modes import (
 )
 from .physics import set_dielectric_constant, set_dispersion_relation
 from .quantum_graph import (
-    create_naq_graph,
+    create_quantum_graph,
     oversample_graph,
     set_total_length,
     update_parameters,

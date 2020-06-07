@@ -6,9 +6,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import yaml
 
-import naq_graphs as naq
-from graph_generator import generate_graph
-from naq_graphs import plotting
+import netsalt
+from netsalt import plotting
 
 if len(sys.argv) > 1:
     graph_tpe = sys.argv[-1]
@@ -19,16 +18,16 @@ params = yaml.full_load(open("graph_params.yaml", "rb"))[graph_tpe]
 
 os.chdir(graph_tpe)
 
-graph = naq.load_graph()
-naq.update_parameters(graph, params)
+graph = netsalt.load_graph()
+netsalt.update_parameters(graph, params)
 
-modes_df = naq.load_modes()
+modes_df = netsalt.load_modes()
 
-modes_df = naq.find_threshold_lasing_modes(modes_df, graph)
+modes_df = netsalt.find_threshold_lasing_modes(modes_df, graph)
 
-naq.save_modes(modes_df)
+netsalt.save_modes(modes_df)
 
-qualities = naq.load_qualities()
+qualities = netsalt.load_qualities()
 
 ax = plotting.plot_scan(
     graph, qualities, modes_df, filename="scan_with_threshold_modes", relax_upper=True

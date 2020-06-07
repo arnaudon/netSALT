@@ -7,13 +7,13 @@ import pandas as pd
 
 
 def save_graph(graph, filename="graph.pkl"):
-    """Save a the naq graph."""
+    """Save a the quantum graph."""
     with open(filename, "wb") as pickle_file:
         pickle.dump(graph, pickle_file)
 
 
 def load_graph(filename="graph.pkl"):
-    """Load a the naq graph."""
+    """Load a the quantum graph."""
     with open(filename, "rb") as pickle_file:
         return pickle.load(pickle_file)
 

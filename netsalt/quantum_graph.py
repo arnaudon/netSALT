@@ -7,7 +7,7 @@ from .physics import update_params_dielectric_constant
 from .utils import to_complex
 
 
-def create_naq_graph(graph, params, positions=None, lengths=None):
+def create_quantum_graph(graph, params, positions=None, lengths=None):
     """append a networkx graph with necessary attributes for being a NAQ graph"""
     set_node_positions(graph, positions)
     set_edge_lengths(graph, lengths=lengths)
@@ -189,7 +189,7 @@ def oversample_graph(graph, params):
 
 
 def construct_laplacian(freq, graph):
-    """construct naq laplacian from a graph"""
+    """construct quantum laplacian from a graph"""
     set_wavenumber(graph, freq)
     BT, Bout = construct_incidence_matrix(graph)
     Winv = construct_weight_matrix(graph)
@@ -301,7 +301,7 @@ def set_edge_lengths(graph, lengths=None):
 
 
 def laplacian_quality(laplacian, method="eigenvalue"):
-    """Return the quality of a mode encoded in the naq laplacian."""
+    """Return the quality of a mode encoded in the quantum laplacian."""
     if method == "eigenvalue":
         try:
             return abs(

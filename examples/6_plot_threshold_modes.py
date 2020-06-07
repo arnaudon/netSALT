@@ -6,9 +6,8 @@ import networkx as nx
 import numpy as np
 import yaml
 
-import naq_graphs as naq
-from graph_generator import generate_graph
-from naq_graphs import plotting
+import netsalt
+from netsalt import plotting
 
 if len(sys.argv) > 1:
     graph_tpe = sys.argv[-1]
@@ -19,11 +18,11 @@ params = yaml.full_load(open("graph_params.yaml", "rb"))[graph_tpe]
 
 os.chdir(graph_tpe)
 
-graph = naq.load_graph()
-naq.update_parameters(graph, params)
-graph = naq.oversample_graph(graph, params)
+graph = netsalt.load_graph()
+netsalt.update_parameters(graph, params)
+graph = netsalt.oversample_graph(graph, params)
 
-modes_df = naq.load_modes()
+modes_df = netsalt.load_modes()
 
 if not os.path.isdir("threshold_modes"):
     os.mkdir("threshold_modes")

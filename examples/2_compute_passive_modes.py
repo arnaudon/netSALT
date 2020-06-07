@@ -5,8 +5,8 @@ import sys
 import matplotlib.pyplot as plt
 import yaml
 
-import naq_graphs as naq
-from naq_graphs import plotting
+import netsalt
+from netsalt import plotting
 
 if len(sys.argv) > 1:
     graph_tpe = sys.argv[-1]
@@ -17,14 +17,14 @@ params = yaml.full_load(open("graph_params.yaml", "rb"))[graph_tpe]
 
 os.chdir(graph_tpe)
 
-graph = naq.load_graph()
-naq.update_parameters(graph, params)
+graph = netsalt.load_graph()
+netsalt.update_parameters(graph, params)
 
-qualities = naq.load_qualities()
+qualities = netsalt.load_qualities()
 
-modes_df = naq.find_modes(graph, qualities)
+modes_df = netsalt.find_modes(graph, qualities)
 
-naq.save_modes(modes_df)
+netsalt.save_modes(modes_df)
 
 plotting.plot_scan(graph, qualities, modes_df, filename="scan_with_passive_modes")
 

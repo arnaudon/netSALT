@@ -231,7 +231,7 @@ def plot_scan(
     return ax
 
 
-def plot_naq_graph(
+def plot_quantum_graph(
     graph,
     figsize=(5, 4),
     ax=None,
