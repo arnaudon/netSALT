@@ -22,7 +22,6 @@ os.chdir(graph_tpe)
 graph = naq.load_graph()
 modes_df = naq.load_modes()
 
-<<<<<<< HEAD
 # LOAD FROM FILE
 # graph.graph['params']["pump"] = pickle.load(open("optimal_pump.pkl", "rb"))
 # graph.graph['params']["pump"] = pickle.load(open("pump_missing_edge60.pkl", "rb"))
@@ -30,10 +29,6 @@ modes_df = naq.load_modes()
 # OR GENERATE PUMP PROFILE BASED ON PARAMS["PUMP_EDGES"]
 generate_pump(graph_tpe, graph, params)
 graph.graph['params']["pump"] = params["pump"]
-=======
-#graph.graph['params']["pump"] = pickle.load(open("optimal_pump.pkl", "rb"))
-generate_pump(graph_tpe, graph, params)
->>>>>>> a51bd1c... moving files/functions
 
 naq.update_parameters(graph, params)
 naq.save_graph(graph)

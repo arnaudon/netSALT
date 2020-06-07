@@ -83,8 +83,6 @@ def optimize_pump(
         print("This pump may not provide single lasing!")
     return optimal_pump, pump_overlapps
 
-
-<<<<<<< HEAD
 def plot_Dinvs(graph, pump_overlaps, folder="Dinvs", ext=".png"):
     """Plot Dinvs on the graph."""
 
@@ -96,10 +94,7 @@ def plot_Dinvs(graph, pump_overlaps, folder="Dinvs", ext=".png"):
 
 #### MAIN CODE ####
 
-lasing_modes_id = [17]
-=======
 lasing_modes_id = [0]
->>>>>>> a51bd1c... moving files/functions
 
 fig = plt.figure()
 ax = plt.gca()
