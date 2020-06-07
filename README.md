@@ -1,7 +1,7 @@
 Code simulating quantum graphs. 
 ================================
 
-Doc: https://imperialcollegelondon.github.io/NAQ-graphs/
+Doc: https://imperialcollegelondon.github.io/netSALT/
 
 This code can be used to simulate various types of quantum graphs, from the classic ones, to open quantum graphs or non-abelian quantum graphs. 
 
