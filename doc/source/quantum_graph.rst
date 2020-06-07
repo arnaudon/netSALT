@@ -1,4 +1,4 @@
 The quantum graph module
 =========================
-.. automodule:: naq_graphs.quantum_graph
+.. automodule:: netsalt.quantum_graph
    :members: 

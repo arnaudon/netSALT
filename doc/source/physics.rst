@@ -1,4 +1,4 @@
 The physics module
 =========================
-.. automodule:: naq_graphs.physics
+.. automodule:: netsalt.physics
    :members: 

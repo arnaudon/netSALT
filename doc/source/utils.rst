@@ -1,4 +1,4 @@
 The utils module
 =========================
-.. automodule:: naq_graphs.utils
+.. automodule:: netsalt.utils
    :members: 

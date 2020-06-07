@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.abspath('../../'))
 
 # -- Project information -----------------------------------------------------
 
-project = 'PyNetSALT'
+project = 'netSALT'
 copyright = '2020, Alexis Arnaudon'
 author = 'Alexis Arnaudon'
 

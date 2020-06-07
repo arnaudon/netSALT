@@ -1,4 +1,4 @@
 The plotting module
 =========================
-.. automodule:: naq_graphs.plotting
+.. automodule:: netsalt.plotting
    :members: 

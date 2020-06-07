@@ -2,10 +2,10 @@
 
 .. _contents:
 
-*PyNetSALT*: simulating lasing networks
+*netSALT*: simulating lasing networks
 ========================================
 
-*PyNetSALT* is a python package to solve the SALT equation on networkx. It builds on the theory of quantum graphs to include nonlinear modal interactions.
+*netSALT* is a python package to solve the SALT equation on networkx. It builds on the theory of quantum graphs to include nonlinear modal interactions.
 
 
 Installation
@@ -27,7 +27,7 @@ In progress...
 Citing
 ******
 
-To cite *PyNetSALT*, please use [paper]_. 
+To cite *netSALT*, please use [paper]_. 
 
 Credits
 *******

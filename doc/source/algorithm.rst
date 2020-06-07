@@ -1,4 +1,4 @@
 The algorithm module
 =========================
-.. automodule:: naq_graphs.algorithm
+.. automodule:: netsalt.algorithm
    :members: 

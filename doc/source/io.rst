@@ -1,4 +1,4 @@
 The io module
 =========================
-.. automodule:: naq_graphs.io
+.. automodule:: netsalt.io
    :members: 

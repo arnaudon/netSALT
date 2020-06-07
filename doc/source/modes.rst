@@ -1,5 +1,5 @@
 The modes module
 =========================
-.. automodule:: naq_graphs.modes
+.. automodule:: netsalt.modes
    :members: 
  
