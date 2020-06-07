@@ -118,7 +118,7 @@ def plot_ll_curve(
     with_legend=True,
     ax=None,
     with_colors=True,
-    with_thresholds=True,
+    with_thresholds=False,
     folder="plots",
     filename="ll_curve",
 ):
@@ -137,7 +137,7 @@ def plot_ll_curve(
             color = next(colors)
         else:
             color = "grey"
-        if intens[-1] > 0:
+        if True: #np.max(intens[~np.isnan(intens)]) > 0:
             ax.plot(
                 pump_intensities, intens, label="mode " + str(index), c=color, lw=0.5
             )

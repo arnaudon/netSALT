@@ -640,47 +640,83 @@ def compute_modal_intensities_old(modes_df, pump_intensities, mode_competition_m
 
 def compute_modal_intensities(modes_df, pump_intensities, mode_competition_matrix):
     """Compute the modal intensities of the modes up to D0, with D0_steps."""
+
     threshold_modes = modes_df["threshold_lasing_modes"]
     lasing_thresholds = modes_df["lasing_thresholds"]
 
-    next_lasing_mode_id = np.argmin(lasing_thresholds)
-    next_lasing_threshold = lasing_thresholds[next_lasing_mode_id]
     modal_intensities = pd.DataFrame(index=range(len(threshold_modes)))
 
-    lasing_mode_ids = []
+    next_lasing_mode_id = np.argmin(lasing_thresholds)
+    lasing_mode_ids = [next_lasing_mode_id]
+
     interacting_lasing_thresholds = np.inf * np.ones(len(modes_df))
+    next_lasing_threshold = lasing_thresholds[next_lasing_mode_id]
     interacting_lasing_thresholds[next_lasing_mode_id] = next_lasing_threshold
-    modal_intensities.loc[next_lasing_mode_id, next_lasing_threshold] = 0
 
     pump_intensity = next_lasing_threshold
+    pump_intensity_neg = np.inf
+
+    modal_intensities.loc[lasing_mode_ids, pump_intensity] = 0
     while pump_intensity < pump_intensities[-1]:
-        lasing_mode_ids.append(next_lasing_mode_id)
-        modal_intensities.loc[next_lasing_mode_id, pump_intensity] = 0
+        print('Step', pump_intensity)
+        # compute next lasing threshold with new mode 
         next_lasing_mode_id, next_lasing_threshold = _find_next_lasing_mode(
             pump_intensity,
             threshold_modes,
             lasing_thresholds,
-            lasing_mode_ids,
+            lasing_mode_ids + [next_lasing_mode_id],
             mode_competition_matrix,
         )
-        if next_lasing_threshold < np.inf:
+        print(lasing_mode_ids, next_lasing_threshold)
+        # if one mode vanishess before, remove it, and recompute next threshold
+        if 0==1: #pump_intensity_neg < next_lasing_threshold:
+            #print('tmp', pump_intensity_neg, pump_intensity,lasing_mode_ids[vanishing_mode_id], modal_intensities.loc[lasing_mode_ids[vanishing_mode_id]])
+            pump_intensity = pump_intensity_neg + 1e-6
+            del lasing_mode_ids[vanishing_mode_id]
+            next_lasing_mode_id, _ = _find_next_lasing_mode(
+                pump_intensity,
+                threshold_modes,
+                lasing_thresholds,
+                lasing_mode_ids,
+                mode_competition_matrix,
+            )
+
+        elif next_lasing_threshold < np.inf:
             interacting_lasing_thresholds[next_lasing_mode_id] = next_lasing_threshold
             pump_intensity = next_lasing_threshold
-        else:
+            lasing_mode_ids.append(next_lasing_mode_id)
+        else:  # if no next lasing mode
             pump_intensity = pump_intensities[-1] * 1.1
+            lasing_mode_ids.append(next_lasing_mode_id)
 
-        if len(lasing_mode_ids) > 0:
-            mode_competition_matrix_inv = np.linalg.pinv(
-                mode_competition_matrix[np.ix_(lasing_mode_ids, lasing_mode_ids)]
-            )
-            modal_intensities.loc[
-                lasing_mode_ids, pump_intensity
-            ] = pump_intensity * mode_competition_matrix_inv.dot(
-                1.0 / lasing_thresholds[lasing_mode_ids]
-            ) - mode_competition_matrix_inv.sum(
-                1
-            )
 
+        mode_competition_matrix_inv = np.linalg.pinv(
+            mode_competition_matrix[np.ix_(lasing_mode_ids, lasing_mode_ids)]
+        )
+        modal_intensities.loc[:, pump_intensity] = 0
+        slopes = mode_competition_matrix_inv.dot(1.0 / lasing_thresholds[lasing_mode_ids]) 
+        shifts = mode_competition_matrix_inv.sum(1)
+        modal_intensities.loc[lasing_mode_ids, pump_intensity] = slopes * pump_intensity - shifts 
+        #print('slopes', slopes) 
+        # if negative slopes, find when the mode will stap lasing
+        neg_slope_ids = np.argwhere(slopes < -1e-8).flatten()
+        if len(neg_slope_ids) > 0:
+            pump_intensities_tmp = []
+            for neg_id in neg_slope_ids:
+                pump_intensities_tmp.append(shifts[neg_id] / slopes[neg_id])
+
+            vanishing_mode_id = neg_slope_ids[np.argmin(pump_intensities_tmp)]
+            pump_intensity_neg = np.min(pump_intensities_tmp)
+            nid = np.argmin(pump_intensities_tmp)
+            print('---------', pump_intensity_neg, slopes[nid] * pump_intensity - shifts[nid], slopes[nid] * pump_intensity_neg - shifts[nid])
+            if pump_intensity_neg < next_lasing_threshold:
+                #pump_intensity = pump_intensity_neg
+                pump_intensity = pump_intensity_neg + 1e-6
+                del lasing_mode_ids[vanishing_mode_id]
+        else:
+            pump_intensity_neg = np.inf
+
+        
     modes_df["interacting_lasing_thresholds"] = interacting_lasing_thresholds
 
     if "modal_intensities" in modes_df:
