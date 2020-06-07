@@ -3,7 +3,7 @@
 ###################
 SM:
         #network params
-        n: 10
+        n: 30
         k: 2
         p: 0.3
         lead_prob: 0.2

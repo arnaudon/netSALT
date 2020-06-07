@@ -1,12 +1,27 @@
-#!/usr/bin/env python # -*- coding: UTF-8 -*-
+#!/usr/bin/env python
 
-from distutils.core import setup, Extension
-import numpy as np
+import imp
+import sys
 
+from setuptools import setup, find_packages
+
+if sys.version_info < (2, 7):
+    sys.exit("Sorry, Python < 2.7 is not supported")
+
+VERSION = imp.load_source("", "naq_graphs/version.py").__version__
 
 setup(
-        name = 'NAQ_graphs',
-        version = '1.0',
-        include_dirs = [np.get_include()],
-        packages=['.'],
-      )
+    name="naq-graphs",
+    author="Alexis Arnaudon",
+    author_email="alexis.arnaudon@epfl.ch",
+    version=VERSION,
+    description="",
+    install_requires=[
+        'scipy>=1.2.0',
+        'networkx',
+        'matplotlib',
+        'scikit-image',
+        'tables',
+    ],
+    packages=find_packages(),
+)
