@@ -36,7 +36,7 @@ def plot_spectra(
     threshold_modes = np.real(modes_df["threshold_lasing_modes"])
     modal_amplitudes = np.real(modes_df["modal_intensities"].iloc[:, pump_index])
 
-    if ax == None:
+    if ax is None:
         fig = plt.figure(figsize=(5, 2))
         ax = plt.gca()
     else:
@@ -73,7 +73,7 @@ def plot_stem_spectra(
 
     ks, alphas = get_scan_grid(graph)
 
-    if ax == None:
+    if ax is None:
         fig = plt.figure(figsize=(5, 2))
         ax = plt.gca()
     else:
@@ -86,7 +86,7 @@ def plot_stem_spectra(
 
     # colors = cycle(["C{}".format(i) for i in range(10)])
     markerline.set_markerfacecolor("white")
-    #plt.setp(stemlines, "alpha", 0.5, "linewidth", 2)
+    # plt.setp(stemlines, "alpha", 0.5, "linewidth", 2)
     plt.setp(baseline, "color", "grey", "linewidth", 1)
     ax.set_xlabel(r"$k$")
     ax.set_ylabel("Intensity (a.u.)")
@@ -125,7 +125,7 @@ def plot_ll_curve(
     """Plot LL curves."""
     colors = cycle(["C{}".format(i) for i in range(10)])
     pump_intensities = modes_df["modal_intensities"].columns.values
-    if ax == None:
+    if ax is None:
         fig = plt.figure(figsize=(6, 6))
         ax = plt.gca()
     else:
@@ -137,7 +137,7 @@ def plot_ll_curve(
             color = next(colors)
         else:
             color = "grey"
-        if True: #np.max(intens[~np.isnan(intens)]) > 0:
+        if True:  # np.max(intens[~np.isnan(intens)]) > 0:
             ax.plot(
                 pump_intensities, intens, label="mode " + str(index), c=color, lw=0.5
             )
@@ -179,7 +179,7 @@ def plot_scan(
 
     ks, alphas = get_scan_grid(graph)
 
-    if ax == None:
+    if ax is None:
         fig = plt.figure(figsize=figsize)
         ax = plt.gca()
     else:
@@ -238,7 +238,7 @@ def plot_quantum_graph(
     edge_colors=None,
     node_colors=None,
     node_size=1,
-    color_map="Accent_r", # coolwarm plasma
+    color_map="Accent_r",  # coolwarm plasma
     cbar_min=0,
     cbar_max=1,
     folder="plots",
@@ -248,7 +248,7 @@ def plot_quantum_graph(
     """plot the graph"""
     positions = [graph.nodes[u]["position"] for u in graph]
 
-    if ax == None:
+    if ax is None:
         fig = plt.figure(figsize=figsize)
         ax = plt.gca()
     else:
@@ -277,10 +277,9 @@ def plot_quantum_graph(
         )
 
     # nx.draw_networkx_edges(graph, pos=positions)
-    
     # for edge labeling:
     # labels = nx.get_edge_attributes(graph,'edgelabel')
-    # labels = dict([((u, v), i) for i, (u, v) in enumerate(graph.edges())]) 
+    # labels = dict([((u, v), i) for i, (u, v) in enumerate(graph.edges())])
     # nx.draw_networkx_edge_labels(graph, pos=positions, edge_labels=labels)
 
     if edge_colors is not None:
@@ -289,8 +288,8 @@ def plot_quantum_graph(
             nx.draw_networkx_edges(
                 graph,
                 pos=positions,
-                edgelist=[e,],
-                edge_color=[np.sort(edge_colors)[ei],],
+                edgelist=[e],
+                edge_color=[np.sort(edge_colors)[ei]],
                 edge_cmap=plt.get_cmap(color_map),
                 width=2,  # 5
                 alpha=1,  # 0.7
@@ -318,13 +317,13 @@ def plot_quantum_graph(
     )
     plt.gca().tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
 
-    if save_option == True:
+    if save_option:
         _savefig(graph, fig, folder, filename)
 
 
 def plot_pump_traj(modes_df, with_scatter=True, with_approx=True, ax=None):
     """plot pump trajectories"""
-    if ax == None:
+    if ax is None:
         ax = plt.gca()
 
     colors = cycle(["C{}".format(i) for i in range(10)])
@@ -364,7 +363,7 @@ def plot_single_mode(
     node_solution = mode_on_nodes(mode, graph)
     edge_solution = mean_mode_on_edges(mode, graph)
 
-    if ax == None:
+    if ax is None:
         plt.figure(figsize=(5, 4))  # 14,3
         ax = plt.gca()
 

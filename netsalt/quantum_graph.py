@@ -75,7 +75,8 @@ def update_parameters(graph, params, force=False):
                         # print(
                         #    "You are trying to update parmeter:",
                         #    param,
-                        #    "but this may break the pipeline, so we will not update it. Use argument force=True to update if you really want it.",
+                        #    "but this may break the pipeline, so we will not update it.
+                        #     Use argument force=True to update if you really want it.",
                         # )
                 else:
                     # print("Parameter:", param, "is updated.")
@@ -271,7 +272,9 @@ def set_inner_edges(graph, params, outer_edges=None):
             graph[u][v]["inner"] = True
             params["inner"].append(True)
         graph[u][v]["edgelabel"] = ei
-    graph.graph["edgelabel"] = np.array([graph[u][v]["edgelabel"] for u, v in graph.edges])
+    graph.graph["edgelabel"] = np.array(
+        [graph[u][v]["edgelabel"] for u, v in graph.edges]
+    )
 
 
 def set_node_positions(graph, positions=None):

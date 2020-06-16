@@ -289,14 +289,14 @@ def mean_mode_on_edges(mode, graph):
     mean_edge_solution = np.zeros(len(graph.edges))
     for ei in range(len(graph.edges)):
         k = graph.graph["ks"][ei]
-        l = graph.graph["lengths"][ei]
+        length = graph.graph["lengths"][ei]
         z = np.zeros([2, 2], dtype=np.complex)
 
-        z[0, 0] = (np.exp(1.0j * l * (k - np.conj(k))) - 1.0) / (
-            1.0j * l * (k - np.conj(k))
+        z[0, 0] = (np.exp(1.0j * length * (k - np.conj(k))) - 1.0) / (
+            1.0j * length * (k - np.conj(k))
         )
-        z[0, 1] = (np.exp(1.0j * l * k) - np.exp(-1.0j * l * np.conj(k))) / (
-            1.0j * l * (k + np.conj(k))
+        z[0, 1] = (np.exp(1.0j * length * k) - np.exp(-1.0j * length * np.conj(k))) / (
+            1.0j * length * (k + np.conj(k))
         )
 
         z[1, 0] = z[0, 1]
@@ -505,7 +505,7 @@ def _find_next_lasing_mode(
     for mu in range(len(threshold_modes)):
         if mu not in lasing_mode_ids:
             sub_mode_comp_matrix_mu = mode_competition_matrix[
-                np.ix_(lasing_mode_ids + [mu,], lasing_mode_ids)
+                np.ix_(lasing_mode_ids + [mu], lasing_mode_ids)
             ]
             sub_mode_comp_matrix_inv = np.linalg.pinv(
                 mode_competition_matrix[np.ix_(lasing_mode_ids, lasing_mode_ids)]
