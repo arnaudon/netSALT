@@ -544,8 +544,8 @@ def compute_modal_intensities(modes_df, pump_intensities, mode_competition_matri
     modal_intensities.loc[next_lasing_mode_id, next_lasing_threshold] = 0
 
     pump_intensity = next_lasing_threshold
-    while pump_intensity < pump_intensities[-1]:
-        # !) compute the current mode intensities
+    while pump_intensity <= pump_intensities[-1]:
+        # 1) compute the current mode intensities
         mode_competition_matrix_inv = np.linalg.pinv(
             mode_competition_matrix[np.ix_(lasing_mode_ids, lasing_mode_ids)]
         )
@@ -554,11 +554,13 @@ def compute_modal_intensities(modes_df, pump_intensities, mode_competition_matri
         )
         shifts = mode_competition_matrix_inv.sum(1)
 
-        # modal_intensities.loc[:, pump_intensity] = 0
-        # modal_intensities.loc[:, pump_intensity] = 0
         modal_intensities.loc[lasing_mode_ids, pump_intensity] = (
             slopes * pump_intensity - shifts
         )
+
+        if pump_intensity == pump_intensities[-1]:
+            # we stop here if we hit the max intensity, to get the final point
+            break
 
         # 2) search for next lasing mode
         next_lasing_mode_id, next_lasing_threshold = _find_next_lasing_mode(
@@ -586,10 +588,10 @@ def compute_modal_intensities(modes_df, pump_intensities, mode_competition_matri
                 ] = next_lasing_threshold
                 pump_intensity = next_lasing_threshold
             else:
-                pump_intensity = pump_intensities[-1] * 1.1
+                pump_intensity = pump_intensities[-1]
 
             lasing_mode_ids.append(next_lasing_mode_id)
-        else:
+        elif np.min(vanishing_intensities) + 1e-10 > 0:
             pump_intensity = np.min(vanishing_intensities) + 1e-10
             modal_intensities.loc[vanishing_mode_id, pump_intensity] = 0
             del lasing_mode_ids[
