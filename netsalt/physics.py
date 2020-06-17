@@ -2,7 +2,7 @@
 from functools import partial
 import numpy as np
 
-from .utils import from_complex, to_complex
+from .utils import from_complex
 
 
 def gamma(freq, params):
@@ -25,7 +25,7 @@ def gamma(freq, params):
 
 def set_dispersion_relation(graph, dispersion_relation, params):
     """Set the dispersion relation on the graph.
-    
+
     Args:
         graph (networkx graph): current graph
         dispersion_relation (function): dispersion relation function
@@ -47,7 +47,7 @@ def dispersion_relation_linear(freq, params=None):
         freq (float): frequency
         params (dict): parameters, must include wavespeed 'c'
     """
-    if not params or 'c' not in params:
+    if not params or "c" not in params:
         raise Exception("Please correct provide dispersion parameters")
     return freq / params["c"]
 
@@ -67,7 +67,7 @@ def dispersion_relation_dielectric(freq, params=None):
 def dispersion_relation_pump(freq, params=None):
     r"""Dispersion relation with dielectric constant and pump.
 
-    If a pump is given in params 
+    If a pump is given in params
 
     .. math::
 
@@ -81,7 +81,7 @@ def dispersion_relation_pump(freq, params=None):
 
     Args:
         freq (float): frequency
-        params (dict): parameters, must include the dielectric_constant in params, 
+        params (dict): parameters, must include the dielectric_constant in params,
             if pump is in params, it must include D0 and necessary parameter
             for the computation of :math:`gamma`
     """
@@ -108,7 +108,8 @@ def set_dielectric_constant(graph, params, custom_values=None):
 
     if "dielectric_params" in params and "refraction_params" in params:
         print(
-            "WARNING: dielectric_params and refraction_params are provided, so we will only use dielectric_params"
+            "WARNING: dielectric_params and refraction_params are provided, \
+            so we will only use dielectric_params"
         )
 
     if "dielectric_params" not in params:
@@ -158,7 +159,7 @@ def set_dielectric_constant(graph, params, custom_values=None):
 
 def update_params_dielectric_constant(graph, params):
     """Update the dielectric constant values in the params dictionary.
-    
+
     Args:
         graph (networkx graph): current graph
         params (dict): parameters, must include 'gamma_perp' and 'k_a'
@@ -170,15 +171,15 @@ def update_params_dielectric_constant(graph, params):
 
 def q_value(mode):
     r"""Compute the :math:`\mathcal Q` value of a mode.
-    
-    It is defined as 
+
+    It is defined as
 
     .. math::
-        
+
         \mathcal Q = \frac{\mathrm{Real} k}{2 \mathrm{Im}(k)}
 
     Args:
-        mode (complex): complex values mode 
+        mode (complex): complex values mode
     """
     mode = from_complex(mode)
     return 0.5 * mode[0] / mode[1]
