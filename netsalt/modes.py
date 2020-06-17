@@ -25,6 +25,8 @@ from .utils import from_complex, get_scan_grid, to_complex
 warnings.filterwarnings("ignore")
 warnings.filterwarnings("error", category=np.ComplexWarning)
 
+# pylint: disable=too-many-locals
+
 
 class WorkerModes:
     """Worker to find modes."""
@@ -337,11 +339,10 @@ def _compute_mode_competition_element(lengths, params, data):
     k_nus, edge_flux_nu = nu_data
 
     matrix_element = 0
-    for ei in range(len(lengths)):
+    for ei, length in enumerate(lengths):
         if params["pump"][ei] > 0.0 and params["inner"][ei]:
             k_mu = k_mus[ei]
             k_nu = k_nus[ei]
-            length = lengths[ei]
 
             inner_matrix = np.zeros([4, 4], dtype=np.complex128)
 

@@ -112,7 +112,7 @@ def set_total_length(graph, total_length, inner=True, with_position=True):
     graph.graph["lengths"] = np.array([graph[u][v]["length"] for u, v in graph.edges])
 
 
-def _set_pump_on_graph(graph, params):
+def _set_pump_on_graph(graph):
     """set the pump values on the graph from params"""
     if "pump" not in graph.graph["params"]:
         graph.graph["params"]["pump"] = np.zeros(len(graph.edges))
@@ -127,10 +127,9 @@ def _set_pump_on_params(graph, params):
         params["pump"][ei] = graph[e[0]][e[1]]["pump"]
 
 
-def oversample_graph(graph, params):
+def oversample_graph(graph, params):  # pylint: disable=too-many-locals
     """oversample a graph by adding points on edges"""
-
-    _set_pump_on_graph(graph, params)
+    _set_pump_on_graph(graph)
     oversampled_graph = graph.copy()
     for ei, (u, v) in enumerate(graph.edges):
         last_node = len(oversampled_graph)
@@ -329,7 +328,6 @@ def laplacian_quality(laplacian, method="eigenvalue"):
                 )
             )[0]
 
-            return 1.0e-20
     if method == "singularvalue":
         return sc.sparse.linalg.svds(
             laplacian,

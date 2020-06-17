@@ -2,7 +2,7 @@
 from functools import partial
 import numpy as np
 
-from .utils import from_complex, to_complex
+from .utils import from_complex
 
 
 def gamma(freq, params):
@@ -108,7 +108,8 @@ def set_dielectric_constant(graph, params, custom_values=None):
 
     if "dielectric_params" in params and "refraction_params" in params:
         print(
-            "WARNING: dielectric_params and refraction_params are provided, so we will only use dielectric_params"
+            "WARNING: dielectric_params and refraction_params are provided, \
+            so we will only use dielectric_params"
         )
 
     if "dielectric_params" not in params:

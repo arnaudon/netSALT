@@ -22,6 +22,8 @@ setup(
         "matplotlib",
         "scikit-image",
         "tables",
+        "pandas",
+        "h5py",
     ],
     packages=find_packages(),
 )

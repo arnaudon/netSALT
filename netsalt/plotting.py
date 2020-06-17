@@ -12,6 +12,8 @@ from tqdm import tqdm
 from .modes import mean_mode_on_edges, mode_on_nodes
 from .utils import get_scan_grid, linewidth, lorentzian, order_edges_by
 
+# pylint: disable=too-many-locals,too-many-arguments
+
 
 def _savefig(graph, fig, folder, filename):
     """Save figures in subfolders and with different extensions."""
@@ -71,7 +73,7 @@ def plot_stem_spectra(
     modal_amplitudes = np.real(modes_df["modal_intensities"].iloc[:, pump_index])
     print(len(threshold_modes[modal_amplitudes > 0]), "lasing modes in spectrum")
 
-    ks, alphas = get_scan_grid(graph)
+    ks, _ = get_scan_grid(graph)
 
     if ax is None:
         fig = plt.figure(figsize=(5, 2))
@@ -80,7 +82,7 @@ def plot_stem_spectra(
         fig = None
 
     # markerline, stemlines, baseline = ax.stem(threshold_modes, modal_amplitudes, "-")
-    markerline, stemlines, baseline = ax.stem(
+    markerline, _, baseline = ax.stem(
         threshold_modes, modal_amplitudes, "-", linefmt="grey", markerfmt=" "
     )
 
@@ -137,18 +139,17 @@ def plot_ll_curve(
             color = next(colors)
         else:
             color = "grey"
-        if True:  # np.max(intens[~np.isnan(intens)]) > 0:
-            ax.plot(
-                pump_intensities, intens, label="mode " + str(index), c=color, lw=0.5
+        ax.plot(
+            pump_intensities, intens, label="mode " + str(index), c=color, lw=0.5
+        )
+        if with_thresholds:
+            ax.axvline(
+                modes_df["lasing_thresholds"][index],
+                c=color,
+                ls="dotted",
+                ymin=0,
+                ymax=0.2,
             )
-            if with_thresholds:
-                ax.axvline(
-                    modes_df["lasing_thresholds"][index],
-                    c=color,
-                    ls="dotted",
-                    ymin=0,
-                    ymax=0.2,
-                )
     ax.axhline(0, lw=0.5, c="k")
 
     if with_legend:
@@ -328,8 +329,6 @@ def plot_pump_traj(modes_df, with_scatter=True, with_approx=True, ax=None):
 
     colors = cycle(["C{}".format(i) for i in range(10)])
 
-    passive_modes = modes_df["passive"].to_numpy()
-
     pumped_modes = modes_df["mode_trajectories"].to_numpy()
     for pumped_mode in pumped_modes:
         if with_scatter:
@@ -378,7 +377,7 @@ def plot_single_mode(
 
     if colorbar:
         plt.colorbar(nodes, label=r"$|E|^2$ (a.u)")
-    edges_k = nx.draw_networkx_edges(
+    nx.draw_networkx_edges(
         graph,
         pos=positions,
         edge_color=edge_solution,
@@ -398,7 +397,7 @@ def plot_single_mode(
 def plot_modes(graph, modes_df, df_entry="passive", folder="modes", ext=".png"):
     """Plot modes on the graph."""
 
-    for index, mode_data in tqdm(modes_df.iterrows(), total=len(modes_df)):
+    for index in tqdm(modes_df.index, total=len(modes_df)):
         plot_single_mode(graph, modes_df, index, df_entry)
 
         plt.savefig(folder + "/mode_" + str(index) + ext)
@@ -417,7 +416,6 @@ def plot_line_mode(graph, modes_df, index, df_entry="passive"):
         graph.graph["params"]["D0"] = modes_df["lasing_thresholds"][index]
 
     node_solution = mode_on_nodes(mode, graph)
-    edge_solution = mean_mode_on_edges(mode, graph)
 
     position_x = [graph.nodes[u]["position"][0] for u in graph]
     E_sorted = node_solution[np.argsort(position_x)]
