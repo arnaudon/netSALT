@@ -10,8 +10,8 @@ import yaml
 from scipy import optimize
 from tqdm import tqdm
 
-import naq_graphs as naq
-from naq_graphs import plotting
+import netsalt
+from netsalt import plotting
 
 if len(sys.argv) > 1:
     graph_tpe = sys.argv[-1]
@@ -22,30 +22,43 @@ params = yaml.full_load(open("graph_params.yaml", "rb"))[graph_tpe]
 
 os.chdir(graph_tpe)
 
-graph = naq.load_graph()
-modes_df = naq.load_modes()
+graph = netsalt.load_graph()
+modes_df = netsalt.load_modes()
 
 
-def cost(pump_min_edge_number, mode_mask, pump_overlapps, pump):
+def cost(
+    pump, modes_to_optimise=None, pump_overlapps=None, pump_min_size=None, mode="diff", n_modes=10
+):
     """Cost function to minimize."""
     pump = np.round(pump, 0)
-    if pump.sum() < pump_min_edge_number:
+    if pump.sum() < pump_min_size * len(pump):
         return 1e10
 
-    a = pump_overlapps[mode_mask][:, pump == 1].sum(axis=1)
-    b = pump_overlapps[~mode_mask][:, pump == 1].sum(axis=1)
-    c = sorted(b, reverse=True)
-    # return np.percentile(b, 100) - np.min(a)
-    return np.mean(c[0:10]) ** 2 - np.min(a) ** 2
+    pump_with_opt_modes = pump_overlapps[modes_to_optimise][:, pump == 1].sum(axis=1)
+    pump_without_opt_modes = sorted(
+        pump_overlapps[~modes_to_optimise][:, pump == 1].sum(axis=1), reverse=True
+    )
+
+    if mode == "diff":
+        return (
+            np.mean(pump_without_opt_modes[:n_modes]) ** 2
+            - np.min(pump_with_opt_modes) ** 2
+        )
+    if mode == "ratio":
+        return (
+            np.mean(pump_without_opt_modes[:n_modes]) ** 2
+            / np.min(pump_with_opt_modes) ** 2
+        )
+    raise Exception("Optimisation mode not understood")
 
 
 def overlap_matrix_element(graph, mode):
     return list(
-        -naq.modes.q_value(mode)
-        * naq.modes.compute_overlapping_single_edges(mode, graph)
+        -netsalt.physics.q_value(mode)
+        * netsalt.modes.compute_overlapping_single_edges(mode, graph)
         * np.imag(
-            naq.dispersion_relations.gamma(
-                naq.utils.to_complex(mode), graph.graph["params"]
+            netsalt.physics.gamma(
+                netsalt.utils.to_complex(mode), graph.graph["params"]
             )
         )
     )
@@ -56,13 +69,15 @@ def optimize_pump(
     graph,
     lasing_modes_id,
     pump_min_size=0.5,
-    maxiter=5000,  # 1000
-    popsize=10,  # 20
+    maxiter=500,
+    popsize=5,
+    seed=1,
     disp=True,
 ):
     """Optimise the pump for lasing a set of modes."""
     if "pump" not in graph.graph["params"]:
         graph.graph["params"]["pump"] = np.ones(len(graph.edges))
+
     with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
         overlapp_iter = pool.imap(
             partial(overlap_matrix_element, graph), modes_df["passive"]
@@ -72,17 +87,18 @@ def optimize_pump(
             enumerate(overlapp_iter), total=len(pump_overlapps)
         ):
             pump_overlapps[mode_id] = overlapp
-    plt.figure()
-    plt.imshow(pump_overlapps, aspect="auto")
-    plt.figure()
-    plt.plot(pump_overlapps.sum(1))
-    plt.show()
+
     mode_mask = np.array(len(pump_overlapps) * [False])
     mode_mask[lasing_modes_id] = True
     pump_min_edge_number = int(
         pump_min_size * len(np.where(graph.graph["params"]["inner"])[0])
     )
-    costf = partial(cost, pump_min_edge_number, mode_mask, pump_overlapps)
+
+    costf = partial(cost,
+                    modes_to_optimise=mode_mask,
+                    pump_min_size=pump_min_edge_number,
+                    pump_overlapps=pump_overlapps)
+
     bounds = len(graph.edges) * [(0, 1)]
 
     result = optimize.differential_evolution(
@@ -92,7 +108,7 @@ def optimize_pump(
         disp=disp,
         popsize=popsize,
         workers=graph.graph["params"]["n_workers"],
-        seed=1,
+        seed=seed,
         strategy="randtobest1bin",
     )
     optimal_pump = np.round(result.x, 0)
@@ -120,8 +136,6 @@ def plot_Dinvs(graph, pump_overlaps, folder="Dinvs", ext=".png"):
         plt.close()
 
 
-#### MAIN CODE ####
-
 lasing_modes_id = [0]
 
 fig = plt.figure()
@@ -138,8 +152,6 @@ optimal_pump, pump_overlapps = optimize_pump(
 )
 pickle.dump(optimal_pump, open("optimal_pump.pkl", "wb"))
 
-##### PLOTTING ####
-
 plt.figure(figsize=(20, 5))
 for lasing_mode in lasing_modes_id:
     plt.plot(pump_overlapps[lasing_mode])
@@ -150,7 +162,6 @@ plt.plot(optimal_pump, "r+")
 plt.gca().set_ylim(0.5, 1.5)
 plt.savefig("pump.png")
 
-#### PLOT pump_overlapps as a matrix
 D_invs = []
 for mode in range(len(pump_overlapps)):
     D_invs.append(pump_overlapps[mode])
@@ -172,7 +183,6 @@ ax1.set_yticks([])
 plt.savefig("D_invs_matrix.png")
 plt.show()
 
-#### PLOT pump_overlapps for each mode on the graph
 if not os.path.isdir("Dinvs"):
     os.mkdir("Dinvs")
 

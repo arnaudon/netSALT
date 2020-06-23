@@ -246,10 +246,10 @@ buffon:
         #mode search params
         k_min: 10.35 #10.60
         k_max: 11.00 #10.76
-        k_n: 8000 #4000 1000
+        k_n: 2000 #4000 1000
         alpha_min: 0.006
         alpha_max: 0.012
-        alpha_n: 200
+        alpha_n: 100
         
         # params for mode search
         quality_threshold: 1.e-6
