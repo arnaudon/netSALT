@@ -1,14 +1,10 @@
-import multiprocessing
 import os
 import pickle
 import sys
-from functools import partial
 
 import matplotlib.pyplot as plt
 import numpy as np
 import yaml
-from scipy import optimize
-from tqdm import tqdm
 
 import netsalt
 from netsalt import plotting
@@ -26,101 +22,8 @@ graph = netsalt.load_graph()
 modes_df = netsalt.load_modes()
 
 
-def cost(
-    pump, modes_to_optimise=None, pump_overlapps=None, pump_min_size=None, mode="diff", n_modes=10
-):
-    """Cost function to minimize."""
-    pump = np.round(pump, 0)
-    if pump.sum() < pump_min_size * len(pump):
-        return 1e10
-
-    pump_with_opt_modes = pump_overlapps[modes_to_optimise][:, pump == 1].sum(axis=1)
-    pump_without_opt_modes = sorted(
-        pump_overlapps[~modes_to_optimise][:, pump == 1].sum(axis=1), reverse=True
-    )
-
-    if mode == "diff":
-        return (
-            np.mean(pump_without_opt_modes[:n_modes]) ** 2
-            - np.min(pump_with_opt_modes) ** 2
-        )
-    if mode == "ratio":
-        return (
-            np.mean(pump_without_opt_modes[:n_modes]) ** 2
-            / np.min(pump_with_opt_modes) ** 2
-        )
-    raise Exception("Optimisation mode not understood")
-
-
-def overlap_matrix_element(graph, mode):
-    return list(
-        -netsalt.physics.q_value(mode)
-        * netsalt.modes.compute_overlapping_single_edges(mode, graph)
-        * np.imag(
-            netsalt.physics.gamma(
-                netsalt.utils.to_complex(mode), graph.graph["params"]
-            )
-        )
-    )
-
-
-def optimize_pump(
-    modes_df,
-    graph,
-    lasing_modes_id,
-    pump_min_size=0.5,
-    maxiter=500,
-    popsize=5,
-    seed=1,
-    disp=True,
-):
-    """Optimise the pump for lasing a set of modes."""
-    if "pump" not in graph.graph["params"]:
-        graph.graph["params"]["pump"] = np.ones(len(graph.edges))
-
-    with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
-        overlapp_iter = pool.imap(
-            partial(overlap_matrix_element, graph), modes_df["passive"]
-        )
-        pump_overlapps = np.empty([len(modes_df["passive"]), len(graph.edges)])
-        for mode_id, overlapp in tqdm(
-            enumerate(overlapp_iter), total=len(pump_overlapps)
-        ):
-            pump_overlapps[mode_id] = overlapp
-
-    mode_mask = np.array(len(pump_overlapps) * [False])
-    mode_mask[lasing_modes_id] = True
-    pump_min_edge_number = int(
-        pump_min_size * len(np.where(graph.graph["params"]["inner"])[0])
-    )
-
-    costf = partial(cost,
-                    modes_to_optimise=mode_mask,
-                    pump_min_size=pump_min_edge_number,
-                    pump_overlapps=pump_overlapps)
-
-    bounds = len(graph.edges) * [(0, 1)]
-
-    result = optimize.differential_evolution(
-        costf,
-        bounds,
-        maxiter=maxiter,
-        disp=disp,
-        popsize=popsize,
-        workers=graph.graph["params"]["n_workers"],
-        seed=seed,
-        strategy="randtobest1bin",
-    )
-    optimal_pump = np.round(result.x, 0)
-    print("Final cost is:", costf(optimal_pump))
-    if costf(optimal_pump) > 0:
-        print("This pump may not provide single lasing!")
-    return optimal_pump, pump_overlapps
-
-
 def plot_Dinvs(graph, pump_overlaps, folder="Dinvs", ext=".png"):
     """Plot Dinvs on the graph."""
-
     for mode_id in range(len(pump_overlapps)):
         plotting.plot_naq_graph(
             graph,
@@ -143,20 +46,28 @@ ax = plt.gca()
 plotting.plot_single_mode(
     graph, modes_df, lasing_modes_id[0], df_entry="passive", colorbar=True, ax=ax
 )
-
 fig.savefig("mode_for_optimisation.png", bbox_inches="tight")
-plt.show()
 
-optimal_pump, pump_overlapps = optimize_pump(
-    modes_df, graph, lasing_modes_id=lasing_modes_id, pump_min_size=0.0
-)
+optimal_pump, pump_overlapps, costs = netsalt.optimize_pump(
+    modes_df,
+    graph,
+    lasing_modes_id,
+    pump_min_frac=0.2,
+    maxiter=50,
+    popsize=5,
+    seed=1,
+    n_seeds=10,
+    disp=True)
+
+plt.figure()
+plt.hist(costs, bins=20)
+plt.show()
 pickle.dump(optimal_pump, open("optimal_pump.pkl", "wb"))
 
 plt.figure(figsize=(20, 5))
 for lasing_mode in lasing_modes_id:
     plt.plot(pump_overlapps[lasing_mode])
-# for mode in range(len(pump_overlapps)):
-#    plt.plot(pump_overlapps[mode], lw=0.5, c="k")
+
 plt.twinx()
 plt.plot(optimal_pump, "r+")
 plt.gca().set_ylim(0.5, 1.5)

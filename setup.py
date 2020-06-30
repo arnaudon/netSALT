@@ -23,6 +23,7 @@ setup(
         "scikit-image",
         "tables",
         "pandas",
+        "tqdm",
         "h5py",
     ],
     packages=find_packages(),

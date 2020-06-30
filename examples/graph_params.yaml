@@ -50,7 +50,7 @@ SM_small:
 
 line_PRA:
         #network params
-        n_workers: 10
+        n_workers: 12
         n: 43 #103
         lead_prob: -0.2
         seed: 2

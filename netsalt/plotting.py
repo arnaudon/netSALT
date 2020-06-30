@@ -139,9 +139,7 @@ def plot_ll_curve(
             color = next(colors)
         else:
             color = "grey"
-        ax.plot(
-            pump_intensities, intens, label="mode " + str(index), c=color, lw=0.5
-        )
+        ax.plot(pump_intensities, intens, label="mode " + str(index), c=color, lw=0.5)
         if with_thresholds:
             ax.axvline(
                 modes_df["lasing_thresholds"][index],
