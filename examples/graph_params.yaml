@@ -246,10 +246,10 @@ buffon:
         #mode search params
         k_min: 10.35 #10.60
         k_max: 11.00 #10.76
-        k_n: 2000 #4000 1000
+        k_n: 8000 #4000 2000
         alpha_min: 0.006
         alpha_max: 0.012
-        alpha_n: 100
+        alpha_n: 200 #100
         
         # params for mode search
         quality_threshold: 1.e-6
@@ -265,7 +265,7 @@ buffon:
         gamma_perp: 0.5
 
         #WIP params
-        pump_edges: [0] #'all' #'mode' #'centre' #[100, 101, 103, 132]
+        pump_edges: 'all' #'mode' #'centre' #[100, 101, 103, 132]
         open_nodes: []
 
         #figure format

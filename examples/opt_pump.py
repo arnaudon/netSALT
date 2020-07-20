@@ -21,11 +21,10 @@ os.chdir(graph_tpe)
 graph = netsalt.load_graph()
 modes_df = netsalt.load_modes()
 
-
 def plot_Dinvs(graph, pump_overlaps, folder="Dinvs", ext=".png"):
     """Plot Dinvs on the graph."""
     for mode_id in range(len(pump_overlapps)):
-        plotting.plot_naq_graph(
+        plotting.plot_quantum_graph(
             graph,
             edge_colors=pump_overlapps[mode_id],
             node_size=0.1,
@@ -39,7 +38,7 @@ def plot_Dinvs(graph, pump_overlaps, folder="Dinvs", ext=".png"):
         plt.close()
 
 
-lasing_modes_id = [0]
+lasing_modes_id = [107] 
 
 fig = plt.figure()
 ax = plt.gca()
@@ -47,21 +46,24 @@ plotting.plot_single_mode(
     graph, modes_df, lasing_modes_id[0], df_entry="passive", colorbar=True, ax=ax
 )
 fig.savefig("mode_for_optimisation.png", bbox_inches="tight")
+plt.show()
 
 optimal_pump, pump_overlapps, costs = netsalt.optimize_pump(
     modes_df,
     graph,
     lasing_modes_id,
-    pump_min_frac=0.2,
-    maxiter=50,
-    popsize=5,
+    pump_min_frac=0.6, #0.2
+    maxiter=1000, #50
+    popsize=10, #5
     seed=1,
-    n_seeds=10,
+    n_seeds=100, #10
     disp=True)
 
 plt.figure()
 plt.hist(costs, bins=20)
+plt.savefig("opt_hist.png")
 plt.show()
+
 pickle.dump(optimal_pump, open("optimal_pump.pkl", "wb"))
 
 plt.figure(figsize=(20, 5))
@@ -94,7 +96,7 @@ ax1.set_yticks([])
 plt.savefig("D_invs_matrix.png")
 plt.show()
 
-if not os.path.isdir("Dinvs"):
-    os.mkdir("Dinvs")
+#if not os.path.isdir("Dinvs"):
+#    os.mkdir("Dinvs")
 
-plot_Dinvs(graph, D_invs, folder="Dinvs")
+#plot_Dinvs(graph, D_invs, folder="Dinvs")

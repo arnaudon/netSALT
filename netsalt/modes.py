@@ -760,7 +760,7 @@ def pump_cost(
     pump_overlapps,
     pump_min_size,
     mode="diff",
-    n_modes=10,
+    n_modes=20,#10
 ):
     """Cost function to minimize."""
     pump = np.round(pump, 0)
@@ -776,6 +776,11 @@ def pump_cost(
         return (
             np.mean(pump_without_opt_modes[:n_modes]) ** 2
             - np.min(pump_with_opt_modes) ** 2
+        )
+    if mode == "diff2":
+        return (
+            np.max(pump_without_opt_modes[:]) ** 3
+            - np.min(pump_with_opt_modes) ** 3
         )
     if mode == "ratio":
         return (
