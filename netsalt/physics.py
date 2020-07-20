@@ -1,8 +1,11 @@
 """All physics-related functions."""
+import logging
 from functools import partial
 import numpy as np
 
 from .utils import from_complex
+
+L = logging.getLogger(__name__)
 
 
 def gamma(freq, params):
@@ -107,8 +110,8 @@ def set_dielectric_constant(graph, params, custom_values=None):
     """
 
     if "dielectric_params" in params and "refraction_params" in params:
-        print(
-            "WARNING: dielectric_params and refraction_params are provided, \
+        L.info(
+            "Dielectric_params and refraction_params are provided, \
             so we will only use dielectric_params"
         )
 

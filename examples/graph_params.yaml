@@ -2,9 +2,9 @@
 ## random graphs ##
 ###################
 
-SM_small_kink_issue:
+SM_small:
         #network params
-        n_workers: 10
+        n_workers: 4
         n: 200 #20
         k: 2
         p: 0 #0.2
@@ -228,7 +228,7 @@ knot:
         #figure format
         exts: ['.png', '.svg']
 
-buffon:
+buffon_stuck:
         #network params
         n_workers: 10
         lead_prob: 0 #-1.

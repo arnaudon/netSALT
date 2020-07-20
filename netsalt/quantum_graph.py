@@ -1,10 +1,13 @@
 """graph construction methods"""
+import logging
 import networkx as nx
 import numpy as np
 import scipy as sc
 
 from .physics import update_params_dielectric_constant
 from .utils import to_complex
+
+L = logging.getLogger(__name__)
 
 
 def create_quantum_graph(graph, params, positions=None, lengths=None):
@@ -22,8 +25,8 @@ def _verify_lengths(graph):
     if np.max(np.unique(np.around(lengths, 5), return_counts=True)) > 0.2 * len(
         graph.edges
     ):
-        print(
-            """WARNING: you have more than 20% of edges of the same length,
+        L.info(
+            """You have more than 20% of edges of the same length,
                so we add some small noise for safety for the numerics."""
         )
         for u in graph:
@@ -59,27 +62,14 @@ def update_parameters(graph, params, force=False):
     else:
         for param, value in params.items():
             if param not in graph.graph["params"]:
-                # print("Adding new parameter:", param)
                 graph.graph["params"][param] = value
             elif _not_equal(graph.graph["params"][param], value, force=force):
                 if param in warning_params:
                     if force:
-                        # print(
-                        #    "WARNING: you have forced the update of parameter",
-                        #    param,
-                        #    "so things may not work anymore.",
-                        # )
                         graph.graph["params"][param] = value
                     else:
                         pass
-                        # print(
-                        #    "You are trying to update parmeter:",
-                        #    param,
-                        #    "but this may break the pipeline, so we will not update it.
-                        #     Use argument force=True to update if you really want it.",
-                        # )
                 else:
-                    # print("Parameter:", param, "is updated.")
                     graph.graph["params"][param] = value
 
 
@@ -236,7 +226,7 @@ def construct_weight_matrix(graph, with_k=True):
         np.exp(2.0j * graph.graph["lengths"][mask] * graph.graph["ks"][mask]) - 1.0
     )
     if any(data_tmp > 1e5):
-        print("WARNING: large values in Winv, it may not work!")
+        L.info("Large values in Winv, it may not work!")
     if with_k:
         data_tmp[mask] *= graph.graph["ks"][mask]
     data_tmp[~mask] = -0.5 * graph.graph["lengths"][~mask]
@@ -315,9 +305,7 @@ def laplacian_quality(laplacian, method="eigenvalue"):
             # If eigenvalue solver did not converge, set to 1.0,
             return 1.0
         except RuntimeError:
-            print(
-                "Runtime error, we add a small diagonal to laplacian, but things may be bad!"
-            )
+            L.info("Runtime error, we add a small diagonal to laplacian, but things may be bad!")
             return abs(
                 sc.sparse.linalg.eigs(
                     laplacian + 1e-6 * sc.sparse.eye(laplacian.shape[0]),
@@ -333,7 +321,7 @@ def laplacian_quality(laplacian, method="eigenvalue"):
             laplacian,
             k=1,
             which="SM",
-            return_singular_vectors=False,  # , v0=np.ones(laplacian.shape[0])
+            return_singular_vectors=False,
         )[0]
     return 1.0
 
