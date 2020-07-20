@@ -20,6 +20,7 @@ from .modes import (
     scan_frequencies,
     compute_mode_competition_matrix,
     compute_modal_intensities,
+    optimize_pump,
 )
 from .physics import set_dielectric_constant, set_dispersion_relation
 from .quantum_graph import (

@@ -23,12 +23,12 @@ graph = netsalt.load_graph()
 modes_df = netsalt.load_modes()
 
 # LOAD FROM FILE
-# graph.graph['params']["pump"] = pickle.load(open("optimal_pump.pkl", "rb"))
+graph.graph['params']["pump"] = pickle.load(open("optimal_pump.pkl", "rb"))
 # graph.graph['params']["pump"] = pickle.load(open("pump_missing_edge60.pkl", "rb"))
 
 # OR GENERATE PUMP PROFILE BASED ON PARAMS["PUMP_EDGES"]
-generate_pump(graph_tpe, graph, params)
-graph.graph["params"]["pump"] = params["pump"]
+#generate_pump(graph_tpe, graph, params)
+#graph.graph["params"]["pump"] = params["pump"]
 
 netsalt.update_parameters(graph, params)
 netsalt.save_graph(graph)

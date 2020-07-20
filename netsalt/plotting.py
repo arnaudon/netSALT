@@ -143,7 +143,6 @@ def plot_ll_curve(
             color = next(colors)
         else:
             color = "grey"
-
         ax.plot(pump_intensities, intens, label="mode " + str(index), c=color, lw=0.8)
 
         if with_thresholds:
