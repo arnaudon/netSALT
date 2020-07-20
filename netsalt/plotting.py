@@ -1,5 +1,6 @@
 """plotting function"""
 import os
+import logging
 from itertools import cycle
 from pathlib import Path
 
@@ -13,6 +14,9 @@ from .modes import mean_mode_on_edges, mode_on_nodes
 from .utils import get_scan_grid, linewidth, lorentzian, order_edges_by
 
 # pylint: disable=too-many-locals,too-many-arguments
+
+L = logging.getLogger(__name__)
+logging.getLogger("matplotlib").setLevel(logging.INFO)
 
 
 def _savefig(graph, fig, folder, filename):
@@ -139,9 +143,9 @@ def plot_ll_curve(
             color = next(colors)
         else:
             color = "grey"
-        ax.plot(
-            pump_intensities, intens, label="mode " + str(index), c=color, lw=0.5
-        )
+
+        ax.plot(pump_intensities, intens, label="mode " + str(index), c=color, lw=0.8)
+
         if with_thresholds:
             ax.axvline(
                 modes_df["lasing_thresholds"][index],
@@ -150,7 +154,7 @@ def plot_ll_curve(
                 ymin=0,
                 ymax=0.2,
             )
-    ax.axhline(0, lw=0.5, c="k")
+    ax.axhline(0, lw=0.5, c="k", ls="--")
 
     if with_legend:
         ax.legend()

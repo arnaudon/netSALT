@@ -2,7 +2,7 @@
 ## random graphs ##
 ###################
 
-SM_small:
+SM_small_kink_issue:
         #network params
         n_workers: 10
         n: 200 #20

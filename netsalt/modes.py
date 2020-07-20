@@ -2,6 +2,8 @@
 import multiprocessing
 import warnings
 from functools import partial
+import logging
+import os
 
 import numpy as np
 import pandas as pd
@@ -24,6 +26,9 @@ from .utils import from_complex, get_scan_grid, to_complex
 
 warnings.filterwarnings("ignore")
 warnings.filterwarnings("error", category=np.ComplexWarning)
+
+L = logging.getLogger(__name__)
+logging.basicConfig(level=os.environ.get("LOGLEVEL", "DEBUG"))
 
 # pylint: disable=too-many-locals
 
@@ -530,13 +535,15 @@ def _find_next_lasing_mode(
     return next_lasing_mode_id, next_lasing_threshold
 
 
-def compute_modal_intensities(modes_df, pump_intensities, mode_competition_matrix):
+def compute_modal_intensities(modes_df, max_pump_intensity, mode_competition_matrix):
     """Compute the modal intensities of the modes up to D0, with D0_steps."""
     threshold_modes = modes_df["threshold_lasing_modes"]
     lasing_thresholds = modes_df["lasing_thresholds"]
 
     next_lasing_mode_id = np.argmin(lasing_thresholds)
     next_lasing_threshold = lasing_thresholds[next_lasing_mode_id]
+    L.debug("First lasing mode id: %s", next_lasing_mode_id)
+
     modal_intensities = pd.DataFrame(index=range(len(threshold_modes)))
 
     lasing_mode_ids = [next_lasing_mode_id]
@@ -545,7 +552,9 @@ def compute_modal_intensities(modes_df, pump_intensities, mode_competition_matri
     modal_intensities.loc[next_lasing_mode_id, next_lasing_threshold] = 0
 
     pump_intensity = next_lasing_threshold
-    while pump_intensity <= pump_intensities[-1]:
+    L.debug("Max pump intensity %s", max_pump_intensity)
+    while pump_intensity <= max_pump_intensity:
+        L.debug("Current pump intensity %s", pump_intensity)
         # 1) compute the current mode intensities
         mode_competition_matrix_inv = np.linalg.pinv(
             mode_competition_matrix[np.ix_(lasing_mode_ids, lasing_mode_ids)]
@@ -559,8 +568,9 @@ def compute_modal_intensities(modes_df, pump_intensities, mode_competition_matri
             slopes * pump_intensity - shifts
         )
 
-        if pump_intensity == pump_intensities[-1]:
+        if pump_intensity >= max_pump_intensity:
             # we stop here if we hit the max intensity, to get the final point
+            L.debug("Max pump intensity reached.")
             break
 
         # 2) search for next lasing mode
@@ -571,6 +581,7 @@ def compute_modal_intensities(modes_df, pump_intensities, mode_competition_matri
             lasing_mode_ids,
             mode_competition_matrix,
         )
+        L.debug("Next lasing threshold %s", next_lasing_threshold)
 
         # 3) deal with vanishing modes before next lasing mode
         vanishing_mode_id = None
@@ -583,16 +594,20 @@ def compute_modal_intensities(modes_df, pump_intensities, mode_competition_matri
 
         # 4) prepare for the next step
         if vanishing_mode_id is None:
-            if next_lasing_threshold < np.inf:
+            if next_lasing_threshold < max_pump_intensity:
                 interacting_lasing_thresholds[
                     next_lasing_mode_id
                 ] = next_lasing_threshold
                 pump_intensity = next_lasing_threshold
-            else:
-                pump_intensity = pump_intensities[-1]
 
-            lasing_mode_ids.append(next_lasing_mode_id)
+                L.debug("New lasing mode id: %s", next_lasing_mode_id)
+                lasing_mode_ids.append(next_lasing_mode_id)
+            else:
+                pump_intensity = max_pump_intensity
+
         elif np.min(vanishing_intensities) + 1e-10 > 0:
+            L.debug("Vanishing mode id: %s", vanishing_mode_id)
+
             pump_intensity = np.min(vanishing_intensities) + 1e-10
             modal_intensities.loc[vanishing_mode_id, pump_intensity] = 0
             del lasing_mode_ids[
@@ -600,7 +615,7 @@ def compute_modal_intensities(modes_df, pump_intensities, mode_competition_matri
             ]
 
     modes_df["interacting_lasing_thresholds"] = interacting_lasing_thresholds
-
+    print(modal_intensities)
     if "modal_intensities" in modes_df:
         del modes_df["modal_intensities"]
 

@@ -26,14 +26,9 @@ modes_df = netsalt.load_modes()
 
 mode_competition_matrix = netsalt.load_mode_competition_matrix()
 
-D0_max = 5 * np.max(modes_df["lasing_thresholds"][modes_df["lasing_thresholds"] < 100])
-D0_min = 0.8 * np.min(modes_df["lasing_thresholds"])
-print(D0_min, D0_max)
-n_points = 1000
-pump_intensities = np.linspace(D0_min, D0_max, n_points)
-
+max_pump_intensity = 1
 modes_df = netsalt.compute_modal_intensities(
-    modes_df, pump_intensities, mode_competition_matrix
+    modes_df, max_pump_intensity, mode_competition_matrix
 )
 
 netsalt.save_modes(modes_df)
