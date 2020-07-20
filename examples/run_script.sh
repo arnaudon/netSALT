@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-rm -rf $1
+#rm -rf $1
 
 echo Step 0
 python3 0_generate_graph.py $1
