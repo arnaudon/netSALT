@@ -305,8 +305,8 @@ def mean_mode_on_edges(mode, graph):
         z[1, 1] = z[0, 0]
 
         mean_edge_solution[ei] = np.real(
-            np.conj(edge_flux[2 * ei: 2 * ei + 2]).T.dot(
-                z.dot(edge_flux[2 * ei: 2 * ei + 2])
+            np.conj(edge_flux[2 * ei : 2 * ei + 2]).T.dot(
+                z.dot(edge_flux[2 * ei : 2 * ei + 2])
             )
         )
 
@@ -750,8 +750,11 @@ def lasing_threshold_linear(mode, graph, D0):
 
 def _overlap_matrix_element(graph, mode):
     """Compute the overlapp between a mode and each inner edges of the graph."""
-    return list(-q_value(mode) * compute_overlapping_single_edges(mode, graph)
-                * np.imag(gamma(to_complex(mode), graph.graph["params"])))
+    return list(
+        -q_value(mode)
+        * compute_overlapping_single_edges(mode, graph)
+        * np.imag(gamma(to_complex(mode), graph.graph["params"]))
+    )
 
 
 def pump_cost(
@@ -760,7 +763,7 @@ def pump_cost(
     pump_overlapps,
     pump_min_size,
     mode="diff",
-    n_modes=20,#10
+    n_modes=20,  # 10
 ):
     """Cost function to minimize."""
     pump = np.round(pump, 0)
@@ -778,10 +781,7 @@ def pump_cost(
             - np.min(pump_with_opt_modes) ** 2
         )
     if mode == "diff2":
-        return (
-            np.max(pump_without_opt_modes[:]) ** 3
-            - np.min(pump_with_opt_modes) ** 3
-        )
+        return np.max(pump_without_opt_modes[:]) ** 3 - np.min(pump_with_opt_modes) ** 3
     if mode == "ratio":
         return (
             np.mean(pump_without_opt_modes[:n_modes]) ** 2
@@ -835,9 +835,13 @@ def optimize_pump(
         graph.graph["params"]["pump"] = np.ones(len(graph.edges))
 
     with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
-        overlapp_iter = pool.imap(partial(_overlap_matrix_element, graph), modes_df["passive"])
+        overlapp_iter = pool.imap(
+            partial(_overlap_matrix_element, graph), modes_df["passive"]
+        )
         pump_overlapps = np.empty([len(modes_df["passive"]), len(graph.edges)])
-        for mode_id, overlapp in tqdm(enumerate(overlapp_iter), total=len(pump_overlapps)):
+        for mode_id, overlapp in tqdm(
+            enumerate(overlapp_iter), total=len(pump_overlapps)
+        ):
             pump_overlapps[mode_id] = overlapp
 
     mode_mask = np.array(len(pump_overlapps) * [False])
@@ -855,17 +859,22 @@ def optimize_pump(
 
     np.random.seed(seed)
     with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
-        results = list(tqdm(pool.imap(
-            partial(
-                _optimise,
-                costf=_costf,
-                bounds=len(graph.edges) * [(0, 1)],
-                disp=disp,
-                maxiter=maxiter,
-                popsize=popsize,
-            ),
-            np.random.randint(0, 1000000, n_seeds),
-        ), total=n_seeds))
+        results = list(
+            tqdm(
+                pool.imap(
+                    partial(
+                        _optimise,
+                        costf=_costf,
+                        bounds=len(graph.edges) * [(0, 1)],
+                        disp=disp,
+                        maxiter=maxiter,
+                        popsize=popsize,
+                    ),
+                    np.random.randint(0, 1000000, n_seeds),
+                ),
+                total=n_seeds,
+            )
+        )
 
     costs = [result.fun for result in results]
     optimal_pump = np.round(results[np.argmin(costs)].x, 0)
