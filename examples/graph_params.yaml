@@ -2,42 +2,42 @@
 ## random graphs ##
 ###################
 
-SM_small_kink_issue:
+SM_small:
         #network params
         n_workers: 10
-        n: 200 #20
+        n: 9 #20
         k: 2
         p: 0 #0.2
         lead_prob: 0.0 #0.3
         seed: 2
-        innerL: 2 #20
+        innerL: 30 #20
         refraction_params: 
             method: 'uniform'
             inner_value: 1.5
             loss: 0.005
             outer_value: 1.
         open_model: 'open_ends'
-        plot_edgesize: 0.01
+        plot_edgesize: 0.1
         n_modes_max: False
         
         #mode search params
         k_min: 12 #10.36
         k_max: 19 #11.0
-        k_n: 100
+        k_n: 3000 #2000
         alpha_min: 0.0
         alpha_max: 0.15 #0.07
         alpha_n: 50
         
         # params for mode search
-        quality_threshold: 1.e-4
-        search_stepsize: 0.1 
+        quality_threshold: 1.e-5
+        search_stepsize: 0.01 
         max_steps: 10000 
         max_tries_reduction: 50 
         reduction_factor: 0.80 
 
         #pumping parameters
         D0_max: 0.05 #0.02
-        D0_steps: 3
+        D0_steps: 6
         k_a: 15 #10.68
         gamma_perp: 3.0 #0.5
 
@@ -271,11 +271,13 @@ buffon:
         #figure format
         exts: ['.png', '.svg']
 
-buffon_bug:
+tree:
         #network params
         n_workers: 10
+        r: 2
+        h: 5 #h: 7 for tree and 250 for rtree
         lead_prob: 0 #-1.
-        seed: 2
+        seed: 4
         innerL: 2500 #2000
         refraction_params: 
             method: 'uniform'
