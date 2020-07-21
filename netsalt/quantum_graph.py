@@ -305,7 +305,9 @@ def laplacian_quality(laplacian, method="eigenvalue"):
             # If eigenvalue solver did not converge, set to 1.0,
             return 1.0
         except RuntimeError:
-            L.info("Runtime error, we add a small diagonal to laplacian, but things may be bad!")
+            L.info(
+                "Runtime error, we add a small diagonal to laplacian, but things may be bad!"
+            )
             return abs(
                 sc.sparse.linalg.eigs(
                     laplacian + 1e-6 * sc.sparse.eye(laplacian.shape[0]),
@@ -318,10 +320,7 @@ def laplacian_quality(laplacian, method="eigenvalue"):
 
     if method == "singularvalue":
         return sc.sparse.linalg.svds(
-            laplacian,
-            k=1,
-            which="SM",
-            return_singular_vectors=False,
+            laplacian, k=1, which="SM", return_singular_vectors=False,
         )[0]
     return 1.0
 

@@ -51,7 +51,11 @@ def refine_mode_brownian_ratchet(
         if disp:
             L.debug(
                 "New quality: %s, Step size: %s, Current mode: %s, New mode: %s, step %s",
-                new_quality, search_stepsize, current_mode, new_mode, step_counter,
+                new_quality,
+                search_stepsize,
+                current_mode,
+                new_mode,
+                step_counter,
             )
 
         # if the quality improves, update the mode
@@ -70,7 +74,9 @@ def refine_mode_brownian_ratchet(
             tries_counter = 0
         if search_stepsize < 1e-10:
             disp = True
-            L.info("Warning: mode search stepsize under 1e-10 for mode: %s", current_mode)
+            L.info(
+                "Warning: mode search stepsize under 1e-10 for mode: %s", current_mode
+            )
             L.info(
                 "We retry from a larger one, but consider fine tuning search parameters."
             )
@@ -95,7 +101,7 @@ def clean_duplicate_modes(all_modes, k_size, alpha_size):
     """Clean duplicate modes."""
     duplicate_mode_ids = []
     for mode_id_0, mode_0 in enumerate(all_modes):
-        for mode_id_1, mode_1 in enumerate(all_modes[mode_id_0 + 1:]):
+        for mode_id_1, mode_1 in enumerate(all_modes[mode_id_0 + 1 :]):
             if (
                 mode_id_1 + mode_id_0 + 1 not in duplicate_mode_ids
                 and abs(mode_0[0] - mode_1[0]) < k_size
