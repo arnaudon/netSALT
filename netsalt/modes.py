@@ -310,8 +310,8 @@ def mean_mode_on_edges(mode, graph):
         z[1, 1] = z[0, 0]
 
         mean_edge_solution[ei] = np.real(
-            np.conj(edge_flux[2 * ei : 2 * ei + 2]).T.dot(
-                z.dot(edge_flux[2 * ei : 2 * ei + 2])
+            np.conj(edge_flux[2 * ei: 2 * ei + 2]).T.dot(
+                z.dot(edge_flux[2 * ei: 2 * ei + 2])
             )
         )
 
@@ -688,10 +688,15 @@ def pump_trajectories(modes_df, graph, return_approx=False):
 def _get_new_D0(arg, graph=None, D0_steps=None):
     """Internal function for multiprocessing."""
     mode_id, new_mode, D0 = arg
-    new_D0 = abs(D0 + lasing_threshold_linear(new_mode, graph, D0))
-    L.debug("Mode %s at intensity %s", mode_id, new_D0)
+    increment = lasing_threshold_linear(new_mode, graph, D0)
+    if increment > 0:
+        new_D0 = abs(D0 + increment)
+        new_D0 = min(new_D0, D0_steps + D0)
+    else:
+        L.debug('Intensity increment is negative, we set step to half max step.')
+        new_D0 = D0 + 0.5 * D0_steps
 
-    new_D0 = min(new_D0, D0_steps + D0)
+    L.debug("Mode %s at intensity %s", mode_id, new_D0)
     new_modes_approx = pump_linear(new_mode, graph, D0, new_D0)
     return mode_id, new_D0, new_modes_approx
 
