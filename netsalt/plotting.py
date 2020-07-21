@@ -75,7 +75,7 @@ def plot_stem_spectra(
     """Plot spectra with stem plots."""
     threshold_modes = np.real(modes_df["threshold_lasing_modes"])
     modal_amplitudes = np.real(modes_df["modal_intensities"].iloc[:, pump_index])
-    print(len(threshold_modes[modal_amplitudes > 0]), "lasing modes in spectrum")
+    L.info(len(threshold_modes[modal_amplitudes > 0]), "lasing modes in spectrum")
 
     ks, _ = get_scan_grid(graph)
 
@@ -203,7 +203,6 @@ def plot_scan(
 
     ax.set_xlabel(r"$Real(k)$")
     ax.set_ylabel(r"$\alpha = -Im(k)$")
-    print(modes_df)
     if modes_df is not None:
         for index, modes in modes_df.iterrows():
             k = np.real(modes["passive"][0])
@@ -218,7 +217,6 @@ def plot_scan(
             )
 
         if with_trajectories and "mode_trajectories" in modes_df:
-            print("lkj")
             plot_pump_traj(
                 modes_df, with_scatter=with_scatter, with_approx=with_approx, ax=ax
             )

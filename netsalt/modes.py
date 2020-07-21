@@ -110,7 +110,7 @@ def find_modes(graph, qualities):
     estimated_modes = find_rough_modes_from_scan(
         ks, alphas, qualities, min_distance=2, threshold_abs=1.0
     )
-    print("Found", len(estimated_modes), "mode candidates.")
+    L.info("Found %s mode candidates.", len(estimated_modes))
     search_radii = [1 * (ks[1] - ks[0]), 1 * (alphas[1] - alphas[0])]
     worker_modes = WorkerModes(estimated_modes, graph, search_radii=search_radii)
     pool = multiprocessing.Pool(graph.graph["params"]["n_workers"])
@@ -132,14 +132,13 @@ def find_modes(graph, qualities):
     true_modes = clean_duplicate_modes(
         refined_modes, ks[1] - ks[0], alphas[1] - alphas[0]
     )
-    print("Found", len(true_modes), "after refinements.")
+    L.info("Found %s after refinements.", len(true_modes))
 
     modes_sorted = true_modes[np.argsort(true_modes[:, 1])]
     if graph.graph["params"]["n_modes_max"]:
-        print(
-            "...but we will use the top",
+        L.info(
+            "...but we will use the top %s modes only",
             graph.graph["params"]["n_modes_max"],
-            "modes only",
         )
         modes_sorted = modes_sorted[: graph.graph["params"]["n_modes_max"]]
 
@@ -311,8 +310,8 @@ def mean_mode_on_edges(mode, graph):
         z[1, 1] = z[0, 0]
 
         mean_edge_solution[ei] = np.real(
-            np.conj(edge_flux[2 * ei : 2 * ei + 2]).T.dot(
-                z.dot(edge_flux[2 * ei : 2 * ei + 2])
+            np.conj(edge_flux[2 * ei: 2 * ei + 2]).T.dot(
+                z.dot(edge_flux[2 * ei: 2 * ei + 2])
             )
         )
 
@@ -616,7 +615,7 @@ def compute_modal_intensities(modes_df, max_pump_intensity, mode_competition_mat
             ]
 
     modes_df["interacting_lasing_thresholds"] = interacting_lasing_thresholds
-    print(modal_intensities)
+
     if "modal_intensities" in modes_df:
         del modes_df["modal_intensities"]
 
@@ -624,9 +623,9 @@ def compute_modal_intensities(modes_df, max_pump_intensity, mode_competition_mat
         modes_df["modal_intensities", pump_intensity] = modal_intensities[
             pump_intensity
         ]
-    print(
+    L.info(
+        "%s lasing modes out of %s",
         len(np.where(modal_intensities.to_numpy()[:, -1] > 0)[0]),
-        "lasing modes out of",
         len(modal_intensities.index),
     )
 
@@ -646,13 +645,11 @@ def pump_trajectories(modes_df, graph, return_approx=False):
     pumped_modes = [[from_complex(mode) for mode in modes_df["passive"]]]
     pumped_modes_approx = pumped_modes.copy()
     for d in range(len(D0s) - 1):
-        print(
-            "Step "
-            + str(d + 1)
-            + "/"
-            + str(len(D0s) - 1)
-            + ", computing for D0="
-            + str(D0s[d + 1])
+        L.info(
+            "Step %s / %s, computing for D0= %s",
+            str(d + 1),
+            str(len(D0s) - 1),
+            str(D0s[d + 1]),
         )
         pumped_modes_approx.append(pumped_modes[-1].copy())
         for m in range(n_modes):
@@ -668,7 +665,7 @@ def pump_trajectories(modes_df, graph, return_approx=False):
         )
         for i, mode in enumerate(pumped_modes[-1]):
             if mode is None:
-                print("Mode not be updated, consider changing the search parameters.")
+                L.info("Mode not be updated, consider changing the search parameters.")
                 pumped_modes[-1][i] = pumped_modes[-2][i]
 
     pool.close()
@@ -688,6 +685,22 @@ def pump_trajectories(modes_df, graph, return_approx=False):
     return modes_df
 
 
+def _get_new_D0(arg, graph=None, D0_steps=None):
+    """Internal function for multiprocessing."""
+    mode_id, new_mode, D0 = arg
+    increment = lasing_threshold_linear(new_mode, graph, D0)
+    if increment > 0:
+        new_D0 = abs(D0 + increment)
+        new_D0 = min(new_D0, D0_steps + D0)
+    else:
+        L.debug('Intensity increment is negative, we set step to half max step.')
+        new_D0 = D0 + 0.5 * D0_steps
+
+    L.debug("Mode %s at intensity %s", mode_id, new_D0)
+    new_modes_approx = pump_linear(new_mode, graph, D0, new_D0)
+    return mode_id, new_D0, new_modes_approx
+
+
 def find_threshold_lasing_modes(modes_df, graph):
     """Find the threshold lasing modes and associated lasing thresholds."""
     pool = multiprocessing.Pool(graph.graph["params"]["n_workers"])
@@ -702,24 +715,25 @@ def find_threshold_lasing_modes(modes_df, graph):
     D0s = np.zeros(len(modes_df))
     current_modes = np.arange(len(modes_df))
     while len(current_modes) > 0:
-        print(len(current_modes), "modes left to find")
+        L.info("%s modes left to find", len(current_modes))
 
         new_D0s = np.zeros(len(modes_df))
         new_modes_approx = np.empty([len(new_modes), 2])
-        for i in current_modes:
-            new_D0s[i] = abs(
-                D0s[i] + lasing_threshold_linear(new_modes[i], graph, D0s[i])
-            )
-
-            new_D0s[i] = min(new_D0s[i], D0_steps + D0s[i])
-            new_modes_approx[i] = pump_linear(new_modes[i], graph, D0s[i], new_D0s[i])
+        args = (
+            (mode_id, new_modes[mode_id], D0s[mode_id]) for mode_id in current_modes
+        )
+        for mode_id, new_D0, new_mode_approx in pool.imap(
+            partial(_get_new_D0, graph=graph, D0_steps=D0_steps), args
+        ):
+            new_D0s[mode_id] = new_D0
+            new_modes_approx[mode_id] = new_mode_approx
 
         # this is a trick to reduce the stepsizes as we are near the solution
         graph.graph["params"]["search_stepsize"] = (
             stepsize * np.mean(abs(new_D0s[new_D0s > 0] - D0s[new_D0s > 0])) / D0_steps
         )
 
-        print("Current search_stepsize:", graph.graph["params"]["search_stepsize"])
+        L.debug("Current search_stepsize: %s", graph.graph["params"]["search_stepsize"])
         worker_modes = WorkerModes(new_modes_approx, graph, D0s=new_D0s)
         new_modes_tmp = np.zeros([len(modes_df), 2])
         new_modes_tmp[current_modes] = list(
@@ -729,7 +743,7 @@ def find_threshold_lasing_modes(modes_df, graph):
         to_delete = []
         for i, mode_index in enumerate(current_modes):
             if new_modes_tmp[mode_index] is None:
-                print(
+                L.info(
                     "A mode could not be updated, consider modifying the search parameters."
                 )
                 new_modes_tmp[mode_index] = new_modes[mode_index]
@@ -895,8 +909,8 @@ def optimize_pump(
     costs = [result.fun for result in results]
     optimal_pump = np.round(results[np.argmin(costs)].x, 0)
     final_cost = _costf(optimal_pump)
-    print("Final cost is:", final_cost)
+    L.info("Final cost is: %s", final_cost)
     if final_cost > 0:
-        print("This pump may not provide single lasing!")
+        L.info("This pump may not provide single lasing!")
 
     return optimal_pump, pump_overlapps, costs

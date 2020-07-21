@@ -4,8 +4,8 @@
 
 SM_small:
         #network params
-        n_workers: 10
-        n: 9 #20
+        n_workers: 4
+        n: 200 #20
         k: 2
         p: 0 #0.2
         lead_prob: 0.0 #0.3
@@ -228,9 +228,9 @@ knot:
         #figure format
         exts: ['.png', '.svg']
 
-buffon:
+buffon_stuck:
         #network params
-        n_workers: 10
+        n_workers: 4
         lead_prob: 0 #-1.
         seed: 2
         innerL: 2500 #2000
@@ -252,8 +252,8 @@ buffon:
         alpha_n: 200 #100
         
         # params for mode search
-        quality_threshold: 1.e-6
-        search_stepsize: 0.00005 #0.0001
+        quality_threshold: 1.e-4
+        search_stepsize: 0.000005
         max_steps: 10000
         max_tries_reduction: 50 
         reduction_factor: 0.80 
