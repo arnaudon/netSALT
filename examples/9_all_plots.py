@@ -68,7 +68,7 @@ plotting.plot_scan(graph, qualities, modes_df, ax=axes[1])
 plotting.plot_pump_traj(modes_df, with_scatter=False, with_approx=False, ax=axes[1])
 
 fig.savefig("final_plot.png", bbox_inches="tight")
-plt.show()
+#plt.show()
 
 
 lasing_mode_id = np.argsort(modes_df["interacting_lasing_thresholds"].to_numpy())
@@ -112,4 +112,4 @@ for ax, index in zip(axes.flatten(), lasing_mode_id):
 
 fig.savefig("lasing_modes.png", bbox_inches="tight")
 
-plt.show()
+#plt.show()

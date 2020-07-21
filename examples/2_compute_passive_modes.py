@@ -28,4 +28,4 @@ netsalt.save_modes(modes_df)
 
 plotting.plot_scan(graph, qualities, modes_df, filename="scan_with_passive_modes")
 
-plt.show()
+#plt.show()

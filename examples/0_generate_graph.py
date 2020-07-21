@@ -39,11 +39,11 @@ netsalt.save_graph(graph)
 plotting.plot_quantum_graph(
     graph,
     edge_colors=params["dielectric_constant"],
-    node_size=0.1,
-    color_map="plasma",
+    node_size=0.1, #1.
+    color_map="plasma", #"Pastel1"
     cbar_min=1,
     cbar_max=np.max(np.abs(params["dielectric_constant"])),
 )
 
 plt.savefig("original_graph.svg")
-plt.show()
+#plt.show()

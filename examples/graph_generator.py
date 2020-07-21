@@ -258,6 +258,11 @@ def generate_graph(tpe="SM", params={}):
         G = nx.convert_node_labels_to_integers(G)
         pos = np.array(list(nx.spring_layout(G).values()))
 
+    elif tpe == "rtree":
+        G = nx.full_rary_tree(params["r"], params["h"])
+        G = nx.convert_node_labels_to_integers(G)
+        pos = np.array(list(nx.spring_layout(G).values()))
+
     elif tpe == "buffon":
         import scipy.io as io
 

@@ -26,7 +26,7 @@ modes_df = netsalt.load_modes()
 
 mode_competition_matrix = netsalt.load_mode_competition_matrix()
 
-max_pump_intensity = 1
+max_pump_intensity = 0.05 #0.015
 modes_df = netsalt.compute_modal_intensities(
     modes_df, max_pump_intensity, mode_competition_matrix
 )
@@ -37,4 +37,4 @@ plotting.plot_ll_curve(graph, modes_df, with_legend=False)
 
 plotting.plot_stem_spectra(graph, modes_df, -1)
 
-plt.show()
+#plt.show()
