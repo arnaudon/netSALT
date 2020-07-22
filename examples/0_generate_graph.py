@@ -46,4 +46,4 @@ plotting.plot_quantum_graph(
 )
 
 plt.savefig("original_graph.svg")
-#plt.show()
+plt.show()

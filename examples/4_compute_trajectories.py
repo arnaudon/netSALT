@@ -38,7 +38,7 @@ plotting.plot_quantum_graph(
     graph, edge_colors=graph.graph["params"]["pump"], node_size=0.1, save_option=False
 )
 plt.savefig("pump_profile.svg")
-#plt.show()
+plt.show()
 
 modes_df = netsalt.pump_trajectories(modes_df, graph, return_approx=True)
 netsalt.save_modes(modes_df)
@@ -48,4 +48,4 @@ qualities = netsalt.load_qualities()
 ax = plotting.plot_scan(
     graph, qualities, modes_df, filename="scan_with_trajectories", relax_upper=True
 )
-#plt.show()
+plt.show()

@@ -37,4 +37,4 @@ plotting.plot_ll_curve(graph, modes_df, with_legend=False)
 
 plotting.plot_stem_spectra(graph, modes_df, -1)
 
-#plt.show()
+plt.show()

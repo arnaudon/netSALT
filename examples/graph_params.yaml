@@ -4,8 +4,8 @@
 
 SM_small:
         #network params
-        n_workers: 4
-        n: 200 #20
+        n_workers: 10
+        n: 9 #20
         k: 2
         p: 0 #0.2
         lead_prob: 0.0 #0.3
@@ -50,7 +50,7 @@ SM_small:
 
 line_PRA:
         #network params
-        n_workers: 12
+        n_workers: 10
         n: 43 #103
         lead_prob: -0.2
         seed: 2
@@ -228,9 +228,9 @@ knot:
         #figure format
         exts: ['.png', '.svg']
 
-buffon_stuck:
+buffon:
         #network params
-        n_workers: 4
+        n_workers: 10
         lead_prob: 0 #-1.
         seed: 2
         innerL: 2500 #2000
@@ -252,7 +252,7 @@ buffon_stuck:
         alpha_n: 200 #100
         
         # params for mode search
-        quality_threshold: 1.e-4
+        quality_threshold: 1.e-4 #1e-6
         search_stepsize: 0.000005
         max_steps: 10000
         max_tries_reduction: 50 

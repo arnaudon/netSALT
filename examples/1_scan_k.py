@@ -25,4 +25,4 @@ qualities = netsalt.scan_frequencies(graph)
 netsalt.save_qualities(qualities)
 
 plotting.plot_scan(graph, qualities, filename="scan_no_modes")
-#plt.show()
+plt.show()
