@@ -4,13 +4,13 @@
 
 SM_small:
         #network params
-        n_workers: 4
+        n_workers: 10
         n: 9 #20
         k: 2
         p: 0 #0.2
         lead_prob: 0.0 #0.3
         seed: 2
-        innerL: 20 #20
+        innerL: 20 #30
         refraction_params: 
             method: 'uniform'
             inner_value: 1.5
@@ -23,7 +23,7 @@ SM_small:
         #mode search params
         k_min: 12 #10.36
         k_max: 19 #11.0
-        k_n: 1000 #2000
+        k_n: 1000 #3000
         alpha_min: 0.0
         alpha_max: 0.15 #0.07
         alpha_n: 50
@@ -230,7 +230,7 @@ knot:
 
 buffon:
         #network params
-        n_workers: 10
+        n_workers: 40
         lead_prob: 0 #-1.
         seed: 2
         innerL: 2500 #2000
@@ -252,7 +252,7 @@ buffon:
         alpha_n: 200 #100
         
         # params for mode search
-        quality_threshold: 1.e-4 #1e-6
+        quality_threshold: 1.e-6
         search_stepsize: 0.000005
         max_steps: 10000
         max_tries_reduction: 50 
