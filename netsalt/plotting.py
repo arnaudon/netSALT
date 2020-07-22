@@ -75,7 +75,7 @@ def plot_stem_spectra(
     """Plot spectra with stem plots."""
     threshold_modes = np.real(modes_df["threshold_lasing_modes"])
     modal_amplitudes = np.real(modes_df["modal_intensities"].iloc[:, pump_index])
-    L.info(len(threshold_modes[modal_amplitudes > 0]), "lasing modes in spectrum")
+    L.info("%s lasing modes in spectrum", len(threshold_modes[modal_amplitudes > 0]))
 
     ks, _ = get_scan_grid(graph)
 

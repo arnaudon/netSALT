@@ -689,11 +689,12 @@ def _get_new_D0(arg, graph=None, D0_steps=None):
     """Internal function for multiprocessing."""
     mode_id, new_mode, D0 = arg
     increment = lasing_threshold_linear(new_mode, graph, D0)
-    if increment > 0:
+    if increment > -D0_steps:
         new_D0 = abs(D0 + increment)
         new_D0 = min(new_D0, D0_steps + D0)
     else:
         L.debug('Intensity increment is negative, we set step to half max step.')
+        print(increment)
         new_D0 = D0 + 0.5 * D0_steps
 
     L.debug("Mode %s at intensity %s", mode_id, new_D0)

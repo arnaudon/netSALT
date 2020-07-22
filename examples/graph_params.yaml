@@ -4,13 +4,13 @@
 
 SM_small:
         #network params
-        n_workers: 10
+        n_workers: 4
         n: 9 #20
         k: 2
         p: 0 #0.2
         lead_prob: 0.0 #0.3
         seed: 2
-        innerL: 30 #20
+        innerL: 20 #20
         refraction_params: 
             method: 'uniform'
             inner_value: 1.5
@@ -23,14 +23,14 @@ SM_small:
         #mode search params
         k_min: 12 #10.36
         k_max: 19 #11.0
-        k_n: 3000 #2000
+        k_n: 1000 #2000
         alpha_min: 0.0
         alpha_max: 0.15 #0.07
         alpha_n: 50
         
         # params for mode search
         quality_threshold: 1.e-5
-        search_stepsize: 0.01 
+        search_stepsize: 0.001 
         max_steps: 10000 
         max_tries_reduction: 50 
         reduction_factor: 0.80 
