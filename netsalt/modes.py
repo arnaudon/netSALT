@@ -430,10 +430,10 @@ def _compute_mode_competition_element(lengths, params, data):
 def compute_mode_competition_matrix(graph, modes_df):
     """Compute the mode competition matrix, or T matrix."""
     threshold_modes = modes_df["threshold_lasing_modes"].to_numpy()
-    lasing_thresholds = modes_df["lasing_thresholds"].to_numpy()
+    lasing_thresholds_all = modes_df["lasing_thresholds"].to_numpy()
 
-    threshold_modes = threshold_modes[lasing_thresholds < np.inf]
-    lasing_thresholds = lasing_thresholds[lasing_thresholds < np.inf]
+    threshold_modes = threshold_modes[lasing_thresholds_all < np.inf]
+    lasing_thresholds = lasing_thresholds_all[lasing_thresholds_all < np.inf]
 
     pool = multiprocessing.Pool(graph.graph["params"]["n_workers"])
 
@@ -493,9 +493,8 @@ def compute_mode_competition_matrix(graph, modes_df):
         ]
     )
     mode_competition_matrix_full[
-        np.ix_(lasing_thresholds < np.inf, lasing_thresholds < np.inf)
+        np.ix_(lasing_thresholds_all < np.inf, lasing_thresholds_all < np.inf)
     ] = np.real(mode_competition_matrix)
-
     return mode_competition_matrix_full
 
 
@@ -694,7 +693,6 @@ def _get_new_D0(arg, graph=None, D0_steps=None):
         new_D0 = min(new_D0, D0_steps + D0)
     else:
         L.debug('Intensity increment is negative, we set step to half max step.')
-        print(increment)
         new_D0 = D0 + 0.5 * D0_steps
 
     L.debug("Mode %s at intensity %s", mode_id, new_D0)
