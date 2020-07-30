@@ -21,6 +21,14 @@ os.chdir(graph_tpe)
 graph = netsalt.load_graph()
 modes_df = netsalt.load_modes()
 
+pump_overlapps = netsalt.modes.compute_pump_overlapping_matrix(graph, modes_df)
+
+plt.figure()
+plt.imshow(pump_overlapps)
+plt.colorbar()
+plt.savefig('overlapping_matrix.png')
+plt.show()
+
 def plot_Dinvs(graph, pump_overlaps, folder="Dinvs", ext=".png"):
     """Plot Dinvs on the graph."""
     for mode_id in range(len(pump_overlapps)):
@@ -37,6 +45,8 @@ def plot_Dinvs(graph, pump_overlaps, folder="Dinvs", ext=".png"):
         plt.savefig(folder + "/mode_" + str(mode_id) + ext)
         plt.close()
 
+plot_Dinvs(graph, D_invs, folder="Dinvs")
+plt.show()
 
 lasing_modes_id = [107] 
 

@@ -209,25 +209,21 @@ def compute_overlapping_single_edges(passive_mode, graph):
     BT, Bout = construct_incidence_matrix(graph)
     Winv = construct_weight_matrix(graph, with_k=False)
 
-    inner_norm = np.real(
-        _graph_norm(BT, Bout, Winv, z_matrix, node_solution, inner_dielectric_constants)
-    )
+    inner_norm = _graph_norm(BT, Bout, Winv, z_matrix, node_solution, inner_dielectric_constants)
 
-    pump_norm = np.zeros(len(graph.edges))
+    pump_norm = np.zeros(len(graph.edges), dtype=np.complex)
     for pump_edge, inner in enumerate(graph.graph["params"]["inner"]):
         if inner:
             mask = np.zeros(len(graph.edges))
             mask[pump_edge] = 1.0
             pump_mask = sc.sparse.diags(_convert_edges(mask))
-            pump_norm[pump_edge] = np.real(
-                _graph_norm(BT, Bout, Winv, z_matrix, node_solution, pump_mask)
-            )
+            pump_norm[pump_edge] = _graph_norm(BT, Bout, Winv, z_matrix, node_solution, pump_mask)
 
-    return pump_norm / inner_norm
+    return np.real(pump_norm / inner_norm)
 
 
 def compute_overlapping_factor(passive_mode, graph):
-    """Compute the overlappin factor of a mode with the pump."""
+    """Compute the overlapping factor of a mode with the pump."""
     dielectric_constant = _get_dielectric_constant_matrix(graph.graph["params"])
     in_mask, pump_mask = _get_mask_matrices(graph.graph["params"])
     inner_dielectric_constants = dielectric_constant.dot(in_mask)
@@ -833,6 +829,20 @@ def _optimise(seed, costf=None, bounds=None, disp=None, maxiter=100, popsize=5):
     )
 
 
+def compute_pump_overlapping_matrix(graph, modes_df):
+    """Compute the matrix of pump overlapp with each edge."""
+    with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
+        overlapp_iter = pool.imap(
+            partial(_overlap_matrix_element, graph), modes_df["passive"]
+        )
+        pump_overlapps = np.empty([len(modes_df["passive"]), len(graph.edges)])
+        for mode_id, overlapp in tqdm(
+            enumerate(overlapp_iter), total=len(pump_overlapps)
+        ):
+            pump_overlapps[mode_id] = overlapp
+    return pump_overlapps
+
+
 def optimize_pump(
     modes_df,
     graph,
@@ -858,20 +868,12 @@ def optimize_pump(
         disp (bool): if True, display the optimisation iterations
 
     Returns:
-        optimal_pump, pump_overlapps, costs: best pump, overlapp matrix, all costs from seeds
+        optimal_pump, pump_overlapps, costs: best pump, overlapping matrix, all costs from seeds
     """
     if "pump" not in graph.graph["params"]:
         graph.graph["params"]["pump"] = np.ones(len(graph.edges))
 
-    with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
-        overlapp_iter = pool.imap(
-            partial(_overlap_matrix_element, graph), modes_df["passive"]
-        )
-        pump_overlapps = np.empty([len(modes_df["passive"]), len(graph.edges)])
-        for mode_id, overlapp in tqdm(
-            enumerate(overlapp_iter), total=len(pump_overlapps)
-        ):
-            pump_overlapps[mode_id] = overlapp
+    pump_overlapps = compute_pump_overlapping_matrix(graph, modes_df)
 
     mode_mask = np.array(len(pump_overlapps) * [False])
     mode_mask[lasing_modes_id] = True
