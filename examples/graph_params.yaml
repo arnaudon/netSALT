@@ -228,7 +228,7 @@ knot:
         #figure format
         exts: ['.png', '.svg']
 
-buffon_opt_mode62:
+buffon:
         #network params
         n_workers: 40
         lead_prob: 0 #-1.

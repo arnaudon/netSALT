@@ -806,7 +806,7 @@ def pump_cost(
             - np.min(pump_with_opt_modes) ** 2
         )
     if mode == "diff2":
-        return np.max(pump_without_opt_modes[:]) ** 3 - np.min(pump_with_opt_modes) ** 3
+        return np.max(pump_without_opt_modes[:]) ** 2 - np.min(pump_with_opt_modes) ** 2
     if mode == "ratio":
         return (
             np.mean(pump_without_opt_modes[:n_modes]) ** 2
@@ -914,4 +914,4 @@ def optimize_pump(
     if final_cost > 0:
         L.info("This pump may not provide single lasing!")
 
-    return optimal_pump, pump_overlapps, costs
+    return optimal_pump, pump_overlapps, costs, final_cost
