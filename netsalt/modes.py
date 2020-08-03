@@ -802,15 +802,18 @@ def pump_cost(
 
     if mode == "diff":
         return (
-            np.mean(pump_without_opt_modes[:n_modes]) ** 2
-            - np.min(pump_with_opt_modes) ** 2
+            np.mean(pump_without_opt_modes[:n_modes])
+            - np.min(pump_with_opt_modes)
         )
     if mode == "diff2":
-        return np.max(pump_without_opt_modes[:]) ** 2 - np.min(pump_with_opt_modes) ** 2
+        return (
+            np.max(pump_without_opt_modes) 
+            - np.min(pump_with_opt_modes)
+        )
     if mode == "ratio":
         return (
-            np.mean(pump_without_opt_modes[:n_modes]) ** 2
-            / np.min(pump_with_opt_modes) ** 2
+            np.mean(pump_without_opt_modes[:n_modes])
+            / np.min(pump_with_opt_modes)
         )
     raise Exception("Optimisation mode not understood")
 

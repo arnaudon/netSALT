@@ -21,8 +21,10 @@ os.chdir(graph_tpe)
 
 graph = netsalt.load_graph()
 modes_df = netsalt.load_modes()
-
-pump_overlapps = netsalt.modes.compute_pump_overlapping_matrix(graph, modes_df)
+tmp_list = list(range(0,300))
+modes_df_sub = modes_df.iloc[tmp_list,:]
+#modes_df_sub = modes_df
+pump_overlapps = netsalt.modes.compute_pump_overlapping_matrix(graph, modes_df_sub)
 
 
 def shiftedColorMap(cmap, midpoint=0.5, name='shiftedcmap'):
@@ -79,8 +81,8 @@ cbar.set_label("D_inv")
 ax = plt.gca()
 ax.set(xlabel=r"$edges$")
 ax.set(ylabel=r"$modes$")
-ax.set_yticks(np.arange(len(modes_df)))
-ax.set_ylim(len(modes_df) - 0.5, -0.5)
+ax.set_yticks(np.arange(len(modes_df_sub)))
+ax.set_ylim(len(modes_df_sub) - 0.5, -0.5)
 plt.savefig('overlapping_matrix.png')
 plt.show()
 
@@ -123,12 +125,12 @@ plt.show()
 
 
 optimal_pump, pump_overlapps, costs, final_cost = netsalt.optimize_pump(
-    modes_df,
+    modes_df_sub,
     graph,
     lasing_modes_id,
     pump_min_frac=0., #0.5 0.2
-    maxiter=200, #50
-    popsize=5, #5
+    maxiter=200, #1000 50
+    popsize=5, #10
     seed=1,
     n_seeds=100, #10
     disp=True)
