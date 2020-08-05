@@ -21,9 +21,9 @@ os.chdir(graph_tpe)
 
 graph = netsalt.load_graph()
 modes_df = netsalt.load_modes()
-tmp_list = list(range(0,300))
-modes_df_sub = modes_df.iloc[tmp_list,:]
-#modes_df_sub = modes_df
+#tmp_list = list(range(0,300))
+#modes_df_sub = modes_df.iloc[tmp_list,:]
+modes_df_sub = modes_df
 pump_overlapps = netsalt.modes.compute_pump_overlapping_matrix(graph, modes_df_sub)
 
 

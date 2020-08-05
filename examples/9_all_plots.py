@@ -96,6 +96,7 @@ lasing_modes_ordered = np.argsort(
     np.nan_to_num(modes_df["modal_intensities"].to_numpy()[:, -1])
 )[::-1]
 lasing_mode_id = lasing_modes_ordered[range(len(lasing_modes_list))]
+#pickle.dump(lasing_mode_id, open("modelist.pkl", "wb"))
 print("lasing modes: ", lasing_mode_id)
 
 # plot modes corresponding to largest peaks in spectrum

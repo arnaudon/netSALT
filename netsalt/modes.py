@@ -314,6 +314,75 @@ def mean_mode_on_edges(mode, graph):
     return mean_edge_solution
 
 
+def mean_mode_E4_on_edges(mode, graph):
+    r"""Compute the average :math:`|E|^4` on each edge."""
+    edge_flux = flux_on_edges(mode, graph)
+
+    meanE4_edge_solution = np.zeros(len(graph.edges))
+    for ei in range(len(graph.edges)):
+        k = graph.graph["ks"][ei]
+        length = graph.graph["lengths"][ei]
+        z = np.zeros([4, 4], dtype=np.complex)
+
+        z[0, 0] = (np.exp(2.0j * length * (k - np.conj(k))) - 1.0) / (
+            2.0j * length * (k - np.conj(k))
+        )
+        z[1, 1] = (np.exp(2.0j * length * k) - np.exp(-2.0j * length * np.conj(k))) / (
+            2.0j * length * (k + np.conj(k))
+        )
+        z[0, 1] = (np.exp(1.0j * length * (k - np.conj(k))) ) * (np.exp(1.0j * length *k) - np.exp(-1.0j * length * k))  / (
+            2.0j * length * k
+        )
+        z[0, 3] = length * (np.exp(1.0j * length * (k - np.conj(k)))
+        )
+
+
+        z[2, 2] = z[1, 1]
+        z[3, 3] = z[0, 0]
+        z[3, 0] = z[0, 3]
+        z[1, 2] = z[0, 3]
+        z[2, 1] = z[0, 3]
+        z[1, 0] = z[0, 1]
+        z[2, 3] = z[0, 1]
+        z[3, 2] = z[0, 1]
+        z[0, 2] = np.conj(z[0,1])
+        z[2, 0] = z[0, 2]
+        z[1, 3] = z[0, 2]
+        z[3, 1] = z[0, 2]
+
+        meanE4_edge_solution[ei] = np.real(
+            np.conj(edge_flux[2 * ei: 2 * ei + 2]).T.dot(
+                z.dot(edge_flux[2 * ei: 2 * ei + 2])
+            )
+        )
+
+    return meanE4_edge_solution
+
+
+def compute_IPR(mode, graph)
+    """
+    Compute the IPR of a mode
+    """
+
+    edge_E4 = mean_mode_E4_on_edges(mode, graph)
+    edge_E2 = mean_mode_on_edges(mode, graph)
+
+    edge_length = np.zeros(len(graph.edges))
+    tot_E2 = 0
+    tot_E4 = 0
+    for ei, inner in enumerate(graph.graph["params"]["inner"]):
+        if inner:
+            edge_length[ei] = graph.graph["lengths"][ei]
+            tot_E2 += edge_E2[ei]
+            tot_E4 += edge_E4[ei]
+
+    tot_len = np.sum(edge_len) # total inner length
+
+   IPR = tot_E4/tot_E2**2 # calculated over inner edges
+
+    return IPR
+
+
 def _precomputations_mode_competition(graph, pump_mask, mode_threshold):
     """precompute some quantities for a mode for mode competitiion matrix"""
     mode, threshold = mode_threshold
