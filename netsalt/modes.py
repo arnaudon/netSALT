@@ -359,7 +359,7 @@ def mean_mode_E4_on_edges(mode, graph):
     return meanE4_edge_solution
 
 
-def compute_IPR(mode, graph)
+def compute_IPR(mode, graph):
     """
     Compute the IPR of a mode
     """
@@ -378,7 +378,7 @@ def compute_IPR(mode, graph)
 
     tot_len = np.sum(edge_len) # total inner length
 
-   IPR = tot_E4/tot_E2**2 # calculated over inner edges
+    IPR = tot_E4/tot_E2**2 # calculated over inner edges
 
     return IPR
 
