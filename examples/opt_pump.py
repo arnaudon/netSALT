@@ -26,6 +26,7 @@ modes_df = netsalt.load_modes()
 modes_df_sub = modes_df
 pump_overlapps = netsalt.modes.compute_pump_overlapping_matrix(graph, modes_df_sub)
 
+
 def shiftedColorMap(cmap, midpoint=0.5, name='shiftedcmap'):
     '''
     Function to offset the center of a colormap 

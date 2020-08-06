@@ -333,9 +333,8 @@ def mean_mode_E4_on_edges(mode, graph):
         z[0, 1] = (np.exp(1.0j * length * (k - np.conj(k))) ) * (np.exp(1.0j * length *k) - np.exp(-1.0j * length * k))  / (
             2.0j * length * k
         )
-        z[0, 3] = length * (np.exp(1.0j * length * (k - np.conj(k)))
+        z[0, 3] = (np.exp(1.0j * length * (k - np.conj(k)))
         )
-
 
         z[2, 2] = z[1, 1]
         z[3, 3] = z[0, 0]
@@ -350,37 +349,56 @@ def mean_mode_E4_on_edges(mode, graph):
         z[1, 3] = z[0, 2]
         z[3, 1] = z[0, 2]
 
+        fluxvec = np.outer(
+            np.conj(edge_flux[2 * ei: 2 * ei + 2]), edge_flux[2 * ei: 2 * ei + 2]
+            ).flatten()
         meanE4_edge_solution[ei] = np.real(
-            np.conj(edge_flux[2 * ei: 2 * ei + 2]).T.dot(
-                z.dot(edge_flux[2 * ei: 2 * ei + 2])
+            fluxvec.T.dot(
+                z.dot(fluxvec)
             )
         )
 
     return meanE4_edge_solution
 
 
-def compute_IPR(mode, graph):
+def compute_mode_IPR(graph, modes_df, index, df_entry="passive"):
     """
     Compute the IPR of a mode
     """
+    mode = modes_df[df_entry][index]
 
-    edge_E4 = mean_mode_E4_on_edges(mode, graph)
-    edge_E2 = mean_mode_on_edges(mode, graph)
+    mode_E4_mean = mean_mode_E4_on_edges(mode, graph)
+    mode_E2_mean = mean_mode_on_edges(mode, graph)
 
     edge_length = np.zeros(len(graph.edges))
-    tot_E2 = 0
-    tot_E4 = 0
+    integral_E2 = 0
+    integral_E4 = 0
     for ei, inner in enumerate(graph.graph["params"]["inner"]):
         if inner:
             edge_length[ei] = graph.graph["lengths"][ei]
-            tot_E2 += edge_E2[ei]
-            tot_E4 += edge_E4[ei]
+            integral_E2 += mode_E2_mean[ei]*edge_length[ei]
+            integral_E4 += mode_E4_mean[ei]*edge_length[ei]
 
-    tot_len = np.sum(edge_len) # total inner length
-
-    IPR = tot_E4/tot_E2**2 # calculated over inner edges
+    tot_length = np.sum(edge_length) # total inner length
+    IPR = tot_length * integral_E4 / integral_E2 **2
 
     return IPR
+
+
+def compute_IPRs(graph, modes_df, df_entry="passive"):
+    """Compute IPR of all modes on the graph."""
+
+    IPRs = []
+    for index in tqdm(modes_df.index, total=len(modes_df)):
+        IPR = compute_mode_IPR(graph, modes_df, index, df_entry)
+        IPRs.append(IPR)
+
+    if "IPR" in modes_df:
+        del modes_df["IPR"]
+
+    modes_df["IPR"] = IPRs
+
+    return modes_df
 
 
 def _precomputations_mode_competition(graph, pump_mask, mode_threshold):
