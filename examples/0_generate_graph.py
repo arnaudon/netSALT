@@ -10,6 +10,9 @@ import netsalt
 from graph_generator import generate_graph, generate_index
 from netsalt import plotting
 
+from matplotlib.cm import get_cmap
+from matplotlib.colors import ListedColormap
+
 if len(sys.argv) > 1:
     graph_tpe = sys.argv[-1]
 else:
@@ -36,11 +39,18 @@ graph = netsalt.oversample_graph(graph, params)
 netsalt.update_parameters(graph, params)
 netsalt.save_graph(graph)
 
+# modify colormap
+cmap = get_cmap("Pastel1_r")
+#colors = cmap.colors  # list of colors
+#print(colors)
+newcolors = cmap(np.take(np.linspace(0, 1, 9), [0, 4, 2, 3, 1, 8, 6, 7, 5]))
+newcmp = ListedColormap(newcolors)
+
 plotting.plot_quantum_graph(
     graph,
     edge_colors=params["dielectric_constant"],
-    node_size=1, #0.1
-    color_map="Pastel1", #"plasma"
+    node_size=5, #0.1
+    color_map=newcmp, #"Pastel1", #"plasma"
     cbar_min=1,
     cbar_max=np.max(np.abs(params["dielectric_constant"])),
 )

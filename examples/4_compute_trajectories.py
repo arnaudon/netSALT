@@ -35,7 +35,10 @@ netsalt.save_graph(graph)
 
 
 plotting.plot_quantum_graph(
-    graph, edge_colors=graph.graph["params"]["pump"], node_size=0.1, save_option=False
+    graph,
+    edge_colors=graph.graph["params"]["pump"],
+    node_size=5, #0.1
+    save_option=False
 )
 plt.savefig("pump_profile.svg")
 plt.show()

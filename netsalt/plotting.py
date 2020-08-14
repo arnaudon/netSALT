@@ -408,8 +408,12 @@ def plot_modes(graph, modes_df, df_entry="passive", folder="modes", ext=".png"):
             plt.savefig(folder + "/profile_mode_" + str(index) + ext)
 
 
-def plot_line_mode(graph, modes_df, index, df_entry="passive"):
+def plot_line_mode(graph, modes_df, index, df_entry="passive", ax = None):
     """Plot single mode on the line."""
+
+    if ax is None:
+        plt.figure(figsize=(5, 4))  # 14, 3
+        ax = plt.gca()
 
     mode = modes_df[df_entry][index]
 
@@ -421,11 +425,11 @@ def plot_line_mode(graph, modes_df, index, df_entry="passive"):
     position_x = [graph.nodes[u]["position"][0] for u in graph]
     E_sorted = node_solution[np.argsort(position_x)]
     node_positions = np.sort(position_x - position_x[1])
+    maxE2 = max(abs(E_sorted[1:-1]) ** 2)
 
-    plt.figure()
-    plt.plot(node_positions[1:-1], abs(E_sorted[1:-1]) ** 2)
+    ax.plot(node_positions[1:-1], abs(E_sorted[1:-1]) ** 2 / maxE2)
 
-    plt.title(
+    ax.set_title(
         "mode "
         + str(index)
         + "k = "
