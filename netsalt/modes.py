@@ -209,7 +209,9 @@ def compute_overlapping_single_edges(passive_mode, graph):
     BT, Bout = construct_incidence_matrix(graph)
     Winv = construct_weight_matrix(graph, with_k=False)
 
-    inner_norm = _graph_norm(BT, Bout, Winv, z_matrix, node_solution, inner_dielectric_constants)
+    inner_norm = _graph_norm(
+        BT, Bout, Winv, z_matrix, node_solution, inner_dielectric_constants
+    )
 
     pump_norm = np.zeros(len(graph.edges), dtype=np.complex)
     for pump_edge, inner in enumerate(graph.graph["params"]["inner"]):
@@ -217,7 +219,9 @@ def compute_overlapping_single_edges(passive_mode, graph):
             mask = np.zeros(len(graph.edges))
             mask[pump_edge] = 1.0
             pump_mask = sc.sparse.diags(_convert_edges(mask))
-            pump_norm[pump_edge] = _graph_norm(BT, Bout, Winv, z_matrix, node_solution, pump_mask)
+            pump_norm[pump_edge] = _graph_norm(
+                BT, Bout, Winv, z_matrix, node_solution, pump_mask
+            )
 
     return np.real(pump_norm / inner_norm)
 
@@ -306,8 +310,8 @@ def mean_mode_on_edges(mode, graph):
         z[1, 1] = z[0, 0]
 
         mean_edge_solution[ei] = np.real(
-            np.conj(edge_flux[2 * ei: 2 * ei + 2]).T.dot(
-                z.dot(edge_flux[2 * ei: 2 * ei + 2])
+            np.conj(edge_flux[2 * ei : 2 * ei + 2]).T.dot(
+                z.dot(edge_flux[2 * ei : 2 * ei + 2])
             )
         )
 
@@ -330,11 +334,12 @@ def mean_mode_E4_on_edges(mode, graph):
         z[1, 1] = (np.exp(2.0j * length * k) - np.exp(-2.0j * length * np.conj(k))) / (
             2.0j * length * (k + np.conj(k))
         )
-        z[0, 1] = (np.exp(1.0j * length * (k - np.conj(k))) ) * (np.exp(1.0j * length *k) - np.exp(-1.0j * length * k))  / (
-            2.0j * length * k
+        z[0, 1] = (
+            (np.exp(1.0j * length * (k - np.conj(k))))
+            * (np.exp(1.0j * length * k) - np.exp(-1.0j * length * k))
+            / (2.0j * length * k)
         )
-        z[0, 3] = (np.exp(1.0j * length * (k - np.conj(k)))
-        )
+        z[0, 3] = np.exp(1.0j * length * (k - np.conj(k)))
 
         z[2, 2] = z[1, 1]
         z[3, 3] = z[0, 0]
@@ -344,19 +349,15 @@ def mean_mode_E4_on_edges(mode, graph):
         z[1, 0] = z[0, 1]
         z[2, 3] = z[0, 1]
         z[3, 2] = z[0, 1]
-        z[0, 2] = np.conj(z[0,1])
+        z[0, 2] = np.conj(z[0, 1])
         z[2, 0] = z[0, 2]
         z[1, 3] = z[0, 2]
         z[3, 1] = z[0, 2]
 
         fluxvec = np.outer(
-            np.conj(edge_flux[2 * ei: 2 * ei + 2]), edge_flux[2 * ei: 2 * ei + 2]
-            ).flatten()
-        meanE4_edge_solution[ei] = np.real(
-            fluxvec.T.dot(
-                z.dot(fluxvec)
-            )
-        )
+            np.conj(edge_flux[2 * ei : 2 * ei + 2]), edge_flux[2 * ei : 2 * ei + 2]
+        ).flatten()
+        meanE4_edge_solution[ei] = np.real(fluxvec.T.dot(z.dot(fluxvec)))
 
     return meanE4_edge_solution
 
@@ -376,11 +377,11 @@ def compute_mode_IPR(graph, modes_df, index, df_entry="passive"):
     for ei, inner in enumerate(graph.graph["params"]["inner"]):
         if inner:
             edge_length[ei] = graph.graph["lengths"][ei]
-            integral_E2 += mode_E2_mean[ei]*edge_length[ei]
-            integral_E4 += mode_E4_mean[ei]*edge_length[ei]
+            integral_E2 += mode_E2_mean[ei] * edge_length[ei]
+            integral_E4 += mode_E4_mean[ei] * edge_length[ei]
 
-    tot_length = np.sum(edge_length) # total inner length
-    IPR = tot_length * integral_E4 / integral_E2 **2
+    tot_length = np.sum(edge_length)  # total inner length
+    IPR = tot_length * integral_E4 / integral_E2 ** 2
 
     return IPR
 
@@ -767,7 +768,7 @@ def pump_trajectories(modes_df, graph, return_approx=False):
     return modes_df
 
 
-def _get_new_D0(arg, graph=None, D0_steps=None):
+def _get_new_D0(arg, graph=None, D0_steps=0.1):
     """Internal function for multiprocessing."""
     mode_id, new_mode, D0 = arg
     increment = lasing_threshold_linear(new_mode, graph, D0)
@@ -775,7 +776,7 @@ def _get_new_D0(arg, graph=None, D0_steps=None):
         new_D0 = abs(D0 + increment)
         new_D0 = min(new_D0, D0_steps + D0)
     else:
-        L.debug('Intensity increment is negative, we set step to half max step.')
+        L.debug("Intensity increment is negative, we set step to half max step.")
         new_D0 = D0 + 0.5 * D0_steps
 
     L.debug("Mode %s at intensity %s", mode_id, new_D0)
@@ -888,20 +889,11 @@ def pump_cost(
     )
 
     if mode == "diff":
-        return (
-            np.mean(pump_without_opt_modes[:n_modes])
-            - np.min(pump_with_opt_modes)
-        )
+        return np.mean(pump_without_opt_modes[:n_modes]) - np.min(pump_with_opt_modes)
     if mode == "diff2":
-        return (
-            np.max(pump_without_opt_modes) 
-            - np.min(pump_with_opt_modes)
-        )
+        return np.max(pump_without_opt_modes) - np.min(pump_with_opt_modes)
     if mode == "ratio":
-        return (
-            np.mean(pump_without_opt_modes[:n_modes])
-            / np.min(pump_with_opt_modes)
-        )
+        return np.mean(pump_without_opt_modes[:n_modes]) / np.min(pump_with_opt_modes)
     raise Exception("Optimisation mode not understood")
 
 

@@ -408,7 +408,7 @@ def plot_modes(graph, modes_df, df_entry="passive", folder="modes", ext=".png"):
             plt.savefig(folder + "/profile_mode_" + str(index) + ext)
 
 
-def plot_line_mode(graph, modes_df, index, df_entry="passive", ax = None):
+def plot_line_mode(graph, modes_df, index, df_entry="passive", ax=None):
     """Plot single mode on the line."""
 
     if ax is None:
