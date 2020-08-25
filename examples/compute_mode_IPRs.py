@@ -10,6 +10,7 @@ import yaml
 import netsalt
 from netsalt import plotting
 
+
 if len(sys.argv) > 1:
     graph_tpe = sys.argv[-1]
 else:
@@ -36,6 +37,7 @@ modes_Qfactor = np.round(
 #print('IPR = ', modes_df["IPR"])
 #print('Qfactor = ', modes_Qfactor)
 
+modes_gamma_q = netsalt.modes.compute_gamma_q_values(graph, modes_df)
 
 ### PLOT ###
 plt.hist(
@@ -43,6 +45,9 @@ np.round(modes_df["IPR"], 1),
     bins = 50, 
     range = (0, 50)
     )
+ax = plt.gca()
+ax.set(xlabel=r"$IPR$")
+ax.set(ylabel="number")
 plt.savefig('IPR_histogram.png')
 plt.show()
 
@@ -52,7 +57,7 @@ try:
     plt.figure()
     plt.scatter(
         np.log10(modes_df["IPR"]),
-        modes_Qfactor,
+        modes_gamma_q,
         c = thresholds,
         cmap = "viridis_r",
 #        vmin = 0.,
@@ -64,7 +69,7 @@ try:
 
     ax = plt.gca()
     ax.set(xlabel=r"$log_{10}(IPR)$")
-    ax.set(ylabel=r"$Q$ factor")
+    ax.set(ylabel=r"$Q$ factor x $\Gamma$")
 
     plt.savefig('modes_IPR_thresholds.png')
     plt.show()

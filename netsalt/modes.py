@@ -402,6 +402,27 @@ def compute_IPRs(graph, modes_df, df_entry="passive"):
     return modes_df
 
 
+def gamma_q_value(graph, modes_df, index, df_entry="passive"):
+    """Compute gamma * Q factor for a given mode."""
+    mode = modes_df[df_entry][index]
+    gamma_q = (
+        -q_value(mode)
+        * np.imag(gamma(to_complex(mode), graph.graph["params"]))
+    )
+    return gamma_q
+
+
+def compute_gamma_q_values(graph, modes_df, df_entry="passive"):
+    """Compute gamma * Q factor for all modes on the graph."""
+
+    gammaQs = []
+    for index in tqdm(modes_df.index, total=len(modes_df)):
+        gammaQ = gamma_q_value(graph, modes_df, index, df_entry)
+        gammaQs.append(gammaQ)
+
+    return gammaQs
+
+
 def _precomputations_mode_competition(graph, pump_mask, mode_threshold):
     """precompute some quantities for a mode for mode competitiion matrix"""
     mode, threshold = mode_threshold
