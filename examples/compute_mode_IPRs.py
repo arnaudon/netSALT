@@ -38,25 +38,35 @@ modes_Qfactor = np.round(
 
 
 ### PLOT ###
-thresholds = modes_df["lasing_thresholds"]
-
-plt.figure()
-plt.scatter(
-    np.log10(modes_df["IPR"]),
-    modes_Qfactor,
-    c = thresholds,
-    cmap = "viridis_r",
-#    vmin = 0.,
-    vmax = params["D0_max"],
-    alpha = 0.5,
-)
-cbar = plt.colorbar()
-cbar.set_label("threshold")
-
-ax = plt.gca()
-ax.set(xlabel=r"$log_{10}(IPR)$")
-ax.set(ylabel=r"$Q$ factor")
-
-plt.savefig('modes_IPR_thresholds.png')
+plt.hist(
+np.round(modes_df["IPR"], 1),
+    bins = 50, 
+    range = (0, 50)
+    )
+plt.savefig('IPR_histogram.png')
 plt.show()
 
+try:
+    thresholds = modes_df["lasing_thresholds"]
+
+    plt.figure()
+    plt.scatter(
+        np.log10(modes_df["IPR"]),
+        modes_Qfactor,
+        c = thresholds,
+        cmap = "viridis_r",
+#        vmin = 0.,
+        vmax = params["D0_max"],
+        alpha = 0.5,
+    )
+    cbar = plt.colorbar()
+    cbar.set_label("threshold")
+
+    ax = plt.gca()
+    ax.set(xlabel=r"$log_{10}(IPR)$")
+    ax.set(ylabel=r"$Q$ factor")
+
+    plt.savefig('modes_IPR_thresholds.png')
+    plt.show()
+except:
+    pass

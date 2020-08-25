@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import yaml as yaml
 
+import networkx as nx
 import netsalt
 from graph_generator import generate_graph, generate_index
 from netsalt import plotting
@@ -38,6 +39,22 @@ netsalt.set_dispersion_relation(graph, netsalt.physics.dispersion_relation_pump,
 graph = netsalt.oversample_graph(graph, params)
 netsalt.update_parameters(graph, params)
 netsalt.save_graph(graph)
+
+# graph properties
+print('graph properties:')
+deg = nx.degree_histogram(graph)
+print('degree distribution', deg)
+c = nx.cycle_basis(graph)
+print('length cycle basis', len(c))
+
+print('number of nodes', len(graph.nodes()))
+print('number of edges', len(graph.edges()))
+print('number of inner edges', sum(graph.graph["params"]["inner"]))
+
+lengths = [graph[u][v]["length"] for u, v in graph.edges if graph[u][v]["inner"]]
+print('min edge length', np.min(lengths))
+print('max edge length', np.max(lengths))
+print('mean edge length', np.mean(lengths))
 
 # modify colormap
 cmap = get_cmap("Pastel1_r")

@@ -4,7 +4,7 @@ import networkx as nx
 import numpy as np
 
 import netsalt
-
+from networkx.generators.harary_graph import hnm_harary_graph, hkn_harary_graph
 
 def generate_pump(tpe, graph, params):
     if tpe == "line_PRA":
@@ -153,12 +153,28 @@ def generate_graph(tpe="SM", params={}):
         )
 
     elif tpe == "SM_0" or tpe == "SM_1" or tpe == "SM_2" or tpe == "SM_0_1":
-        # G = nx.connected_watts_strogatz_graph(params['n'], params['k'], params['p'], seed = params['seed'])
-        G = nx.newman1watts_strogatz_graph(10, 2, 0)  # , seed = params['seed'])
+        G = nx.connected_watts_strogatz_graph(params['n'], params['k'], params['p'], seed = params['seed'])
+        #G = nx.watts_strogatz_graph(params['n'], params['k'], params['p'], seed = params['seed'])
         pos = [
             np.array([np.cos(2 * np.pi * i / len(G)), np.sin(2 * np.pi * i / len(G))])
             for i in range(len(G))
         ]
+
+    if tpe == "hnm_harary":
+        G = hnm_harary_graph(
+            params["n"], params["m"]
+        )
+        pos = np.array(list(nx.spring_layout(G).values()))
+        #pos = np.array(list(nx.spectral_layout(G).values()))
+        #pos = np.array(list(nx.kamada_kawai_layout(G).values()))
+
+    if tpe == "hkn_harary":
+        G = hkn_harary_graph(
+            params["k"], params["n"]
+        )
+        pos = np.array(list(nx.spring_layout(G).values()))
+        #pos = np.array(list(nx.spectral_layout(G).values()))
+        #pos = np.array(list(nx.kamada_kawai_layout(G).values()))
 
     elif tpe == "ER":
         G = nx.erdos_renyi_graph(params["n"], params["p"])
@@ -272,6 +288,9 @@ def generate_graph(tpe="SM", params={}):
         GG = GG.subgraph(max(nx.connected_components(GG), key=len))
         G = nx.Graph(GG)
         pos = mat["V"][list(G.nodes)]
+        #pos = np.array(list(nx.spring_layout(G).values()))
+        #pos = np.array(list(nx.spectral_layout(G).values()))
+        #pos = np.array(list(nx.kamada_kawai_layout(G).values()))
 
     elif (
         tpe == "uniform_delaunay_0"
