@@ -11,7 +11,7 @@ if sys.version_info < (2, 7):
 VERSION = "0.1.0"
 
 setup(
-    name="naq-graphs",
+    name="netsalt",
     author="Alexis Arnaudon",
     author_email="alexis.arnaudon@epfl.ch",
     version=VERSION,

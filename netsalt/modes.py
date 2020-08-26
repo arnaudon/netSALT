@@ -405,22 +405,15 @@ def compute_IPRs(graph, modes_df, df_entry="passive"):
 def gamma_q_value(graph, modes_df, index, df_entry="passive"):
     """Compute gamma * Q factor for a given mode."""
     mode = modes_df[df_entry][index]
-    gamma_q = (
-        -q_value(mode)
-        * np.imag(gamma(to_complex(mode), graph.graph["params"]))
-    )
-    return gamma_q
+    return -q_value(mode) * np.imag(gamma(to_complex(mode), graph.graph["params"]))
 
 
 def compute_gamma_q_values(graph, modes_df, df_entry="passive"):
     """Compute gamma * Q factor for all modes on the graph."""
-
-    gammaQs = []
-    for index in tqdm(modes_df.index, total=len(modes_df)):
-        gammaQ = gamma_q_value(graph, modes_df, index, df_entry)
-        gammaQs.append(gammaQ)
-
-    return gammaQs
+    return [
+        gamma_q_value(graph, modes_df, index, df_entry)
+        for index in tqdm(modes_df.index, total=len(modes_df))
+    ]
 
 
 def _precomputations_mode_competition(graph, pump_mask, mode_threshold):
@@ -442,7 +435,7 @@ def _precomputations_mode_competition(graph, pump_mask, mode_threshold):
     return k_mu, edge_flux, gam
 
 
-def _compute_mode_competition_element(lengths, params, data):
+def _compute_mode_competition_element(lengths, params, data, with_gamma=True):
     """Computes a single element of the mode competition matrix."""
     mu_data, nu_data, gamma_nu = data
     k_mus, edge_flux_mu = mu_data
@@ -529,10 +522,13 @@ def _compute_mode_competition_element(lengths, params, data):
 
             matrix_element += left_vector.dot(inner_matrix.dot(right_vector))
 
-    return -matrix_element * np.imag(gamma_nu)
+    if with_gamma:
+        return -matrix_element * np.imag(gamma_nu)
+    else:
+        return -matrix_element
 
 
-def compute_mode_competition_matrix(graph, modes_df):
+def compute_mode_competition_matrix(graph, modes_df, with_gamma=True):
     """Compute the mode competition matrix, or T matrix."""
     threshold_modes = modes_df["threshold_lasing_modes"].to_numpy()
     lasing_thresholds_all = modes_df["lasing_thresholds"].to_numpy()
@@ -572,7 +568,10 @@ def compute_mode_competition_matrix(graph, modes_df):
         tqdm(
             pool.imap(
                 partial(
-                    _compute_mode_competition_element, lengths, graph.graph["params"]
+                    _compute_mode_competition_element,
+                    lengths,
+                    graph.graph["params"],
+                    with_gamma=with_gamma,
                 ),
                 input_data,
             ),
