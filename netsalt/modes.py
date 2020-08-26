@@ -525,7 +525,7 @@ def _compute_mode_competition_element(lengths, params, data, with_gamma=True):
     if with_gamma:
         return -matrix_element * np.imag(gamma_nu)
     else:
-        return -matrix_element
+        return matrix_element
 
 
 def compute_mode_competition_matrix(graph, modes_df, with_gamma=True):
