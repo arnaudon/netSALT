@@ -18,13 +18,14 @@ setup(
     description="",
     install_requires=[
         "scipy>=1.2.0",
-        "networkx",
-        "matplotlib",
+        "networkx>=2.5",
+        "matplotlib>=3.3.0",
         "scikit-image",
         "tables",
         "pandas",
         "tqdm",
         "h5py",
+        "numpy",
     ],
     packages=find_packages(),
 )
