@@ -178,6 +178,7 @@ def plot_scan(
     folder="plots",
     filename="scan",
     relax_upper=False,
+    save_option=False,
 ):
     """plot the scan with the mode found"""
 
@@ -229,7 +230,8 @@ def plot_scan(
             -np.max(np.imag(modes_df["mode_trajectories"].to_numpy())),
         )
 
-    _savefig(graph, fig, folder, filename)
+    if save_option:
+        _savefig(graph, fig, folder, filename)
     return ax
 
 
@@ -245,7 +247,7 @@ def plot_quantum_graph(
     cbar_max=1,
     folder="plots",
     filename="original_graph",
-    save_option=True,
+    save_option=False,
 ):
     """plot the graph"""
     positions = [graph.nodes[u]["position"] for u in graph]

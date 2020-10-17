@@ -242,14 +242,14 @@ def construct_weight_matrix(graph, with_k=True):
 
 def set_inner_edges(graph, params, outer_edges=None):
     """set the inner edges to True, according to a model"""
-    if params["open_model"] not in ["open_ends", "closed", "custom"]:
+    if params["open_model"] not in ["open", "closed", "custom"]:
         raise Exception(
             "open_model value not understood:{}".format(params["open_model"])
         )
 
     params["inner"] = []
     for ei, (u, v) in enumerate(graph.edges()):
-        if params["open_model"] == "open_ends" and (
+        if params["open_model"] == "open" and (
             len(graph[u]) == 1 or len(graph[v]) == 1
         ):
             graph[u][v]["inner"] = False
