@@ -27,6 +27,7 @@ setup(
         "h5py",
         "numpy",
         "luigi",
+        "pyyaml",
     ],
     packages=find_packages(),
 )
