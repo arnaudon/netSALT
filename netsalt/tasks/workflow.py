@@ -1,8 +1,8 @@
 """Main tasks to run entire workflows."""
 import luigi
 
-from .passive import CreateQuantumGraph, ScanFrequencies
-from .analysis import PlotQuantumGraph, PlotScanFrequencies
+from .passive import CreateQuantumGraph, ScanFrequencies, FindPassiveModes
+from .analysis import PlotQuantumGraph, PlotScanFrequencies, PlotPassiveModes
 
 
 class ComputePassiveModes(luigi.WrapperTask):
@@ -15,4 +15,6 @@ class ComputePassiveModes(luigi.WrapperTask):
             PlotQuantumGraph(),
             ScanFrequencies(),
             PlotScanFrequencies(),
+            FindPassiveModes(),
+            PlotPassiveModes(),
         ]
