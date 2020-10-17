@@ -135,7 +135,7 @@ def find_modes(graph, qualities):
     L.info("Found %s after refinements.", len(true_modes))
 
     modes_sorted = true_modes[np.argsort(true_modes[:, 1])]
-    if graph.graph["params"]["n_modes_max"]:
+    if "n_modes_max" in graph.graph["params"] and graph.graph["params"]["n_modes_max"]:
         L.info(
             "...but we will use the top %s modes only",
             graph.graph["params"]["n_modes_max"],

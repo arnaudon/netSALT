@@ -26,6 +26,7 @@ setup(
         "tqdm",
         "h5py",
         "numpy",
+        "luigi",
     ],
     packages=find_packages(),
 )

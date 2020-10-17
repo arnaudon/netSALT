@@ -1,15 +1,17 @@
 """Tasks for analysis of results."""
+from pathlib import Path
 import numpy as np
+import luigi
 import networkx as nx
 
 import matplotlib.pyplot as plt
 from matplotlib.cm import get_cmap
 from matplotlib.colors import ListedColormap
 
-from netsalt.plotting import plot_quantum_graph, plot_scan
-from netsalt.io import load_graph, load_qualities
+from netsalt.plotting import plot_quantum_graph, plot_scan, plot_modes
+from netsalt.io import load_graph, load_qualities, load_modes
 
-from .passive import CreateQuantumGraph, ScanFrequencies
+from .passive import CreateQuantumGraph, ScanFrequencies, FindPassiveModes
 from .netsalt_task import NetSaltTask
 
 
@@ -63,20 +65,28 @@ class PlotScanFrequencies(NetSaltTask):
 
     def run(self):
         """"""
-        qg = load_graph(self.input()["graph"].path)
-        scan_class = ScanFrequencies()
-        qg.graph["params"].update(
-            {
-                "n_workers": scan_class.n_workers,
-                "k_n": scan_class.k_n,
-                "k_min": scan_class.k_min,
-                "k_max": scan_class.k_max,
-                "alpha_n": scan_class.alpha_n,
-                "alpha_min": scan_class.alpha_min,
-                "alpha_max": scan_class.alpha_max,
-            }
-        )
-
+        qg = ScanFrequencies().get_graph(self.input()["graph"].path)
         qualities = load_qualities(filename=self.input()["qualities"].path)
         plot_scan(qg, qualities, filename=self.target_path)
         plt.savefig(self.target_path, bbox_inches="tight")
+
+
+class PlotPassiveModes(NetSaltTask):
+    """Plot passive modes."""
+
+    ext = luigi.Parameter(default=".png")
+
+    def requires(self):
+        """"""
+        return {"graph": CreateQuantumGraph(), "modes": FindPassiveModes()}
+
+    def run(self):
+        """"""
+        qg = FindPassiveModes().get_graph(self.input()["graph"].path)
+        modes_df = load_modes(self.input()["modes"].path)
+
+        if not Path(self.target_path).exists():
+            Path(self.target_path).mkdir()
+        plot_modes(
+            qg, modes_df, df_entry="passive", folder=self.target_path, ext=self.ext
+        )

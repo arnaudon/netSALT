@@ -2,7 +2,13 @@
 import numpy as np
 import luigi
 
-from netsalt.io import load_graph, save_graph, save_qualities
+from netsalt.io import (
+    load_graph,
+    save_graph,
+    save_qualities,
+    load_qualities,
+    save_modes,
+)
 from netsalt.quantum_graph import (
     create_quantum_graph,
     set_total_length,
@@ -14,7 +20,7 @@ from netsalt.physics import (
     dispersion_relation_pump,
     set_dispersion_relation,
 )
-from netsalt.modes import scan_frequencies
+from netsalt.modes import scan_frequencies, find_modes
 
 from .netsalt_task import NetSaltTask
 
@@ -77,9 +83,9 @@ class ScanFrequencies(NetSaltTask):
         """"""
         return CreateQuantumGraph()
 
-    def run(self):
-        """"""
-        qg = load_graph(self.input().path)
+    def get_graph(self, graph_path):
+        """To ensure we get all parameters."""
+        qg = load_graph(graph_path)
         qg.graph["params"].update(
             {
                 "n_workers": self.n_workers,
@@ -91,5 +97,41 @@ class ScanFrequencies(NetSaltTask):
                 "alpha_max": self.alpha_max,
             }
         )
+        return qg
+
+    def run(self):
+        """"""
+        qg = self.get_graph(self.input().path)
         qualities = scan_frequencies(qg)
         save_qualities(qualities, filename=self.target_path)
+
+
+class FindPassiveModes(NetSaltTask):
+    """Find passive modes from quality scan."""
+
+    quality_threshold = luigi.FloatParameter(default=1e-3)
+    max_steps = luigi.IntParameter(default=1000)
+    max_tries_reduction = luigi.IntParameter(default=50)
+
+    def requires(self):
+        """"""
+        return {"graph": CreateQuantumGraph(), "qualities": ScanFrequencies()}
+
+    def get_graph(self, graph_path):
+        """To ensure we get all parameters."""
+        qg = ScanFrequencies().get_graph(graph_path)
+        qg.graph["params"].update(
+            {
+                "quality_threshold": self.quality_threshold,
+                "max_steps": self.max_steps,
+                "max_tries_reduction": self.max_tries_reduction,
+            }
+        )
+        return qg
+
+    def run(self):
+        """"""
+        qg = self.get_graph(self.input()["graph"].path)
+        qualities = load_qualities(filename=self.input()["qualities"].path)
+        modes_df = find_modes(qg, qualities)
+        save_modes(modes_df, filename=self.target_path)

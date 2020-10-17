@@ -399,22 +399,21 @@ def plot_single_mode(
 
 def plot_modes(graph, modes_df, df_entry="passive", folder="modes", ext=".png"):
     """Plot modes on the graph."""
-
     for index in tqdm(modes_df.index, total=len(modes_df)):
         plot_single_mode(graph, modes_df, index, df_entry)
 
         plt.savefig(folder + "/mode_" + str(index) + ext)
         plt.close()
-        if graph.graph["name"] == "line_PRA" or graph.graph["name"] == "line_semi":
-            plot_line_mode(graph, modes_df, index, df_entry)
-            plt.savefig(folder + "/profile_mode_" + str(index) + ext)
+        if "name" in graph.graph:
+            if graph.graph["name"] == "line_PRA" or graph.graph["name"] == "line_semi":
+                plot_line_mode(graph, modes_df, index, df_entry)
+                plt.savefig(folder + "/profile_mode_" + str(index) + ext)
 
 
 def plot_line_mode(graph, modes_df, index, df_entry="passive", ax=None):
     """Plot single mode on the line."""
-
     if ax is None:
-        plt.figure(figsize=(5, 4))  # 14, 3
+        plt.figure(figsize=(5, 4))
         ax = plt.gca()
 
     mode = modes_df[df_entry][index]
