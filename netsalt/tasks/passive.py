@@ -112,6 +112,7 @@ class FindPassiveModes(NetSaltTask):
     quality_threshold = luigi.FloatParameter(default=1e-3)
     max_steps = luigi.IntParameter(default=1000)
     max_tries_reduction = luigi.IntParameter(default=50)
+    reduction_factor = luigi.FloatParameter(default=1.0)
 
     def requires(self):
         """"""
@@ -125,6 +126,7 @@ class FindPassiveModes(NetSaltTask):
                 "quality_threshold": self.quality_threshold,
                 "max_steps": self.max_steps,
                 "max_tries_reduction": self.max_tries_reduction,
+                "reduction_factor": self.reduction_factor,
             }
         )
         return qg
