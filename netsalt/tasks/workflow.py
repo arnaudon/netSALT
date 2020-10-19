@@ -2,12 +2,14 @@
 import luigi
 
 from .passive import CreateQuantumGraph, ScanFrequencies, FindPassiveModes
-from .lasing import CreatePumpProfile, ComputeModeTrajectories
+from .lasing import CreatePumpProfile, ComputeModeTrajectories, FindThresholdLasingModes
 from .analysis import (
     PlotQuantumGraph,
     PlotScanFrequencies,
     PlotPassiveModes,
+    PlotScanFrequenciesWithModes,
     PlotModeTrajectories,
+    PlotThresholdLasingModes,
 )
 
 
@@ -23,6 +25,7 @@ class ComputePassiveModes(luigi.WrapperTask):
             PlotScanFrequencies(),
             FindPassiveModes(),
             PlotPassiveModes(),
+            PlotScanFrequenciesWithModes(),
         ]
 
 
@@ -36,5 +39,7 @@ class ComputeLasingModes(luigi.WrapperTask):
             CreatePumpProfile(),
             ComputeModeTrajectories(),
             PlotModeTrajectories(),
+            FindThresholdLasingModes(),
+            PlotThresholdLasingModes(),
         ]
         return tasks

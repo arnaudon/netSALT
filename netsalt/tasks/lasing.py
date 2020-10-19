@@ -3,7 +3,7 @@ import numpy as np
 import yaml
 import luigi
 
-from netsalt.modes import pump_trajectories
+from netsalt.modes import pump_trajectories, find_threshold_lasing_modes
 from netsalt.io import load_modes, save_modes
 
 from .passive import CreateQuantumGraph, FindPassiveModes
@@ -55,6 +55,7 @@ class ComputeModeTrajectories(NetSaltTask):
                 "D0_steps": self.D0_steps,
                 "k_a": self.k_a,
                 "gamma_perp": self.gamma_perp,
+                "pump": np.array(yaml.full_load(self.input()["pump"].open())),
             }
         )
         return qg
@@ -63,9 +64,25 @@ class ComputeModeTrajectories(NetSaltTask):
         """"""
         modes_df = load_modes(self.input()["modes"].path)
         qg = self.get_graph(self.input()["graph"].path)
-        qg.graph["params"]["pump"] = np.array(
-            yaml.full_load(self.input()["pump"].open())
-        )
 
         modes_df = pump_trajectories(modes_df, qg, return_approx=True)
+        save_modes(modes_df, filename=self.target_path)
+
+
+class FindThresholdLasingModes(NetSaltTask):
+    """Find the lasing thresholds and associated modes."""
+
+    def requires(self):
+        """"""
+        return {
+            "graph": CreateQuantumGraph(),
+            "modes": ComputeModeTrajectories(),
+            "pump": CreatePumpProfile(),
+        }
+
+    def run(self):
+        """"""
+        qg = ComputeModeTrajectories().get_graph(self.input()["graph"].path)
+        modes_df = load_modes(self.input()["modes"].path)
+        modes_df = find_threshold_lasing_modes(modes_df, qg)
         save_modes(modes_df, filename=self.target_path)

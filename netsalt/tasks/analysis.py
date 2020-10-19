@@ -12,7 +12,7 @@ from netsalt.plotting import plot_quantum_graph, plot_scan, plot_modes
 from netsalt.io import load_graph, load_qualities, load_modes
 
 from .passive import CreateQuantumGraph, ScanFrequencies, FindPassiveModes
-from .lasing import ComputeModeTrajectories
+from .lasing import ComputeModeTrajectories, FindThresholdLasingModes
 from .netsalt_task import NetSaltTask
 
 
@@ -73,9 +73,15 @@ class PlotScanFrequencies(NetSaltTask):
 
 
 class PlotPassiveModes(NetSaltTask):
-    """Plot passive modes."""
+    """Plot passive modes.
+
+    Args:
+        ext (str): extansion for saving plots
+        n_modes (int): number of modes to plot (ordered by Q-values)
+    """
 
     ext = luigi.Parameter(default=".png")
+    n_modes = luigi.IntParameter(default=10)
 
     def requires(self):
         """"""
@@ -84,13 +90,33 @@ class PlotPassiveModes(NetSaltTask):
     def run(self):
         """"""
         qg = FindPassiveModes().get_graph(self.input()["graph"].path)
-        modes_df = load_modes(self.input()["modes"].path)
+        modes_df = load_modes(self.input()["modes"].path).head(10)
 
         if not Path(self.target_path).exists():
             Path(self.target_path).mkdir()
         plot_modes(
             qg, modes_df, df_entry="passive", folder=self.target_path, ext=self.ext
         )
+
+
+class PlotScanFrequenciesWithModes(NetSaltTask):
+    """Plot scan frequencies with modes."""
+
+    def requires(self):
+        """"""
+        return {
+            "graph": CreateQuantumGraph(),
+            "qualities": ScanFrequencies(),
+            "modes": FindPassiveModes(),
+        }
+
+    def run(self):
+        """"""
+        qg = ScanFrequencies().get_graph(self.input()["graph"].path)
+        qualities = load_qualities(filename=self.input()["qualities"].path)
+        modes_df = load_modes(self.input()["modes"].path)
+        plot_scan(qg, qualities, modes_df, filename=self.target_path)
+        plt.savefig(self.target_path, bbox_inches="tight")
 
 
 class PlotModeTrajectories(NetSaltTask):
@@ -106,11 +132,34 @@ class PlotModeTrajectories(NetSaltTask):
 
     def run(self):
         """"""
-
         qg = ScanFrequencies().get_graph(self.input()["graph"].path)
         qualities = load_qualities(filename=self.input()["qualities"].path)
         modes_df = load_modes(self.input()["trajectories"].path)
-        plot_scan(
-            qg, qualities, modes_df, filename="scan_with_trajectories", relax_upper=True
-        )
+
+        plot_scan(qg, qualities, modes_df, relax_upper=True)
+        plt.savefig(self.target_path, bbox_inches="tight")
+
+
+class PlotThresholdLasingModes(NetSaltTask):
+    """"Plot threshold lasing modes."""
+
+    def requires(self):
+        """"""
+        return {
+            "graph": CreateQuantumGraph(),
+            "qualities": ScanFrequencies(),
+            "trajectories": ComputeModeTrajectories(),
+            "thresholds": FindThresholdLasingModes(),
+        }
+
+    def run(self):
+        """"""
+        qg = ComputeModeTrajectories().get_graph(self.input()["graph"].path)
+        qualities = load_qualities(filename=self.input()["qualities"].path)
+        modes_df = load_modes(self.input()["thresholds"].path)
+        modes_traj_df = load_modes(self.input()["trajectories"].path)
+        modes_df["mode_trajectories"] = modes_traj_df["mode_trajectories"]
+        print(modes_df)
+
+        plot_scan(qg, qualities, modes_df, relax_upper=True)
         plt.savefig(self.target_path, bbox_inches="tight")
