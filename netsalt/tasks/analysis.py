@@ -9,11 +9,17 @@ import matplotlib.pyplot as plt
 from matplotlib.cm import get_cmap
 from matplotlib.colors import ListedColormap
 
-from netsalt.plotting import plot_quantum_graph, plot_scan, plot_modes
+from netsalt.plotting import (
+    plot_quantum_graph,
+    plot_scan,
+    plot_modes,
+    plot_ll_curve,
+    plot_stem_spectra,
+)
 from netsalt.io import load_graph, load_qualities, load_modes
 
 from .passive import CreateQuantumGraph, ScanFrequencies, FindPassiveModes
-from .lasing import ComputeModeTrajectories, FindThresholdModes
+from .lasing import ComputeModeTrajectories, FindThresholdModes, ComputeModalIntensities
 from .netsalt_task import NetSaltTask
 
 
@@ -193,3 +199,33 @@ class PlotThresholdModes(NetSaltTask):
             folder=self.target_path,
             ext=self.ext,
         )
+
+
+class PlotLLCurve(NetSaltTask):
+    """Plot LL curves from modal intensities."""
+
+    def requires(self):
+        """"""
+        return {"modes": ComputeModalIntensities(), "graph": CreateQuantumGraph()}
+
+    def run(self):
+        """"""
+        qg = ComputeModeTrajectories().get_graph(self.input()["graph"].path)
+        modes_df = load_modes(self.input()["modes"].path)
+        plot_ll_curve(qg, modes_df, with_legend=True)
+        plt.savefig(self.target_path, bbox_inches="tight")
+
+
+class PlotStemSpectra(NetSaltTask):
+    """Plot LL curves from modal intensities."""
+
+    def requires(self):
+        """"""
+        return {"modes": ComputeModalIntensities(), "graph": CreateQuantumGraph()}
+
+    def run(self):
+        """"""
+        qg = ComputeModeTrajectories().get_graph(self.input()["graph"].path)
+        modes_df = load_modes(self.input()["modes"].path)
+        plot_stem_spectra(qg, modes_df)
+        plt.savefig(self.target_path, bbox_inches="tight")

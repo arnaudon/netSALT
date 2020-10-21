@@ -37,6 +37,7 @@ def plot_spectra(
     ax=None,
     folder="plots",
     filename="spectra",
+    save_option=False,
 ):
     """Plot spectra with linewidths."""
     threshold_modes = np.real(modes_df["threshold_lasing_modes"])
@@ -66,11 +67,18 @@ def plot_spectra(
     ax2.set_xlabel(r"$\lambda$")
     ax2.set_ylabel("Gain spectrum (a.u.)")
 
-    _savefig(graph, fig, folder, filename)
+    if save_option:
+        _savefig(graph, fig, folder, filename)
 
 
 def plot_stem_spectra(
-    graph, modes_df, pump_index=-1, ax=None, folder="plots", filename="stem_spectra"
+    graph,
+    modes_df,
+    pump_index=-1,
+    ax=None,
+    folder="plots",
+    filename="stem_spectra",
+    save_option=False,
 ):
     """Plot spectra with stem plots."""
     threshold_modes = np.real(modes_df["threshold_lasing_modes"])
@@ -115,7 +123,8 @@ def plot_stem_spectra(
     lams = 2 * np.pi / ks
     ax3.set_xlim(lams[0], lams[-1])
 
-    _savefig(graph, fig, folder, filename)
+    if save_option:
+        _savefig(graph, fig, folder, filename)
 
 
 def plot_ll_curve(
@@ -127,6 +136,7 @@ def plot_ll_curve(
     with_thresholds=False,
     folder="plots",
     filename="ll_curve",
+    save_option=False,
 ):
     """Plot LL curves."""
     colors = cycle(["C{}".format(i) for i in range(10)])
@@ -139,6 +149,10 @@ def plot_ll_curve(
 
     for index, mode in modes_df.iterrows():
         intens = np.real(mode["modal_intensities"].to_numpy())
+        if not any(~np.isnan(intens)):
+            # do not plot non-lasing modes
+            continue
+
         if with_colors:
             color = next(colors)
         else:
@@ -163,7 +177,8 @@ def plot_ll_curve(
     ax.set_xlabel(r"$D_0$")
     ax.set_ylabel("Intensity (a.u)")
 
-    _savefig(graph, fig, folder, filename)
+    if save_option:
+        _savefig(graph, fig, folder, filename)
 
 
 def plot_scan(

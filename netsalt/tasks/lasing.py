@@ -3,8 +3,18 @@ import numpy as np
 import yaml
 import luigi
 
-from netsalt.modes import pump_trajectories, find_threshold_lasing_modes
-from netsalt.io import load_modes, save_modes
+from netsalt.modes import (
+    pump_trajectories,
+    find_threshold_lasing_modes,
+    compute_mode_competition_matrix,
+    compute_modal_intensities,
+)
+from netsalt.io import (
+    load_modes,
+    save_modes,
+    save_mode_competition_matrix,
+    load_mode_competition_matrix,
+)
 
 from .passive import CreateQuantumGraph, FindPassiveModes
 from .netsalt_task import NetSaltTask
@@ -85,4 +95,45 @@ class FindThresholdModes(NetSaltTask):
         qg = ComputeModeTrajectories().get_graph(self.input()["graph"].path)
         modes_df = load_modes(self.input()["modes"].path)
         modes_df = find_threshold_lasing_modes(modes_df, qg)
+        save_modes(modes_df, filename=self.target_path)
+
+
+class ComputeModeCompetitionMatrix(NetSaltTask):
+    """Compute the mode competition matrix."""
+
+    def requires(self):
+        """"""
+        return {"graph": CreateQuantumGraph(), "modes": FindThresholdModes()}
+
+    def run(self):
+        """"""
+
+        qg = ComputeModeTrajectories().get_graph(self.input()["graph"].path)
+        modes_df = load_modes(self.input()["modes"].path)
+        mode_competition_matrix = compute_mode_competition_matrix(qg, modes_df)
+        save_mode_competition_matrix(mode_competition_matrix, filename=self.target_path)
+
+
+class ComputeModalIntensities(NetSaltTask):
+    """Compute modal intensities as a function of pump strenght."""
+
+    D0_max = luigi.FloatParameter(default=0.1)
+
+    def requires(self):
+        """"""
+        return {
+            "modes": FindThresholdModes(),
+            "competition_matrix": ComputeModeCompetitionMatrix(),
+        }
+
+    def run(self):
+        """"""
+        modes_df = load_modes(self.input()["modes"].path)
+        mode_competition_matrix = load_mode_competition_matrix(
+            self.input()["competition_matrix"].path
+        )
+        modes_df = compute_modal_intensities(
+            modes_df, self.D0_max, mode_competition_matrix
+        )
+
         save_modes(modes_df, filename=self.target_path)
