@@ -1,6 +1,7 @@
 """Tasks for analysis of results."""
 from pathlib import Path
 import numpy as np
+import pandas as pd
 import luigi
 import networkx as nx
 
@@ -12,7 +13,7 @@ from netsalt.plotting import plot_quantum_graph, plot_scan, plot_modes
 from netsalt.io import load_graph, load_qualities, load_modes
 
 from .passive import CreateQuantumGraph, ScanFrequencies, FindPassiveModes
-from .lasing import ComputeModeTrajectories, FindThresholdLasingModes
+from .lasing import ComputeModeTrajectories, FindThresholdModes
 from .netsalt_task import NetSaltTask
 
 
@@ -57,7 +58,7 @@ class PlotQuantumGraph(NetSaltTask):
         plt.savefig(self.target_path, bbox_inches="tight")
 
 
-class PlotScanFrequencies(NetSaltTask):
+class PlotScan(NetSaltTask):
     """Plot scan frequencies."""
 
     def requires(self):
@@ -99,7 +100,7 @@ class PlotPassiveModes(NetSaltTask):
         )
 
 
-class PlotScanFrequenciesWithModes(NetSaltTask):
+class PlotScanWithModes(NetSaltTask):
     """Plot scan frequencies with modes."""
 
     def requires(self):
@@ -119,7 +120,7 @@ class PlotScanFrequenciesWithModes(NetSaltTask):
         plt.savefig(self.target_path, bbox_inches="tight")
 
 
-class PlotModeTrajectories(NetSaltTask):
+class PlotScanWithModeTrajectories(NetSaltTask):
     """Plot mode trajectories."""
 
     def requires(self):
@@ -140,7 +141,7 @@ class PlotModeTrajectories(NetSaltTask):
         plt.savefig(self.target_path, bbox_inches="tight")
 
 
-class PlotThresholdLasingModes(NetSaltTask):
+class PlotScanWithThresholdModes(NetSaltTask):
     """"Plot threshold lasing modes."""
 
     def requires(self):
@@ -148,8 +149,7 @@ class PlotThresholdLasingModes(NetSaltTask):
         return {
             "graph": CreateQuantumGraph(),
             "qualities": ScanFrequencies(),
-            "trajectories": ComputeModeTrajectories(),
-            "thresholds": FindThresholdLasingModes(),
+            "thresholds": FindThresholdModes(),
         }
 
     def run(self):
@@ -157,9 +157,39 @@ class PlotThresholdLasingModes(NetSaltTask):
         qg = ComputeModeTrajectories().get_graph(self.input()["graph"].path)
         qualities = load_qualities(filename=self.input()["qualities"].path)
         modes_df = load_modes(self.input()["thresholds"].path)
-        modes_traj_df = load_modes(self.input()["trajectories"].path)
-        modes_df["mode_trajectories"] = modes_traj_df["mode_trajectories"]
-        print(modes_df)
 
         plot_scan(qg, qualities, modes_df, relax_upper=True)
         plt.savefig(self.target_path, bbox_inches="tight")
+
+
+class PlotThresholdModes(NetSaltTask):
+    """Plot threshold modes.
+
+    Args:
+        ext (str): extansion for saving plots
+        n_modes (int): number of modes to plot (ordered by Q-values)
+    """
+
+    ext = luigi.Parameter(default=".png")
+    n_modes = luigi.IntParameter(default=10)
+
+    def requires(self):
+        """"""
+        return {"graph": CreateQuantumGraph(), "modes": FindThresholdModes()}
+
+    def run(self):
+        """"""
+        qg = ComputeModeTrajectories().get_graph(self.input()["graph"].path)
+        modes_df = load_modes(self.input()["modes"].path).head(10)
+
+        if not Path(self.target_path).exists():
+            Path(self.target_path).mkdir()
+        pd.options.mode.use_inf_as_na = True
+        modes_df = modes_df[~modes_df["lasing_thresholds"].isna()]
+        plot_modes(
+            qg,
+            modes_df,
+            df_entry="threshold_lasing_modes",
+            folder=self.target_path,
+            ext=self.ext,
+        )

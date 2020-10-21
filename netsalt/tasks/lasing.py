@@ -69,7 +69,7 @@ class ComputeModeTrajectories(NetSaltTask):
         save_modes(modes_df, filename=self.target_path)
 
 
-class FindThresholdLasingModes(NetSaltTask):
+class FindThresholdModes(NetSaltTask):
     """Find the lasing thresholds and associated modes."""
 
     def requires(self):
