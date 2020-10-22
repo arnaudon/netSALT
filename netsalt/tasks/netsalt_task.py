@@ -4,6 +4,12 @@ from hashlib import sha256
 from pathlib import Path
 
 import luigi
+import numpy as np
+import yaml
+
+from netsalt.io import load_graph
+
+from .config import ModeSearchConfig, PumpConfig
 
 
 def ensure_dir(file_path):
@@ -27,7 +33,7 @@ class HashedTask(luigi.Task):
         """Init."""
         super().__init__(*args, **kwargs)
 
-        self.with_hash = False  # True
+        self.with_hash = True
         self.task_hash = self.get_full_id()
         self.hashed_target_path = None
         self.set_hashed_target_path()
@@ -61,10 +67,10 @@ class HashedTask(luigi.Task):
 
     def output(self):
         """Overloading of the output class to include hash in filenames by default."""
+        ensure_dir(self.target_path)
         if self.hashed_target_path is not None:
             ensure_dir(self.hashed_target_path)
             return luigi.LocalTarget(self.hashed_target_path)
-        ensure_dir(self.target_path)
         return luigi.LocalTarget(self.target_path)
 
     def on_success(self):
@@ -95,3 +101,37 @@ class NetSaltTask(HashedTask):
                     target, luigi.target.FileSystemTarget
                 ):
                     target.fs.remove(target.path, recursive=True)
+
+    def get_graph(self, graph_path):  # pylint: disable=no-self-use
+        """To ensure we get all parameters."""
+        qg = load_graph(graph_path)
+        config = ModeSearchConfig()
+        qg.graph["params"].update(
+            {
+                "n_workers": config.n_workers,
+                "k_n": config.k_n,
+                "k_min": config.k_min,
+                "k_max": config.k_max,
+                "alpha_n": config.alpha_n,
+                "alpha_min": config.alpha_min,
+                "alpha_max": config.alpha_max,
+                "quality_threshold": config.quality_threshold,
+                "max_steps": config.max_steps,
+                "max_tries_reduction": config.max_tries_reduction,
+                "reduction_factor": config.reduction_factor,
+                "search_stepsize": config.search_stepsize,
+            }
+        )
+        return qg
+
+    def get_graph_with_pump(self, graph_path):
+        """To ensure we get all parameters, needs pump entry in requires."""
+        qg = self.get_graph(graph_path)
+        qg.graph["params"].update(
+            {
+                "D0_max": PumpConfig().D0_max,
+                "D0_steps": PumpConfig().D0_steps,
+                "pump": np.array(yaml.full_load(self.input()["pump"].open())),
+            }
+        )
+        return qg

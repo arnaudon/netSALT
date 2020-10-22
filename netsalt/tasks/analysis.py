@@ -1,26 +1,26 @@
 """Tasks for analysis of results."""
 from pathlib import Path
+
+import luigi
+import matplotlib.pyplot as plt
+import networkx as nx
 import numpy as np
 import pandas as pd
-import luigi
-import networkx as nx
-
-import matplotlib.pyplot as plt
 from matplotlib.cm import get_cmap
 from matplotlib.colors import ListedColormap
 
+from netsalt.io import load_graph, load_modes, load_qualities
 from netsalt.plotting import (
+    plot_ll_curve,
+    plot_modes,
     plot_quantum_graph,
     plot_scan,
-    plot_modes,
-    plot_ll_curve,
     plot_stem_spectra,
 )
-from netsalt.io import load_graph, load_qualities, load_modes
 
-from .passive import CreateQuantumGraph, ScanFrequencies, FindPassiveModes
-from .lasing import ComputeModeTrajectories, FindThresholdModes, ComputeModalIntensities
+from .lasing import ComputeModalIntensities, ComputeModeTrajectories, FindThresholdModes
 from .netsalt_task import NetSaltTask
+from .passive import CreateQuantumGraph, FindPassiveModes, ScanFrequencies
 
 
 class PlotQuantumGraph(NetSaltTask):
@@ -61,7 +61,7 @@ class PlotQuantumGraph(NetSaltTask):
             cbar_max=np.max(np.abs(qg.graph["params"]["dielectric_constant"])),
         )
 
-        plt.savefig(self.target_path, bbox_inches="tight")
+        plt.savefig(self.output().path, bbox_inches="tight")
 
 
 class PlotScan(NetSaltTask):
@@ -75,8 +75,8 @@ class PlotScan(NetSaltTask):
         """"""
         qg = ScanFrequencies().get_graph(self.input()["graph"].path)
         qualities = load_qualities(filename=self.input()["qualities"].path)
-        plot_scan(qg, qualities, filename=self.target_path)
-        plt.savefig(self.target_path, bbox_inches="tight")
+        plot_scan(qg, qualities, filename=self.output().path)
+        plt.savefig(self.output().path, bbox_inches="tight")
 
 
 class PlotPassiveModes(NetSaltTask):
@@ -97,12 +97,12 @@ class PlotPassiveModes(NetSaltTask):
     def run(self):
         """"""
         qg = FindPassiveModes().get_graph(self.input()["graph"].path)
-        modes_df = load_modes(self.input()["modes"].path).head(10)
+        modes_df = load_modes(self.input()["modes"].path).head(self.n_modes)
 
-        if not Path(self.target_path).exists():
-            Path(self.target_path).mkdir()
+        if not Path(self.output().path).exists():
+            Path(self.output().path).mkdir()
         plot_modes(
-            qg, modes_df, df_entry="passive", folder=self.target_path, ext=self.ext
+            qg, modes_df, df_entry="passive", folder=self.output().path, ext=self.ext
         )
 
 
@@ -122,8 +122,8 @@ class PlotScanWithModes(NetSaltTask):
         qg = ScanFrequencies().get_graph(self.input()["graph"].path)
         qualities = load_qualities(filename=self.input()["qualities"].path)
         modes_df = load_modes(self.input()["modes"].path)
-        plot_scan(qg, qualities, modes_df, filename=self.target_path)
-        plt.savefig(self.target_path, bbox_inches="tight")
+        plot_scan(qg, qualities, modes_df, filename=self.output().path)
+        plt.savefig(self.output().path, bbox_inches="tight")
 
 
 class PlotScanWithModeTrajectories(NetSaltTask):
@@ -144,7 +144,7 @@ class PlotScanWithModeTrajectories(NetSaltTask):
         modes_df = load_modes(self.input()["trajectories"].path)
 
         plot_scan(qg, qualities, modes_df, relax_upper=True)
-        plt.savefig(self.target_path, bbox_inches="tight")
+        plt.savefig(self.output().path, bbox_inches="tight")
 
 
 class PlotScanWithThresholdModes(NetSaltTask):
@@ -165,7 +165,7 @@ class PlotScanWithThresholdModes(NetSaltTask):
         modes_df = load_modes(self.input()["thresholds"].path)
 
         plot_scan(qg, qualities, modes_df, relax_upper=True)
-        plt.savefig(self.target_path, bbox_inches="tight")
+        plt.savefig(self.output().path, bbox_inches="tight")
 
 
 class PlotThresholdModes(NetSaltTask):
@@ -188,15 +188,15 @@ class PlotThresholdModes(NetSaltTask):
         qg = ComputeModeTrajectories().get_graph(self.input()["graph"].path)
         modes_df = load_modes(self.input()["modes"].path).head(10)
 
-        if not Path(self.target_path).exists():
-            Path(self.target_path).mkdir()
+        if not Path(self.output().path).exists():
+            Path(self.output().path).mkdir()
         pd.options.mode.use_inf_as_na = True
         modes_df = modes_df[~modes_df["lasing_thresholds"].isna()]
         plot_modes(
             qg,
             modes_df,
             df_entry="threshold_lasing_modes",
-            folder=self.target_path,
+            folder=self.output().path,
             ext=self.ext,
         )
 
@@ -213,7 +213,7 @@ class PlotLLCurve(NetSaltTask):
         qg = ComputeModeTrajectories().get_graph(self.input()["graph"].path)
         modes_df = load_modes(self.input()["modes"].path)
         plot_ll_curve(qg, modes_df, with_legend=True)
-        plt.savefig(self.target_path, bbox_inches="tight")
+        plt.savefig(self.output().path, bbox_inches="tight")
 
 
 class PlotStemSpectra(NetSaltTask):
@@ -228,4 +228,4 @@ class PlotStemSpectra(NetSaltTask):
         qg = ComputeModeTrajectories().get_graph(self.input()["graph"].path)
         modes_df = load_modes(self.input()["modes"].path)
         plot_stem_spectra(qg, modes_df)
-        plt.savefig(self.target_path, bbox_inches="tight")
+        plt.savefig(self.output().path, bbox_inches="tight")

@@ -1,29 +1,35 @@
 """Tasks for lasing modes."""
+import pickle
+
+import luigi
 import numpy as np
 import yaml
-import luigi
 
-from netsalt.modes import (
-    pump_trajectories,
-    find_threshold_lasing_modes,
-    compute_mode_competition_matrix,
-    compute_modal_intensities,
-)
 from netsalt.io import (
-    load_modes,
-    save_modes,
-    save_mode_competition_matrix,
     load_mode_competition_matrix,
+    load_modes,
+    save_mode_competition_matrix,
+    save_modes,
+)
+from netsalt.modes import (
+    compute_modal_intensities,
+    compute_mode_competition_matrix,
+    find_threshold_lasing_modes,
+    pump_trajectories,
 )
 
-from .passive import CreateQuantumGraph, FindPassiveModes
 from .netsalt_task import NetSaltTask
+from .passive import CreateQuantumGraph, FindPassiveModes
+from .pump import OptimizePump
 
 
 class CreatePumpProfile(NetSaltTask):
     """Create a pump profile."""
 
-    mode = luigi.ChoiceParameter(default="uniform", choices=["uniform"])
+    mode = luigi.ChoiceParameter(
+        default="uniform", choices=["uniform", "optimized", "custom"]
+    )
+    custom_pump_path = luigi.Parameter(default="pump_profile.yaml")
 
     def requires(self):
         """"""
@@ -31,22 +37,23 @@ class CreatePumpProfile(NetSaltTask):
 
     def run(self):
         """"""
-        qg = FindPassiveModes().get_graph(self.input()["graph"].path)
+        qg = self.get_graph(self.input()["graph"].path)
         if self.mode == "uniform":
             pump = np.zeros(len(qg.edges()))
             for i, (u, v) in enumerate(qg.edges()):
                 if qg[u][v]["inner"]:
                     pump[i] = 1
-        yaml.dump(pump.tolist(), open(self.target_path, "w"))
+        if self.mode == "optimized":
+            optimize_task = yield OptimizePump()
+            results = pickle.load(open(optimize_task.path, "rb"))
+            pump = results["optimal_pump"]
+        if self.mode == "custom":
+            pump = yaml.load(open(self.custom_pump_path, "r"))
+        yaml.dump(pump.tolist(), open(self.output().path, "w"))
 
 
 class ComputeModeTrajectories(NetSaltTask):
     """Compute mode trajectories from passive modes."""
-
-    D0_max = luigi.FloatParameter(default=0.05)
-    D0_steps = luigi.IntParameter(default=10)
-    k_a = luigi.FloatParameter(default=15.0)
-    gamma_perp = luigi.FloatParameter(default=3.0)
 
     def requires(self):
         """"""
@@ -56,27 +63,13 @@ class ComputeModeTrajectories(NetSaltTask):
             "pump": CreatePumpProfile(),
         }
 
-    def get_graph(self, graph_path):
-        """To ensure we get all parameters."""
-        qg = FindPassiveModes().get_graph(graph_path)
-        qg.graph["params"].update(
-            {
-                "D0_max": self.D0_max,
-                "D0_steps": self.D0_steps,
-                "k_a": self.k_a,
-                "gamma_perp": self.gamma_perp,
-                "pump": np.array(yaml.full_load(self.input()["pump"].open())),
-            }
-        )
-        return qg
-
     def run(self):
         """"""
         modes_df = load_modes(self.input()["modes"].path)
-        qg = self.get_graph(self.input()["graph"].path)
+        qg = self.get_graph_with_pump(self.input()["graph"].path)
 
         modes_df = pump_trajectories(modes_df, qg, return_approx=True)
-        save_modes(modes_df, filename=self.target_path)
+        save_modes(modes_df, filename=self.output().path)
 
 
 class FindThresholdModes(NetSaltTask):
@@ -92,10 +85,10 @@ class FindThresholdModes(NetSaltTask):
 
     def run(self):
         """"""
-        qg = ComputeModeTrajectories().get_graph(self.input()["graph"].path)
+        qg = self.get_graph_with_pump(self.input()["graph"].path)
         modes_df = load_modes(self.input()["modes"].path)
         modes_df = find_threshold_lasing_modes(modes_df, qg)
-        save_modes(modes_df, filename=self.target_path)
+        save_modes(modes_df, filename=self.output().path)
 
 
 class ComputeModeCompetitionMatrix(NetSaltTask):
@@ -103,15 +96,21 @@ class ComputeModeCompetitionMatrix(NetSaltTask):
 
     def requires(self):
         """"""
-        return {"graph": CreateQuantumGraph(), "modes": FindThresholdModes()}
+        return {
+            "graph": CreateQuantumGraph(),
+            "modes": FindThresholdModes(),
+            "pump": CreatePumpProfile(),
+        }
 
     def run(self):
         """"""
 
-        qg = ComputeModeTrajectories().get_graph(self.input()["graph"].path)
+        qg = self.get_graph_with_pump(self.input()["graph"].path)
         modes_df = load_modes(self.input()["modes"].path)
         mode_competition_matrix = compute_mode_competition_matrix(qg, modes_df)
-        save_mode_competition_matrix(mode_competition_matrix, filename=self.target_path)
+        save_mode_competition_matrix(
+            mode_competition_matrix, filename=self.output().path
+        )
 
 
 class ComputeModalIntensities(NetSaltTask):
@@ -136,4 +135,4 @@ class ComputeModalIntensities(NetSaltTask):
             modes_df, self.D0_max, mode_competition_matrix
         )
 
-        save_modes(modes_df, filename=self.target_path)
+        save_modes(modes_df, filename=self.output().path)
