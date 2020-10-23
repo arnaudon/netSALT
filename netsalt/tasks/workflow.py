@@ -1,5 +1,4 @@
 """Main tasks to run entire workflows."""
-import numpy as np
 import luigi
 import matplotlib
 import matplotlib.pyplot as plt
@@ -54,17 +53,18 @@ class ComputeLasingModes(luigi.WrapperTask):
     def requires(self):
         """"""
         tasks = ComputePassiveModes().requires()
+        lasing_modes_id = CreatePumpProfile().lasing_modes_id
         tasks += [
             CreatePumpProfile(),
-            ComputeModeTrajectories(),
-            PlotScanWithModeTrajectories(),
-            FindThresholdModes(),
-            PlotScanWithThresholdModes(),
-            PlotThresholdModes(),
-            ComputeModeCompetitionMatrix(),
-            ComputeModalIntensities(),
-            PlotLLCurve(),
-            PlotStemSpectra(),
+            ComputeModeTrajectories(lasing_modes_id=lasing_modes_id),
+            PlotScanWithModeTrajectories(lasing_modes_id=lasing_modes_id),
+            FindThresholdModes(lasing_modes_id=lasing_modes_id),
+            PlotScanWithThresholdModes(lasing_modes_id=lasing_modes_id),
+            PlotThresholdModes(lasing_modes_id=lasing_modes_id),
+            ComputeModeCompetitionMatrix(lasing_modes_id=lasing_modes_id),
+            ComputeModalIntensities(lasing_modes_id=lasing_modes_id),
+            PlotLLCurve(lasing_modes_id=lasing_modes_id),
+            PlotStemSpectra(lasing_modes_id=lasing_modes_id),
         ]
         return tasks
 
@@ -75,19 +75,20 @@ class ComputeLasingModesWithPumpOptimization(luigi.WrapperTask):
     def requires(self):
         """"""
         tasks = ComputePassiveModes().requires()
+        lasing_modes_id = CreatePumpProfile().lasing_modes_id
         tasks += [
-            OptimizePump(),
-            PlotOptimizedPump(),
+            OptimizePump(lasing_modes_id=lasing_modes_id),
+            PlotOptimizedPump(lasing_modes_id=lasing_modes_id),
             CreatePumpProfile(),
-            ComputeModeTrajectories(),
-            PlotScanWithModeTrajectories(),
-            FindThresholdModes(),
-            PlotScanWithThresholdModes(),
-            PlotThresholdModes(),
-            ComputeModeCompetitionMatrix(),
-            ComputeModalIntensities(),
-            PlotLLCurve(),
-            PlotStemSpectra(),
+            ComputeModeTrajectories(lasing_modes_id=lasing_modes_id),
+            PlotScanWithModeTrajectories(lasing_modes_id=lasing_modes_id),
+            FindThresholdModes(lasing_modes_id=lasing_modes_id),
+            PlotScanWithThresholdModes(lasing_modes_id=lasing_modes_id),
+            PlotThresholdModes(lasing_modes_id=lasing_modes_id),
+            ComputeModeCompetitionMatrix(lasing_modes_id=lasing_modes_id),
+            ComputeModalIntensities(lasing_modes_id=lasing_modes_id),
+            PlotLLCurve(lasing_modes_id=lasing_modes_id),
+            PlotStemSpectra(lasing_modes_id=lasing_modes_id),
         ]
         return tasks
 
@@ -100,32 +101,29 @@ class ComputeControllability(NetSaltTask):
 
     def requires(self):
         """"""
-        return FindPassiveModes()
+        return [FindPassiveModes(), ComputePassiveModes().requires()]
 
     def run(self):
         """"""
 
-        modes_df = load_modes(self.input().path)
+        modes_df = load_modes(self.input()[0].path)
         lasing_modes_id = modes_df.head(self.n_top_modes).index
 
         single_mode_matrix = []
         for mode_id in lasing_modes_id:
             yield CreatePumpProfile(lasing_modes_id=[mode_id])
-            yield PlotOptimizedPump(lasing_modes_id=[mode_id]),
+            yield PlotOptimizedPump(lasing_modes_id=[mode_id])
             yield FindThresholdModes(lasing_modes_id=[mode_id])
             yield ComputeModeCompetitionMatrix(lasing_modes_id=[mode_id])
             intensities_task = yield ComputeModalIntensities(lasing_modes_id=[mode_id])
             yield PlotLLCurve(lasing_modes_id=[mode_id])
             int_df = load_modes(intensities_task.path)
-            try:
-                single_mode_matrix.append(
-                    int_df[
-                        "modal_intensities", ComputeModalIntensities().D0_max
-                    ].to_list()[: len(lasing_modes_id)]
-                )
-            except Exception as exc:
-                single_mode_matrix.append(np.zeros(len(lasing_modes_id)) * np.nan)
-                print("fail:", mode_id, exc)
+            single_mode_matrix.append(
+                int_df[
+                    "modal_intensities",
+                    ComputeModalIntensities(lasing_modes_id=[mode_id]).D0_max,
+                ].to_list()[: len(lasing_modes_id)]
+            )
 
         plt.figure()
         sns.heatmap(single_mode_matrix, annot=True, fmt="3.0f")

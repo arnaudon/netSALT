@@ -30,7 +30,7 @@ class CreatePumpProfile(NetSaltTask):
         default="uniform", choices=["uniform", "optimized", "custom"]
     )
     custom_pump_path = luigi.Parameter(default="pump_profile.yaml")
-    lasing_modes_id = luigi.ListParameter(default=[0])
+    lasing_modes_id = luigi.ListParameter()
 
     def requires(self):
         """"""
@@ -38,6 +38,7 @@ class CreatePumpProfile(NetSaltTask):
             return {"graph": CreateQuantumGraph()}
         if self.mode == "optimized":
             return {"optimize": OptimizePump(lasing_modes_id=self.lasing_modes_id)}
+        raise Exception("Mode not understood")
 
     def run(self):
         """"""
@@ -58,7 +59,7 @@ class CreatePumpProfile(NetSaltTask):
 class ComputeModeTrajectories(NetSaltTask):
     """Compute mode trajectories from passive modes."""
 
-    lasing_modes_id = luigi.ListParameter(default=[0])
+    lasing_modes_id = luigi.ListParameter()
 
     def requires(self):
         """"""
@@ -80,13 +81,13 @@ class ComputeModeTrajectories(NetSaltTask):
 class FindThresholdModes(NetSaltTask):
     """Find the lasing thresholds and associated modes."""
 
-    lasing_modes_id = luigi.ListParameter(default=[0])
+    lasing_modes_id = luigi.ListParameter()
 
     def requires(self):
         """"""
         return {
             "graph": CreateQuantumGraph(),
-            "modes": ComputeModeTrajectories(),
+            "modes": ComputeModeTrajectories(lasing_modes_id=self.lasing_modes_id),
             "pump": CreatePumpProfile(lasing_modes_id=self.lasing_modes_id),
         }
 
@@ -101,7 +102,7 @@ class FindThresholdModes(NetSaltTask):
 class ComputeModeCompetitionMatrix(NetSaltTask):
     """Compute the mode competition matrix."""
 
-    lasing_modes_id = luigi.ListParameter(default=[0])
+    lasing_modes_id = luigi.ListParameter()
 
     def requires(self):
         """"""
@@ -125,7 +126,7 @@ class ComputeModeCompetitionMatrix(NetSaltTask):
 class ComputeModalIntensities(NetSaltTask):
     """Compute modal intensities as a function of pump strenght."""
 
-    lasing_modes_id = luigi.ListParameter(default=[0])
+    lasing_modes_id = luigi.ListParameter()
     D0_max = luigi.FloatParameter(default=0.1)
 
     def requires(self):

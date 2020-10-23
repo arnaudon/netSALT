@@ -19,7 +19,7 @@ matplotlib.use("Agg")
 class OptimizePump(NetSaltTask):
     """Optimise a pump profile to lase specific modes."""
 
-    lasing_modes_id = luigi.ListParameter(default=[0])
+    lasing_modes_id = luigi.ListParameter()
     pump_min_frac = luigi.FloatParameter(default=0.0)
     maxiter = luigi.IntParameter(default=100)
     popsize = luigi.IntParameter(default=5)
@@ -40,12 +40,12 @@ class OptimizePump(NetSaltTask):
             modes_df,
             qg,
             self.lasing_modes_id,
-            self.pump_min_frac,
-            self.maxiter,
-            self.popsize,
-            self.seed,
-            self.n_seeds,
-            self.disp,
+            pump_min_frac=self.pump_min_frac,
+            maxiter=self.maxiter,
+            popsize=self.popsize,
+            seed=self.seed,
+            n_seeds=self.n_seeds,
+            disp=self.disp,
         )
         results = {
             "optimal_pump": optimal_pump,
@@ -60,7 +60,7 @@ class OptimizePump(NetSaltTask):
 class PlotOptimizedPump(NetSaltTask):
     """Plot info about optimized pump."""
 
-    lasing_modes_id = luigi.ListParameter(default=[0])
+    lasing_modes_id = luigi.ListParameter()
 
     def requires(self):
         """"""

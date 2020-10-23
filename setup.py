@@ -28,6 +28,7 @@ setup(
         "numpy",
         "luigi",
         "pyyaml",
+        "seaborn",
     ],
     packages=find_packages(),
 )

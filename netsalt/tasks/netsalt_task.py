@@ -48,7 +48,9 @@ class HashedTask(luigi.Task):
             self.target_path = (
                 str(Path(self.target_path).with_suffix(""))
                 + "_"
-                + "_".join([str(i) for i in self.lasing_modes_id])
+                + "_".join(
+                    [str(i) for i in self.lasing_modes_id]  # pylint: disable=no-member
+                )
                 + str(Path(self.target_path).suffix)
             )
 

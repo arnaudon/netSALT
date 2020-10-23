@@ -134,12 +134,16 @@ class PlotScanWithModes(NetSaltTask):
 class PlotScanWithModeTrajectories(NetSaltTask):
     """Plot mode trajectories."""
 
+    lasing_modes_id = luigi.ListParameter()
+
     def requires(self):
         """"""
         return {
             "graph": CreateQuantumGraph(),
             "qualities": ScanFrequencies(),
-            "trajectories": ComputeModeTrajectories(),
+            "trajectories": ComputeModeTrajectories(
+                lasing_modes_id=self.lasing_modes_id
+            ),
         }
 
     def run(self):
@@ -155,17 +159,21 @@ class PlotScanWithModeTrajectories(NetSaltTask):
 class PlotScanWithThresholdModes(NetSaltTask):
     """"Plot threshold lasing modes."""
 
+    lasing_modes_id = luigi.ListParameter()
+
     def requires(self):
         """"""
         return {
             "graph": CreateQuantumGraph(),
             "qualities": ScanFrequencies(),
-            "thresholds": FindThresholdModes(),
+            "thresholds": FindThresholdModes(lasing_modes_id=self.lasing_modes_id),
         }
 
     def run(self):
         """"""
-        qg = ComputeModeTrajectories().get_graph(self.input()["graph"].path)
+        qg = ComputeModeTrajectories(lasing_modes_id=self.lasing_modes_id).get_graph(
+            self.input()["graph"].path
+        )
         qualities = load_qualities(filename=self.input()["qualities"].path)
         modes_df = load_modes(self.input()["thresholds"].path)
 
@@ -183,13 +191,14 @@ class PlotThresholdModes(NetSaltTask):
 
     ext = luigi.Parameter(default=".png")
     n_modes = luigi.IntParameter(default=10)
+    lasing_modes_id = luigi.ListParameter()
 
     def requires(self):
         """"""
         return {
             "graph": CreateQuantumGraph(),
-            "modes": FindThresholdModes(),
-            "pump": CreatePumpProfile(),
+            "modes": FindThresholdModes(lasing_modes_id=self.lasing_modes_id),
+            "pump": CreatePumpProfile(lasing_modes_id=self.lasing_modes_id),
         }
 
     def run(self):
@@ -213,7 +222,7 @@ class PlotThresholdModes(NetSaltTask):
 class PlotLLCurve(NetSaltTask):
     """Plot LL curves from modal intensities."""
 
-    lasing_modes_id = luigi.ListParameter(default=[0])
+    lasing_modes_id = luigi.ListParameter()
 
     def requires(self):
         """"""
@@ -224,7 +233,9 @@ class PlotLLCurve(NetSaltTask):
 
     def run(self):
         """"""
-        qg = ComputeModeTrajectories().get_graph(self.input()["graph"].path)
+        qg = ComputeModeTrajectories(lasing_modes_id=self.lasing_modes_id).get_graph(
+            self.input()["graph"].path
+        )
         modes_df = load_modes(self.input()["modes"].path)
         plot_ll_curve(qg, modes_df, with_legend=True)
         plt.savefig(self.output().path, bbox_inches="tight")
@@ -233,13 +244,20 @@ class PlotLLCurve(NetSaltTask):
 class PlotStemSpectra(NetSaltTask):
     """Plot LL curves from modal intensities."""
 
+    lasing_modes_id = luigi.ListParameter()
+
     def requires(self):
         """"""
-        return {"modes": ComputeModalIntensities(), "graph": CreateQuantumGraph()}
+        return {
+            "modes": ComputeModalIntensities(lasing_modes_id=self.lasing_modes_id),
+            "graph": CreateQuantumGraph(),
+        }
 
     def run(self):
         """"""
-        qg = ComputeModeTrajectories().get_graph(self.input()["graph"].path)
+        qg = ComputeModeTrajectories(lasing_modes_id=self.lasing_modes_id).get_graph(
+            self.input()["graph"].path
+        )
         modes_df = load_modes(self.input()["modes"].path)
         plot_stem_spectra(qg, modes_df)
         plt.savefig(self.output().path, bbox_inches="tight")

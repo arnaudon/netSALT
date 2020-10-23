@@ -22,6 +22,7 @@ from netsalt.quantum_graph import (
     update_parameters,
 )
 
+from .config import ModeSearchConfig
 from .netsalt_task import NetSaltTask
 
 
@@ -56,6 +57,7 @@ class CreateQuantumGraph(NetSaltTask):
             "plot_edgesize": self.edge_size,
             "k_a": self.k_a,
             "gamma_perp": self.gamma_perp,
+            "n_workers": ModeSearchConfig().n_workers,
         }
 
         quantum_graph = load_graph(self.graph_path)
