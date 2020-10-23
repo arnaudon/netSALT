@@ -5,18 +5,11 @@ import luigi
 import numpy as np
 import yaml
 
-from netsalt.io import (
-    load_mode_competition_matrix,
-    load_modes,
-    save_mode_competition_matrix,
-    save_modes,
-)
-from netsalt.modes import (
-    compute_modal_intensities,
-    compute_mode_competition_matrix,
-    find_threshold_lasing_modes,
-    pump_trajectories,
-)
+from netsalt.io import (load_mode_competition_matrix, load_modes,
+                        save_mode_competition_matrix, save_modes)
+from netsalt.modes import (compute_modal_intensities,
+                           compute_mode_competition_matrix,
+                           find_threshold_lasing_modes, pump_trajectories)
 
 from .netsalt_task import NetSaltTask
 from .passive import CreateQuantumGraph, FindPassiveModes
@@ -30,37 +23,42 @@ class CreatePumpProfile(NetSaltTask):
         default="uniform", choices=["uniform", "optimized", "custom"]
     )
     custom_pump_path = luigi.Parameter(default="pump_profile.yaml")
+    lasing_modes_id = luigi.ListParameter(default=[0])
 
     def requires(self):
         """"""
-        return {"graph": CreateQuantumGraph()}
+        if self.mode == "uniform":
+            return {"graph": CreateQuantumGraph()}
+        if self.mode == "optimized":
+            return {"optimize": OptimizePump(lasing_modes_id=self.lasing_modes_id)}
 
     def run(self):
         """"""
-        qg = self.get_graph(self.input()["graph"].path)
         if self.mode == "uniform":
+            qg = self.get_graph(self.input()["graph"].path)
             pump = np.zeros(len(qg.edges()))
             for i, (u, v) in enumerate(qg.edges()):
                 if qg[u][v]["inner"]:
                     pump[i] = 1
         if self.mode == "optimized":
-            optimize_task = yield OptimizePump()
-            results = pickle.load(open(optimize_task.path, "rb"))
-            pump = results["optimal_pump"]
+            results = pickle.load(open(self.input()["optimize"].path, "rb"))
+            pump = results["optimal_pump"].tolist()
         if self.mode == "custom":
             pump = yaml.load(open(self.custom_pump_path, "r"))
-        yaml.dump(pump.tolist(), open(self.output().path, "w"))
+        yaml.dump(pump, open(self.output().path, "w"))
 
 
 class ComputeModeTrajectories(NetSaltTask):
     """Compute mode trajectories from passive modes."""
+
+    lasing_modes_id = luigi.ListParameter(default=[0])
 
     def requires(self):
         """"""
         return {
             "graph": CreateQuantumGraph(),
             "modes": FindPassiveModes(),
-            "pump": CreatePumpProfile(),
+            "pump": CreatePumpProfile(lasing_modes_id=self.lasing_modes_id),
         }
 
     def run(self):
@@ -75,12 +73,14 @@ class ComputeModeTrajectories(NetSaltTask):
 class FindThresholdModes(NetSaltTask):
     """Find the lasing thresholds and associated modes."""
 
+    lasing_modes_id = luigi.ListParameter(default=[0])
+
     def requires(self):
         """"""
         return {
             "graph": CreateQuantumGraph(),
             "modes": ComputeModeTrajectories(),
-            "pump": CreatePumpProfile(),
+            "pump": CreatePumpProfile(lasing_modes_id=self.lasing_modes_id),
         }
 
     def run(self):
@@ -94,12 +94,14 @@ class FindThresholdModes(NetSaltTask):
 class ComputeModeCompetitionMatrix(NetSaltTask):
     """Compute the mode competition matrix."""
 
+    lasing_modes_id = luigi.ListParameter(default=[0])
+
     def requires(self):
         """"""
         return {
             "graph": CreateQuantumGraph(),
-            "modes": FindThresholdModes(),
-            "pump": CreatePumpProfile(),
+            "modes": FindThresholdModes(lasing_modes_id=self.lasing_modes_id),
+            "pump": CreatePumpProfile(lasing_modes_id=self.lasing_modes_id),
         }
 
     def run(self):
@@ -116,13 +118,16 @@ class ComputeModeCompetitionMatrix(NetSaltTask):
 class ComputeModalIntensities(NetSaltTask):
     """Compute modal intensities as a function of pump strenght."""
 
+    lasing_modes_id = luigi.ListParameter(default=[0])
     D0_max = luigi.FloatParameter(default=0.1)
 
     def requires(self):
         """"""
         return {
-            "modes": FindThresholdModes(),
-            "competition_matrix": ComputeModeCompetitionMatrix(),
+            "modes": FindThresholdModes(lasing_modes_id=self.lasing_modes_id),
+            "competition_matrix": ComputeModeCompetitionMatrix(
+                lasing_modes_id=self.lasing_modes_id
+            ),
         }
 
     def run(self):

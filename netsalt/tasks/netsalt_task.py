@@ -44,6 +44,14 @@ class HashedTask(luigi.Task):
 
     def set_hashed_target_path(self):
         """Modify the target filename to append the task_hash."""
+        if hasattr(self, "lasing_modes_id"):
+            self.target_path = (
+                str(Path(self.target_path).with_suffix(""))
+                + "_"
+                + "_".join([str(i) for i in self.lasing_modes_id])
+                + str(Path(self.target_path).suffix)
+            )
+
         if self.with_hash:
             hashed_target_path = Path("hashed") / self.target_path
             self.hashed_target_path = Path(

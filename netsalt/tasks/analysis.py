@@ -10,20 +10,11 @@ from matplotlib.cm import get_cmap
 from matplotlib.colors import ListedColormap
 
 from netsalt.io import load_graph, load_modes, load_qualities
-from netsalt.plotting import (
-    plot_ll_curve,
-    plot_modes,
-    plot_quantum_graph,
-    plot_scan,
-    plot_stem_spectra,
-)
+from netsalt.plotting import (plot_ll_curve, plot_modes, plot_quantum_graph,
+                              plot_scan, plot_stem_spectra)
 
-from .lasing import (
-    ComputeModalIntensities,
-    ComputeModeTrajectories,
-    FindThresholdModes,
-    CreatePumpProfile,
-)
+from .lasing import (ComputeModalIntensities, ComputeModeTrajectories,
+                     CreatePumpProfile, FindThresholdModes)
 from .netsalt_task import NetSaltTask
 from .passive import CreateQuantumGraph, FindPassiveModes, ScanFrequencies
 
