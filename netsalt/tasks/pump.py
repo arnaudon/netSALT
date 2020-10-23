@@ -60,9 +60,14 @@ class OptimizePump(NetSaltTask):
 class PlotOptimizedPump(NetSaltTask):
     """Plot info about optimized pump."""
 
+    lasing_modes_id = luigi.ListParameter(default=[0])
+
     def requires(self):
         """"""
-        return {"pump": OptimizePump(), "graph": CreateQuantumGraph()}
+        return {
+            "pump": OptimizePump(lasing_modes_id=self.lasing_modes_id),
+            "graph": CreateQuantumGraph(),
+        }
 
     def run(self):
         """"""

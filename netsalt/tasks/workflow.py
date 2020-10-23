@@ -1,18 +1,30 @@
 """Main tasks to run entire workflows."""
+import numpy as np
 import luigi
 import matplotlib
 import matplotlib.pyplot as plt
+import seaborn as sns
 
 from netsalt.io import load_modes
 
-from .analysis import (PlotLLCurve, PlotPassiveModes, PlotQuantumGraph,
-                       PlotScan, PlotScanWithModes,
-                       PlotScanWithModeTrajectories,
-                       PlotScanWithThresholdModes, PlotStemSpectra,
-                       PlotThresholdModes)
-from .lasing import (ComputeModalIntensities, ComputeModeCompetitionMatrix,
-                     ComputeModeTrajectories, CreatePumpProfile,
-                     FindThresholdModes)
+from .analysis import (
+    PlotLLCurve,
+    PlotPassiveModes,
+    PlotQuantumGraph,
+    PlotScan,
+    PlotScanWithModes,
+    PlotScanWithModeTrajectories,
+    PlotScanWithThresholdModes,
+    PlotStemSpectra,
+    PlotThresholdModes,
+)
+from .lasing import (
+    ComputeModalIntensities,
+    ComputeModeCompetitionMatrix,
+    ComputeModeTrajectories,
+    CreatePumpProfile,
+    FindThresholdModes,
+)
 from .netsalt_task import NetSaltTask
 from .passive import CreateQuantumGraph, FindPassiveModes, ScanFrequencies
 from .pump import OptimizePump, PlotOptimizedPump
@@ -99,17 +111,24 @@ class ComputeControllability(NetSaltTask):
         single_mode_matrix = []
         for mode_id in lasing_modes_id:
             yield CreatePumpProfile(lasing_modes_id=[mode_id])
+            yield PlotOptimizedPump(lasing_modes_id=[mode_id]),
             yield FindThresholdModes(lasing_modes_id=[mode_id])
             yield ComputeModeCompetitionMatrix(lasing_modes_id=[mode_id])
             intensities_task = yield ComputeModalIntensities(lasing_modes_id=[mode_id])
+            yield PlotLLCurve(lasing_modes_id=[mode_id])
             int_df = load_modes(intensities_task.path)
-            single_mode_matrix.append(
-                int_df["modal_intensities", ComputeModalIntensities().D0_max].to_list()
-            )
+            try:
+                single_mode_matrix.append(
+                    int_df[
+                        "modal_intensities", ComputeModalIntensities().D0_max
+                    ].to_list()[: len(lasing_modes_id)]
+                )
+            except Exception as exc:
+                single_mode_matrix.append(np.zeros(len(lasing_modes_id)) * np.nan)
+                print("fail:", mode_id, exc)
 
         plt.figure()
-        plt.imshow(single_mode_matrix)
+        sns.heatmap(single_mode_matrix, annot=True, fmt="3.0f")
         plt.ylabel("Mode id to single lase")
         plt.xlabel("Modal intensities")
-        plt.colorbar()
         plt.savefig(self.output().path, bbox_inches="tight")

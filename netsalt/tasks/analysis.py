@@ -10,11 +10,20 @@ from matplotlib.cm import get_cmap
 from matplotlib.colors import ListedColormap
 
 from netsalt.io import load_graph, load_modes, load_qualities
-from netsalt.plotting import (plot_ll_curve, plot_modes, plot_quantum_graph,
-                              plot_scan, plot_stem_spectra)
+from netsalt.plotting import (
+    plot_ll_curve,
+    plot_modes,
+    plot_quantum_graph,
+    plot_scan,
+    plot_stem_spectra,
+)
 
-from .lasing import (ComputeModalIntensities, ComputeModeTrajectories,
-                     CreatePumpProfile, FindThresholdModes)
+from .lasing import (
+    ComputeModalIntensities,
+    ComputeModeTrajectories,
+    CreatePumpProfile,
+    FindThresholdModes,
+)
 from .netsalt_task import NetSaltTask
 from .passive import CreateQuantumGraph, FindPassiveModes, ScanFrequencies
 
@@ -204,9 +213,14 @@ class PlotThresholdModes(NetSaltTask):
 class PlotLLCurve(NetSaltTask):
     """Plot LL curves from modal intensities."""
 
+    lasing_modes_id = luigi.ListParameter(default=[0])
+
     def requires(self):
         """"""
-        return {"modes": ComputeModalIntensities(), "graph": CreateQuantumGraph()}
+        return {
+            "modes": ComputeModalIntensities(lasing_modes_id=self.lasing_modes_id),
+            "graph": CreateQuantumGraph(),
+        }
 
     def run(self):
         """"""
