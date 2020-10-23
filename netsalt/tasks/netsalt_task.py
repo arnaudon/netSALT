@@ -76,7 +76,12 @@ class HashedTask(luigi.Task):
     def on_success(self):
         """Create symling to localtarget file to be readable by humans."""
         if self.hashed_target_path is not None:
-            shutil.copy(self.hashed_target_path, self.target_path)
+            if Path(self.hashed_target_path).is_dir():
+                if Path(self.target_path).exists():
+                    shutil.rmtree(self.target_path)
+                shutil.copytree(self.hashed_target_path, self.target_path)
+            else:
+                shutil.copyfile(self.hashed_target_path, self.target_path)
 
 
 class NetSaltTask(HashedTask):

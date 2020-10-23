@@ -18,7 +18,12 @@ from netsalt.plotting import (
     plot_stem_spectra,
 )
 
-from .lasing import ComputeModalIntensities, ComputeModeTrajectories, FindThresholdModes
+from .lasing import (
+    ComputeModalIntensities,
+    ComputeModeTrajectories,
+    FindThresholdModes,
+    CreatePumpProfile,
+)
 from .netsalt_task import NetSaltTask
 from .passive import CreateQuantumGraph, FindPassiveModes, ScanFrequencies
 
@@ -181,11 +186,15 @@ class PlotThresholdModes(NetSaltTask):
 
     def requires(self):
         """"""
-        return {"graph": CreateQuantumGraph(), "modes": FindThresholdModes()}
+        return {
+            "graph": CreateQuantumGraph(),
+            "modes": FindThresholdModes(),
+            "pump": CreatePumpProfile(),
+        }
 
     def run(self):
         """"""
-        qg = ComputeModeTrajectories().get_graph(self.input()["graph"].path)
+        qg = self.get_graph_with_pump(self.input()["graph"].path)
         modes_df = load_modes(self.input()["modes"].path).head(10)
 
         if not Path(self.output().path).exists():
