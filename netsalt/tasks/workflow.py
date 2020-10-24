@@ -1,4 +1,5 @@
 """Main tasks to run entire workflows."""
+import numpy as np
 import luigi
 import matplotlib
 import matplotlib.pyplot as plt
@@ -118,12 +119,18 @@ class ComputeControllability(NetSaltTask):
             intensities_task = yield ComputeModalIntensities(lasing_modes_id=[mode_id])
             yield PlotLLCurve(lasing_modes_id=[mode_id])
             int_df = load_modes(intensities_task.path)
-            single_mode_matrix.append(
-                int_df[
-                    "modal_intensities",
-                    ComputeModalIntensities(lasing_modes_id=[mode_id]).D0_max,
-                ].to_list()[: len(lasing_modes_id)]
-            )
+            if (
+                ComputeModalIntensities(lasing_modes_id=[mode_id]).D0_max
+                in int_df["modal_intensities"].columns
+            ):
+                single_mode_matrix.append(
+                    int_df[
+                        "modal_intensities",
+                        ComputeModalIntensities(lasing_modes_id=[mode_id]).D0_max,
+                    ].to_list()[: len(lasing_modes_id)]
+                )
+            else:
+                single_mode_matrix.append(np.zeros(len(lasing_modes_id)) * np.nan)
 
         plt.figure()
         sns.heatmap(single_mode_matrix, annot=True, fmt="3.0f")

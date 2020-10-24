@@ -173,7 +173,8 @@ def plot_ll_curve(
         ax.legend()
 
     top = np.max(np.nan_to_num(modes_df["modal_intensities"].to_numpy()))
-    ax.axis([0, pump_intensities[-1], -0.02 * top, top])
+    if pump_intensities[-1] < np.inf:
+        ax.axis([0, pump_intensities[-1], -0.02 * top, top])
     ax.set_xlabel(r"$D_0$")
     ax.set_ylabel("Intensity (a.u)")
 
