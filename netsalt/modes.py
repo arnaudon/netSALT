@@ -82,7 +82,10 @@ def scan_frequencies(graph):
     worker_scan = WorkerScan(graph)
     pool = multiprocessing.Pool(graph.graph["params"]["n_workers"])
     qualities_list = list(
-        tqdm(pool.imap(worker_scan, freqs, chunksize=10), total=len(freqs),)
+        tqdm(
+            pool.imap(worker_scan, freqs, chunksize=10),
+            total=len(freqs),
+        )
     )
     pool.close()
 
@@ -134,7 +137,8 @@ def find_modes(graph, qualities):
     )
     L.info("Found %s after refinements.", len(true_modes))
 
-    modes_sorted = true_modes[np.argsort(true_modes[:, 1])]
+    # sort by Q value
+    modes_sorted = true_modes[np.argsort(true_modes[:, 1] / (2 * true_modes[:, 0]))]
     if "n_modes_max" in graph.graph["params"] and graph.graph["params"]["n_modes_max"]:
         L.info(
             "...but we will use the top %s modes only",
@@ -738,7 +742,9 @@ def pump_trajectories(modes_df, graph, return_approx=False):
     """For a sequence of D0s, find the mode positions of the modes modes."""
 
     D0s = np.linspace(
-        0, graph.graph["params"]["D0_max"], graph.graph["params"]["D0_steps"],
+        0,
+        graph.graph["params"]["D0_max"],
+        graph.graph["params"]["D0_steps"],
     )
 
     pool = multiprocessing.Pool(graph.graph["params"]["n_workers"])

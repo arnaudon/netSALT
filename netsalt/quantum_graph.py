@@ -320,7 +320,10 @@ def laplacian_quality(laplacian, method="eigenvalue"):
 
     if method == "singularvalue":
         return sc.sparse.linalg.svds(
-            laplacian, k=1, which="SM", return_singular_vectors=False,
+            laplacian,
+            k=1,
+            which="SM",
+            return_singular_vectors=False,
         )[0]
     return 1.0
 

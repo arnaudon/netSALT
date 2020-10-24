@@ -141,6 +141,12 @@ def plot_ll_curve(
     """Plot LL curves."""
     colors = cycle(["C{}".format(i) for i in range(10)])
     pump_intensities = modes_df["modal_intensities"].columns.values
+    modes_df = modes_df.sort_values(
+        by=[("modal_intensities", pump_intensities[-1])],
+        axis=0,
+        na_position="last",
+        ascending=False,
+    )
     if ax is None:
         fig = plt.figure(figsize=(6, 6))
         ax = plt.gca()
@@ -157,7 +163,7 @@ def plot_ll_curve(
             color = next(colors)
         else:
             color = "grey"
-        ax.plot(pump_intensities, intens, label="mode " + str(index), c=color, lw=0.8)
+        ax.plot(pump_intensities, intens, label="mode " + str(index), c=color, lw=0.2)
 
         if with_thresholds:
             ax.axvline(
@@ -186,7 +192,7 @@ def plot_scan(
     graph,
     qualities,
     modes_df=None,
-    figsize=(10, 5),
+    figsize=None,
     ax=None,
     with_trajectories=True,
     with_scatter=True,
@@ -197,8 +203,10 @@ def plot_scan(
     save_option=False,
 ):
     """plot the scan with the mode found"""
-
     ks, alphas = get_scan_grid(graph)
+
+    if figsize is None:
+        figsize = (len(ks) / len(alphas) * 10, 5)
 
     if ax is None:
         fig = plt.figure(figsize=figsize)

@@ -33,7 +33,7 @@ def set_dispersion_relation(graph, dispersion_relation, params):
         graph (networkx graph): current graph
         dispersion_relation (function): dispersion relation function
         params (dict): parameters
-        """
+    """
     graph.graph["dispersion_relation"] = partial(dispersion_relation, params=params)
 
 

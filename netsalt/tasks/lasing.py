@@ -48,6 +48,7 @@ class CreatePumpProfile(NetSaltTask):
             for i, (u, v) in enumerate(qg.edges()):
                 if qg[u][v]["inner"]:
                     pump[i] = 1
+            pump = pump.tolist()
         if self.mode == "optimized":
             results = pickle.load(open(self.input()["optimize"].path, "rb"))
             pump = results["optimal_pump"].tolist()

@@ -21,7 +21,11 @@ def find_rough_modes_from_scan(ks, alphas, qualities, min_distance=2, threshold_
 
 
 def refine_mode_brownian_ratchet(
-    initial_mode, graph, params, disp=False, save_mode_trajectories=False,
+    initial_mode,
+    graph,
+    params,
+    disp=False,
+    save_mode_trajectories=False,
 ):
     """Accurately find a mode from an initial guess, using brownian ratchet algorithm."""
     current_mode = initial_mode.copy()
