@@ -43,7 +43,7 @@ modes_gamma_q = netsalt.modes.compute_gamma_q_values(graph, modes_df)
 plt.hist(
 np.round(modes_df["IPR"], 1),
     bins = 50, 
-    range = (0, 50)
+    range = (0, 5)
     )
 ax = plt.gca()
 ax.set(xlabel=r"$IPR$")
@@ -56,8 +56,8 @@ try:
 
     plt.figure()
     plt.scatter(
-        np.log10(modes_df["IPR"]),
-        modes_gamma_q,
+        modes_df["IPR"], #np.log10(modes_df["IPR"]),
+        modes_Qfactor, #modes_gamma_q,
         c = thresholds,
         cmap = "viridis_r",
 #        vmin = 0.,
@@ -68,8 +68,11 @@ try:
     cbar.set_label("threshold")
 
     ax = plt.gca()
-    ax.set(xlabel=r"$log_{10}(IPR)$")
-    ax.set(ylabel=r"$Q$ factor x $\Gamma$")
+    #ax.set(xlabel=r"$log_{10}(IPR)$")
+    ax.set(xlabel=r"$IPR$")
+    #ax.set(ylabel=r"$Q$ factor x $\Gamma$")
+    ax.set(ylabel=r"$Q$ factor")
+    ax.axis([0, 5, 0, 200])
 
     plt.savefig('modes_IPR_thresholds.png')
     plt.show()
