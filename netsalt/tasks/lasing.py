@@ -53,7 +53,7 @@ class CreatePumpProfile(NetSaltTask):
             pump = results["optimal_pump"].tolist()
         if self.mode == "custom":
             pump = yaml.load(open(self.custom_pump_path, "r"))
-        print(pump)
+
         yaml.dump(pump, open(self.output().path, "w"))
 
     def output(self):

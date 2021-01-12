@@ -4,6 +4,7 @@ import logging
 from itertools import cycle
 from pathlib import Path
 
+import matplotlib
 import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
@@ -17,6 +18,7 @@ from .utils import get_scan_grid, linewidth, lorentzian, order_edges_by
 
 L = logging.getLogger(__name__)
 logging.getLogger("matplotlib").setLevel(logging.INFO)
+matplotlib.use("Agg")
 
 
 def _savefig(graph, fig, folder, filename):

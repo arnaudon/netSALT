@@ -386,8 +386,8 @@ class PlotModeCompetitionMatrix(NetSaltTask):
     def run(self):
         """"""
         competition_matrix = load_mode_competition_matrix(filename=self.input().path)
-        plt.figure()
-        sns.heatmap(competition_matrix, ax=plt.gca())
+        plt.figure(figsize=0.5 * np.array(np.shape(competition_matrix)))
+        sns.heatmap(competition_matrix, ax=plt.gca(), square=True)
         plt.savefig(self.output().path)
 
     def output(self):

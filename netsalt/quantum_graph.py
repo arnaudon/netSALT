@@ -28,7 +28,7 @@ def _verify_lengths(graph):
                so we add some small noise for safety for the numerics."""
         )
         for u in graph:
-            graph.nodes[u]["position"][0] += np.random.normal(0, 0.01 * np.min(lengths))
+            graph.nodes[u]["position"][0] += np.random.normal(0, 0.001 * np.min(lengths))
         set_edge_lengths(graph)
 
 
