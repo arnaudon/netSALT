@@ -9,9 +9,7 @@ def linewidth(k, k_center, width):
 
 def lorentzian(k, graph):
     """Lorentzian function."""
-    return linewidth(
-        k, graph.graph["params"]["k_a"], graph.graph["params"]["gamma_perp"]
-    )
+    return linewidth(k, graph.graph["params"]["k_a"], graph.graph["params"]["gamma_perp"])
 
 
 def get_scan_grid(graph):

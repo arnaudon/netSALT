@@ -26,12 +26,10 @@ from .pump import OptimizePump
 class CreatePumpProfile(NetSaltTask):
     """Create a pump profile."""
 
-    mode = luigi.ChoiceParameter(
-        default="uniform", choices=["uniform", "optimized", "custom"]
-    )
+    mode = luigi.ChoiceParameter(default="uniform", choices=["uniform", "optimized", "custom"])
     custom_pump_path = luigi.Parameter(default="pump_profile.yaml")
     lasing_modes_id = luigi.ListParameter()
-    pump_profile_path = luigi.Parameter(default='out/pump_profile.yaml')
+    pump_profile_path = luigi.Parameter(default="out/pump_profile.yaml")
 
     def requires(self):
         """"""
@@ -59,14 +57,14 @@ class CreatePumpProfile(NetSaltTask):
 
     def output(self):
         """"""
-        return luigi.Parameter(self.pump_profile_path)
+        return luigi.LocalTarget(self.pump_profile_path)
 
 
 class ComputeModeTrajectories(NetSaltTask):
     """Compute mode trajectories from passive modes."""
 
     lasing_modes_id = luigi.ListParameter()
-    modes_trajectories_path = luigi.Parameter(default='out/mode_traajectories.h5')
+    modes_trajectories_path = luigi.Parameter(default="out/mode_traajectories.h5")
 
     def requires(self):
         """"""
@@ -86,14 +84,14 @@ class ComputeModeTrajectories(NetSaltTask):
 
     def output(self):
         """"""
-        return luigi.Parameter(self.modes_trajectories_path)
+        return luigi.LocalTarget(self.modes_trajectories_path)
 
 
 class FindThresholdModes(NetSaltTask):
     """Find the lasing thresholds and associated modes."""
 
     lasing_modes_id = luigi.ListParameter()
-    threshold_modes_path = luigi.Parameter(default='out/lasingthresholds_modes.h5')
+    threshold_modes_path = luigi.Parameter(default="out/lasingthresholds_modes.h5")
 
     def requires(self):
         """"""
@@ -112,13 +110,14 @@ class FindThresholdModes(NetSaltTask):
 
     def output(self):
         """"""
-        return luigi.Parameter(self.threshold_modes_path)
+        return luigi.LocalTarget(self.threshold_modes_path)
+
 
 class ComputeModeCompetitionMatrix(NetSaltTask):
     """Compute the mode competition matrix."""
 
     lasing_modes_id = luigi.ListParameter()
-    competition_matrix_path = luigi.Parameter(default='out/mode_competition_matrix.h5')
+    competition_matrix_path = luigi.Parameter(default="out/mode_competition_matrix.h5")
 
     def requires(self):
         """"""
@@ -134,13 +133,11 @@ class ComputeModeCompetitionMatrix(NetSaltTask):
         qg = self.get_graph_with_pump(self.input()["graph"].path)
         modes_df = load_modes(self.input()["modes"].path)
         mode_competition_matrix = compute_mode_competition_matrix(qg, modes_df)
-        save_mode_competition_matrix(
-            mode_competition_matrix, filename=self.output().path
-        )
+        save_mode_competition_matrix(mode_competition_matrix, filename=self.output().path)
 
     def output(self):
         """"""
-        return luigi.Parameter(self.competition_matrix_path)
+        return luigi.LocalTarget(self.competition_matrix_path)
 
 
 class ComputeModalIntensities(NetSaltTask):
@@ -148,7 +145,7 @@ class ComputeModalIntensities(NetSaltTask):
 
     lasing_modes_id = luigi.ListParameter()
     D0_max = luigi.FloatParameter(default=0.1)
-    modal_intensities_path = luigi.Parameter(default='out/modal_intensities.h5')
+    modal_intensities_path = luigi.Parameter(default="out/modal_intensities.h5")
 
     def requires(self):
         """"""
@@ -165,12 +162,10 @@ class ComputeModalIntensities(NetSaltTask):
         mode_competition_matrix = load_mode_competition_matrix(
             self.input()["competition_matrix"].path
         )
-        modes_df = compute_modal_intensities(
-            modes_df, self.D0_max, mode_competition_matrix
-        )
+        modes_df = compute_modal_intensities(modes_df, self.D0_max, mode_competition_matrix)
 
         save_modes(modes_df, filename=self.output().path)
 
     def output(self):
         """"""
-        return luigi.Parameter(self.modal_intensities_path)
+        return luigi.LocalTarget(self.modal_intensities_path)

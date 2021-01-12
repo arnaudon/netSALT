@@ -30,9 +30,7 @@ class CreateQuantumGraph(NetSaltTask):
     """Create a quantum graph."""
 
     graph_path = luigi.Parameter(default="graph.gpickle")
-    graph_mode = luigi.ChoiceParameter(
-        default="open", choices=["open", "closed", "custom"]
-    )
+    graph_mode = luigi.ChoiceParameter(default="open", choices=["open", "closed", "custom"])
     inner_total_length = luigi.FloatParameter(default=1.0)
 
     dielectric_mode = luigi.Parameter(default="refraction_params")
@@ -44,7 +42,7 @@ class CreateQuantumGraph(NetSaltTask):
     k_a = luigi.FloatParameter(default=15.0)
     gamma_perp = luigi.FloatParameter(default=3.0)
 
-    quantum_graph_path = luigi.Parameter(default='out/quantum_graph.gpickle')
+    quantum_graph_path = luigi.Parameter(default="out/quantum_graph.gpickle")
 
     def run(self):
         """"""
@@ -63,9 +61,7 @@ class CreateQuantumGraph(NetSaltTask):
         }
 
         quantum_graph = load_graph(self.graph_path)
-        positions = np.array(
-            [quantum_graph.nodes[u]["position"] for u in quantum_graph.nodes]
-        )
+        positions = np.array([quantum_graph.nodes[u]["position"] for u in quantum_graph.nodes])
         create_quantum_graph(quantum_graph, params, positions=positions)
 
         set_total_length(quantum_graph, self.inner_total_length, inner=True)
@@ -84,7 +80,7 @@ class CreateQuantumGraph(NetSaltTask):
 class ScanFrequencies(NetSaltTask):
     """Scan frequencies to find passive modes."""
 
-    qualities_path = luigi.Parameter(default='out/qualities.h5')
+    qualities_path = luigi.Parameter(default="out/qualities.h5")
 
     def requires(self):
         """"""
@@ -100,9 +96,11 @@ class ScanFrequencies(NetSaltTask):
         """"""
         return luigi.LocalTarget(self.qualities_path)
 
+
 class FindPassiveModes(NetSaltTask):
     """Find passive modes from quality scan."""
-    passive_modes_path = luigi.Parameteer(default='out/passive_mods.h5')
+
+    passive_modes_path = luigi.Parameter(default="out/passive_mods.h5")
 
     def requires(self):
         """"""

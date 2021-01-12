@@ -49,9 +49,7 @@ def plot_spectra(
     else:
         fig = None
 
-    ks = np.linspace(
-        graph.graph["params"]["k_min"], graph.graph["params"]["k_max"], 10000
-    )
+    ks = np.linspace(graph.graph["params"]["k_min"], graph.graph["params"]["k_max"], 10000)
     spectra = np.zeros(len(ks))
     for mode, amplitude in zip(threshold_modes, modal_amplitudes):
         if amplitude > 0:
@@ -60,9 +58,7 @@ def plot_spectra(
     ax.plot(ks, spectra)
 
     ax2 = ax.twinx()
-    ks = np.linspace(
-        graph.graph["params"]["k_min"], graph.graph["params"]["k_max"], 1000
-    )
+    ks = np.linspace(graph.graph["params"]["k_min"], graph.graph["params"]["k_max"], 1000)
     ax2.plot(ks, lorentzian(ks, graph), "r--")
     ax2.set_xlabel(r"$\lambda$")
     ax2.set_ylabel("Gain spectrum (a.u.)")
@@ -112,9 +108,7 @@ def plot_stem_spectra(
     )
 
     ax2 = ax.twinx()
-    ks = np.linspace(
-        graph.graph["params"]["k_min"], graph.graph["params"]["k_max"], 1000
-    )
+    ks = np.linspace(graph.graph["params"]["k_min"], graph.graph["params"]["k_max"], 1000)
     ax2.plot(ks, lorentzian(ks, graph), "r--")
     ax2.set_xlabel(r"$\lambda$")
     ax2.set_ylabel("Gain spectrum (a.u.)")
@@ -242,9 +236,7 @@ def plot_scan(
             )
 
         if with_trajectories and "mode_trajectories" in modes_df:
-            plot_pump_traj(
-                modes_df, with_scatter=with_scatter, with_approx=with_approx, ax=ax
-            )
+            plot_pump_traj(modes_df, with_scatter=with_scatter, with_approx=with_approx, ax=ax)
 
     ax.axis([ks[0], ks[-1], alphas[-1], alphas[0]])
 
@@ -300,9 +292,7 @@ def plot_quantum_graph(
         plt.colorbar(nodes, label=r"node values")
 
     else:
-        nx.draw_networkx_nodes(
-            graph, pos=positions, node_size=node_size, node_color="k"
-        )
+        nx.draw_networkx_nodes(graph, pos=positions, node_size=node_size, node_color="k")
 
     # nx.draw_networkx_edges(graph, pos=positions)
     # for edge labeling:
@@ -359,9 +349,7 @@ def plot_pump_traj(modes_df, with_scatter=True, with_approx=True, ax=None):
     pumped_modes = modes_df["mode_trajectories"].to_numpy()
     for pumped_mode in pumped_modes:
         if with_scatter:
-            ax.scatter(
-                np.real(pumped_mode), -np.imag(pumped_mode), marker="o", s=10, c="b"
-            )
+            ax.scatter(np.real(pumped_mode), -np.imag(pumped_mode), marker="o", s=10, c="b")
         ax.plot(np.real(pumped_mode), -np.imag(pumped_mode), c=next(colors))
 
     if "mode_trajectories_approx" in modes_df and with_approx:
@@ -376,9 +364,7 @@ def plot_pump_traj(modes_df, with_scatter=True, with_approx=True, ax=None):
             )
 
 
-def plot_single_mode(
-    graph, modes_df, index, df_entry="passive", colorbar=True, ax=None
-):
+def plot_single_mode(graph, modes_df, index, df_entry="passive", colorbar=True, ax=None):
     """Plot single mode on the graph."""
     positions = [graph.nodes[u]["position"] for u in graph]
     mode = modes_df[df_entry][index]

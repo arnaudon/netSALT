@@ -21,9 +21,7 @@ def gamma(freq, params):
         freq (float): frequency
         params (dict): parameters, must include 'gamma_perp' and 'k_a'
     """
-    return params["gamma_perp"] / (
-        np.real(freq) - params["k_a"] + 1.0j * params["gamma_perp"]
-    )
+    return params["gamma_perp"] / (np.real(freq) - params["k_a"] + 1.0j * params["gamma_perp"])
 
 
 def set_dispersion_relation(graph, dispersion_relation, params):
@@ -95,8 +93,7 @@ def dispersion_relation_pump(freq, params=None):
         return freq * np.sqrt(params["dielectric_constant"])
 
     return freq * np.sqrt(
-        params["dielectric_constant"]
-        + gamma(freq, params) * params["D0"] * params["pump"]
+        params["dielectric_constant"] + gamma(freq, params) * params["D0"] * params["pump"]
     )
 
 
@@ -125,13 +122,9 @@ def set_dielectric_constant(graph, params, custom_values=None):
             - params["refraction_params"]["loss"] ** 2
         )
         params["dielectric_params"]["loss"] = (
-            2.0
-            * params["refraction_params"]["inner_value"]
-            * params["refraction_params"]["loss"]
+            2.0 * params["refraction_params"]["inner_value"] * params["refraction_params"]["loss"]
         )
-        params["dielectric_params"]["outer_value"] = (
-            params["refraction_params"]["outer_value"] ** 2
-        )
+        params["dielectric_params"]["outer_value"] = params["refraction_params"]["outer_value"] ** 2
 
     if params["dielectric_params"]["method"] == "uniform":
         for u, v in graph.edges:
@@ -141,9 +134,7 @@ def set_dielectric_constant(graph, params, custom_values=None):
                     + 1.0j * params["dielectric_params"]["loss"]
                 )
             else:
-                graph[u][v]["dielectric_constant"] = params["dielectric_params"][
-                    "outer_value"
-                ]
+                graph[u][v]["dielectric_constant"] = params["dielectric_params"]["outer_value"]
 
     if params["dielectric_params"]["method"] == "random":
         for u, v in graph.edges:
@@ -167,9 +158,7 @@ def update_params_dielectric_constant(graph, params):
         graph (networkx graph): current graph
         params (dict): parameters, must include 'gamma_perp' and 'k_a'
     """
-    params["dielectric_constant"] = [
-        graph[u][v]["dielectric_constant"] for u, v in graph.edges
-    ]
+    params["dielectric_constant"] = [graph[u][v]["dielectric_constant"] for u, v in graph.edges]
 
 
 def q_value(mode):

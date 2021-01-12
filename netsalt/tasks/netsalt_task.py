@@ -48,9 +48,7 @@ class HashedTask(luigi.Task):
             self.target_path = (
                 str(Path(self.target_path).with_suffix(""))
                 + "_"
-                + "_".join(
-                    [str(i) for i in self.lasing_modes_id]  # pylint: disable=no-member
-                )
+                + "_".join([str(i) for i in self.lasing_modes_id])  # pylint: disable=no-member
                 + str(Path(self.target_path).suffix)
             )
 
@@ -62,9 +60,7 @@ class HashedTask(luigi.Task):
 
     def get_full_id(self):
         """Get the full id of a task, including required tasks and significant parameters."""
-        msg = ",".join(
-            [req.get_full_id() for req in luigi.task.flatten(self.requires())]
-        )
+        msg = ",".join([req.get_full_id() for req in luigi.task.flatten(self.requires())])
         msg += ",".join(
             [self.__class__.__name__]
             + [
@@ -112,9 +108,7 @@ class NetSaltTask(luigi.Task):
         if self.rerun is True:
             targets = luigi.task.flatten(self.output())
             for target in targets:
-                if target.exists() and isinstance(
-                    target, luigi.target.FileSystemTarget
-                ):
+                if target.exists() and isinstance(target, luigi.target.FileSystemTarget):
                     target.fs.remove(target.path, recursive=True)
 
     def get_graph(self, graph_path):  # pylint: disable=no-self-use

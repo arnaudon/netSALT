@@ -48,9 +48,7 @@ def save_mode_competition_matrix(mode_competition_matrix, filename="results.h5")
     with h5py.File(filename, "a") as all_results:
         if "mode_competition_matrix" in all_results:
             del all_results["mode_competition_matrix"]
-        all_results.create_dataset(
-            "mode_competition_matrix", data=mode_competition_matrix
-        )
+        all_results.create_dataset("mode_competition_matrix", data=mode_competition_matrix)
 
 
 def load_mode_competition_matrix(filename="results.h5"):

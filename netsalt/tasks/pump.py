@@ -2,18 +2,12 @@
 import pickle
 
 import luigi
-import matplotlib
-import matplotlib.pyplot as plt
-from matplotlib.backends.backend_pdf import PdfPages
 
-from netsalt.io import load_graph, load_modes
+from netsalt.io import load_modes
 from netsalt.modes import optimize_pump
-from netsalt.plotting import plot_quantum_graph
 
 from .netsalt_task import NetSaltTask
 from .passive import CreateQuantumGraph, FindPassiveModes
-
-matplotlib.use("Agg")
 
 
 class OptimizePump(NetSaltTask):
@@ -26,7 +20,7 @@ class OptimizePump(NetSaltTask):
     seed = luigi.IntParameter(default=42)
     n_seeds = luigi.IntParameter(default=10)
     disp = luigi.BoolParameter(default=False)
-    optimized_pump_path = luigi.Paramter(default='out/optimized_pump.pkl')
+    optimized_pump_path = luigi.Parameter(default="out/optimized_pump.pkl")
 
     def requires(self):
         """"""
@@ -58,7 +52,5 @@ class OptimizePump(NetSaltTask):
         pickle.dump(results, open(self.output().path, "wb"))
 
     def output(self):
-        ''''''
+        """"""
         return luigi.LocalTarget(self.optimized_pump_path)
-
-

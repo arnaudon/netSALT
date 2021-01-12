@@ -1,13 +1,17 @@
 """Tasks for analysis of results."""
 from pathlib import Path
+import pickle
 
 import luigi
-import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
 import pandas as pd
+
+import matplotlib
+import matplotlib.pyplot as plt
 from matplotlib.cm import get_cmap
 from matplotlib.colors import ListedColormap
+from matplotlib.backends.backend_pdf import PdfPages
 
 from netsalt.io import load_graph, load_modes, load_qualities
 from netsalt.plotting import (
@@ -28,11 +32,13 @@ from .netsalt_task import NetSaltTask
 from .passive import CreateQuantumGraph, FindPassiveModes, ScanFrequencies
 from .pump import OptimizePump
 
+matplotlib.use("Agg")
+
 
 class PlotQuantumGraph(NetSaltTask):
     """Plot a quantum graph and print some informations."""
 
-    plot_path = luigi.Parameter(default='figures/quantum_graph.pdf')
+    plot_path = luigi.Parameter(default="figures/quantum_graph.pdf")
 
     def requires(self):
         """"""
@@ -79,7 +85,7 @@ class PlotQuantumGraph(NetSaltTask):
 class PlotScan(NetSaltTask):
     """Plot scan frequencies."""
 
-    plot_path = luigi.Parameter(default='figures/scan_frequencies.pdf')
+    plot_path = luigi.Parameter(default="figures/scan_frequencies.pdf")
 
     def requires(self):
         """"""
@@ -107,7 +113,7 @@ class PlotPassiveModes(NetSaltTask):
 
     ext = luigi.Parameter(default=".pdf")
     n_modes = luigi.IntParameter(default=10)
-    plot_path = luigi.Parameter(default='figures/passive_modes')
+    plot_path = luigi.Parameter(default="figures/passive_modes")
 
     def requires(self):
         """"""
@@ -120,9 +126,7 @@ class PlotPassiveModes(NetSaltTask):
 
         if not Path(self.output().path).exists():
             Path(self.output().path).mkdir()
-        plot_modes(
-            qg, modes_df, df_entry="passive", folder=self.output().path, ext=self.ext
-        )
+        plot_modes(qg, modes_df, df_entry="passive", folder=self.output().path, ext=self.ext)
 
     def output(self):
         """"""
@@ -132,7 +136,7 @@ class PlotPassiveModes(NetSaltTask):
 class PlotScanWithModes(NetSaltTask):
     """Plot scan frequencies with modes."""
 
-    plot_path = luigi.Parameter(default='figures/scan_frequencies_with_modes.pdf')
+    plot_path = luigi.Parameter(default="figures/scan_frequencies_with_modes.pdf")
 
     def requires(self):
         """"""
@@ -159,16 +163,14 @@ class PlotScanWithModeTrajectories(NetSaltTask):
     """Plot mode trajectories."""
 
     lasing_modes_id = luigi.ListParameter()
-    plot_path = luigi.Parameter(default='figures/mode_trajectories.pdf')
+    plot_path = luigi.Parameter(default="figures/mode_trajectories.pdf")
 
     def requires(self):
         """"""
         return {
             "graph": CreateQuantumGraph(),
             "qualities": ScanFrequencies(),
-            "trajectories": ComputeModeTrajectories(
-                lasing_modes_id=self.lasing_modes_id
-            ),
+            "trajectories": ComputeModeTrajectories(lasing_modes_id=self.lasing_modes_id),
         }
 
     def run(self):
@@ -189,7 +191,7 @@ class PlotScanWithThresholdModes(NetSaltTask):
     """"Plot threshold lasing modes."""
 
     lasing_modes_id = luigi.ListParameter()
-    plot_path = luigi.Parameter(default='figures/thrshold_modes.pdf')
+    plot_path = luigi.Parameter(default="figures/thrshold_modes.pdf")
 
     def requires(self):
         """"""
@@ -226,7 +228,7 @@ class PlotThresholdModes(NetSaltTask):
     ext = luigi.Parameter(default=".pdf")
     n_modes = luigi.IntParameter(default=10)
     lasing_modes_id = luigi.ListParameter()
-    plot_path = luigi.Parameter(default='figures/threshold_modes')
+    plot_path = luigi.Parameter(default="figures/threshold_modes")
 
     def requires(self):
         """"""
@@ -262,7 +264,7 @@ class PlotLLCurve(NetSaltTask):
     """Plot LL curves from modal intensities."""
 
     lasing_modes_id = luigi.ListParameter()
-    plot_path = luigi.Parameter(default='figures/ll_curve.pdf')
+    plot_path = luigi.Parameter(default="figures/ll_curve.pdf")
 
     def requires(self):
         """"""
@@ -289,7 +291,7 @@ class PlotStemSpectra(NetSaltTask):
     """Plot LL curves from modal intensities."""
 
     lasing_modes_id = luigi.ListParameter()
-    plot_path = luigi.Parameter(default='figures/stem_spectra.pdf')
+    plot_path = luigi.Parameter(default="figures/stem_spectra.pdf")
 
     def requires(self):
         """"""
@@ -316,7 +318,7 @@ class PlotOptimizedPump(NetSaltTask):
     """Plot info about optimized pump."""
 
     lasing_modes_id = luigi.ListParameter()
-    plot_path = luigi.Parameter(default='figures/optimized_pump.pdf')
+    plot_path = luigi.Parameter(default="figures/optimized_pump.pdf")
 
     def requires(self):
         """"""
