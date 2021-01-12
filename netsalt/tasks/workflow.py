@@ -17,6 +17,7 @@ from .analysis import (
     PlotScanWithThresholdModes,
     PlotStemSpectra,
     PlotThresholdModes,
+    PlotOptimizedPump
 )
 from .lasing import (
     ComputeModalIntensities,
@@ -27,7 +28,7 @@ from .lasing import (
 )
 from .netsalt_task import NetSaltTask
 from .passive import CreateQuantumGraph, FindPassiveModes, ScanFrequencies
-from .pump import OptimizePump, PlotOptimizedPump
+from .pump import OptimizePump, 
 
 matplotlib.use("Agg")
 
@@ -99,6 +100,7 @@ class ComputeControllability(NetSaltTask):
 
     n_top_modes = luigi.IntParameter(default=4)
     pump_path = luigi.Parameter(default="pumps")
+    plot_patth = luigi.Parameter(default=' figures/single_mode_control.pdf')
 
     def requires(self):
         """"""
@@ -123,17 +125,26 @@ class ComputeControllability(NetSaltTask):
                 ComputeModalIntensities(lasing_modes_id=[mode_id]).D0_max
                 in int_df["modal_intensities"].columns
             ):
-                single_mode_matrix.append(
-                    int_df[
+                spectra = int_df[
                         "modal_intensities",
                         ComputeModalIntensities(lasing_modes_id=[mode_id]).D0_max,
-                    ].to_list()[: len(lasing_modes_id)]
-                )
-            else:
-                single_mode_matrix.append(np.zeros(len(lasing_modes_id)) * np.nan)
+                    ].to_numpy()[: len(lasing_modes_id)]
 
-        plt.figure()
-        sns.heatmap(single_mode_matrix, annot=True, fmt="3.0f")
-        plt.ylabel("Mode id to single lase")
-        plt.xlabel("Modal intensities")
+                single_mode_matrix.append(spectra / np.sum(spectra[~np.isnan(spectra)]))
+            #else:
+            #    single_mode_matrix.append(np.zeros(len(lasing_modes_id)) * np.nan)
+
+        plt.figure(figsize=(6, 5))
+        sns.heatmap(single_mode_matrix, annot=False, fmt=".1f", cmap='Reds')
+        plt.ylabel("Mode ids to single lase")
+        plt.xlabel("Modal ids")
         plt.savefig(self.output().path, bbox_inches="tight")
+
+        single_mode_matrix = np.array(single_mode_matrix)
+        single_mode_matrix[np.isnan(single_mode_matrix)] = 0
+        controlability  = np.trace(single_mode_matrix) / len(single_mode_matrix)
+        print(controlability)
+
+    def output(self):
+        """"""
+        return luigi.LocalTarget(self.plot_path)

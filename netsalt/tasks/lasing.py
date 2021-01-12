@@ -31,6 +31,7 @@ class CreatePumpProfile(NetSaltTask):
     )
     custom_pump_path = luigi.Parameter(default="pump_profile.yaml")
     lasing_modes_id = luigi.ListParameter()
+    pump_profile_path = luigi.Parameter(default='out/pump_profile.yaml')
 
     def requires(self):
         """"""
@@ -56,11 +57,16 @@ class CreatePumpProfile(NetSaltTask):
             pump = yaml.load(open(self.custom_pump_path, "r"))
         yaml.dump(pump, open(self.output().path, "w"))
 
+    def output(self):
+        """"""
+        return luigi.Parameter(self.pump_profile_path)
+
 
 class ComputeModeTrajectories(NetSaltTask):
     """Compute mode trajectories from passive modes."""
 
     lasing_modes_id = luigi.ListParameter()
+    modes_trajectories_path = luigi.Parameter(default='out/mode_traajectories.h5')
 
     def requires(self):
         """"""
@@ -78,11 +84,16 @@ class ComputeModeTrajectories(NetSaltTask):
         modes_df = pump_trajectories(modes_df, qg, return_approx=True)
         save_modes(modes_df, filename=self.output().path)
 
+    def output(self):
+        """"""
+        return luigi.Parameter(self.modes_trajectories_path)
+
 
 class FindThresholdModes(NetSaltTask):
     """Find the lasing thresholds and associated modes."""
 
     lasing_modes_id = luigi.ListParameter()
+    threshold_modes_path = luigi.Parameter(default='out/lasingthresholds_modes.h5')
 
     def requires(self):
         """"""
@@ -99,11 +110,15 @@ class FindThresholdModes(NetSaltTask):
         modes_df = find_threshold_lasing_modes(modes_df, qg)
         save_modes(modes_df, filename=self.output().path)
 
+    def output(self):
+        """"""
+        return luigi.Parameter(self.threshold_modes_path)
 
 class ComputeModeCompetitionMatrix(NetSaltTask):
     """Compute the mode competition matrix."""
 
     lasing_modes_id = luigi.ListParameter()
+    competition_matrix_path = luigi.Parameter(default='out/mode_competition_matrix.h5')
 
     def requires(self):
         """"""
@@ -123,12 +138,17 @@ class ComputeModeCompetitionMatrix(NetSaltTask):
             mode_competition_matrix, filename=self.output().path
         )
 
+    def output(self):
+        """"""
+        return luigi.Parameter(self.competition_matrix_path)
+
 
 class ComputeModalIntensities(NetSaltTask):
     """Compute modal intensities as a function of pump strenght."""
 
     lasing_modes_id = luigi.ListParameter()
     D0_max = luigi.FloatParameter(default=0.1)
+    modal_intensities_path = luigi.Parameter(default='out/modal_intensities.h5')
 
     def requires(self):
         """"""
@@ -150,3 +170,7 @@ class ComputeModalIntensities(NetSaltTask):
         )
 
         save_modes(modes_df, filename=self.output().path)
+
+    def output(self):
+        """"""
+        return luigi.Parameter(self.modal_intensities_path)

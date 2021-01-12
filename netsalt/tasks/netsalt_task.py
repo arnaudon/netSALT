@@ -94,7 +94,7 @@ class HashedTask(luigi.Task):
                 shutil.copyfile(self.hashed_target_path, self.target_path)
 
 
-class NetSaltTask(HashedTask):
+class NetSaltTask(luigi.Task):
     """Add the capability to rerun the task.
     Existing Remote/Local targets will be removed before running.
     """

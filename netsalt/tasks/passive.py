@@ -44,6 +44,8 @@ class CreateQuantumGraph(NetSaltTask):
     k_a = luigi.FloatParameter(default=15.0)
     gamma_perp = luigi.FloatParameter(default=3.0)
 
+    quantum_graph_path = luigi.Parameter(default='out/quantum_graph.gpickle')
+
     def run(self):
         """"""
         params = {
@@ -74,9 +76,15 @@ class CreateQuantumGraph(NetSaltTask):
         update_parameters(quantum_graph, params)
         save_graph(quantum_graph, self.output().path)
 
+    def output(self):
+        """"""
+        return luigi.LocalTarget(self.quantum_graph_path)
+
 
 class ScanFrequencies(NetSaltTask):
     """Scan frequencies to find passive modes."""
+
+    qualities_path = luigi.Parameter(default='out/qualities.h5')
 
     def requires(self):
         """"""
@@ -88,9 +96,13 @@ class ScanFrequencies(NetSaltTask):
         qualities = scan_frequencies(qg)
         save_qualities(qualities, filename=self.output().path)
 
+    def output(self):
+        """"""
+        return luigi.LocalTarget(self.qualities_path)
 
 class FindPassiveModes(NetSaltTask):
     """Find passive modes from quality scan."""
+    passive_modes_path = luigi.Parameteer(default='out/passive_mods.h5')
 
     def requires(self):
         """"""
@@ -102,3 +114,7 @@ class FindPassiveModes(NetSaltTask):
         qualities = load_qualities(filename=self.input()["qualities"].path)
         modes_df = find_modes(qg, qualities)
         save_modes(modes_df, filename=self.output().path)
+
+    def output(self):
+        """"""
+        return luigi.LocalTarget(self.passive_modes_path)

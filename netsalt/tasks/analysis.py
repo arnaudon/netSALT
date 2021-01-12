@@ -26,10 +26,13 @@ from .lasing import (
 )
 from .netsalt_task import NetSaltTask
 from .passive import CreateQuantumGraph, FindPassiveModes, ScanFrequencies
+from .pump import OptimizePump
 
 
 class PlotQuantumGraph(NetSaltTask):
     """Plot a quantum graph and print some informations."""
+
+    plot_path = luigi.Parameter(default='figures/quantum_graph.pdf')
 
     def requires(self):
         """"""
@@ -68,9 +71,15 @@ class PlotQuantumGraph(NetSaltTask):
 
         plt.savefig(self.output().path, bbox_inches="tight")
 
+    def output(self):
+        """"""
+        return luigi.LocalTarget(self.plot_path)
+
 
 class PlotScan(NetSaltTask):
     """Plot scan frequencies."""
+
+    plot_path = luigi.Parameter(default='figures/scan_frequencies.pdf')
 
     def requires(self):
         """"""
@@ -83,6 +92,10 @@ class PlotScan(NetSaltTask):
         plot_scan(qg, qualities, filename=self.output().path)
         plt.savefig(self.output().path, bbox_inches="tight")
 
+    def output(self):
+        """"""
+        return luigi.LocalTarget(self.plot_path)
+
 
 class PlotPassiveModes(NetSaltTask):
     """Plot passive modes.
@@ -92,8 +105,9 @@ class PlotPassiveModes(NetSaltTask):
         n_modes (int): number of modes to plot (ordered by Q-values)
     """
 
-    ext = luigi.Parameter(default=".png")
+    ext = luigi.Parameter(default=".pdf")
     n_modes = luigi.IntParameter(default=10)
+    plot_path = luigi.Parameter(default='figures/passive_modes')
 
     def requires(self):
         """"""
@@ -110,9 +124,15 @@ class PlotPassiveModes(NetSaltTask):
             qg, modes_df, df_entry="passive", folder=self.output().path, ext=self.ext
         )
 
+    def output(self):
+        """"""
+        return luigi.LocalTarget(self.plot_path)
+
 
 class PlotScanWithModes(NetSaltTask):
     """Plot scan frequencies with modes."""
+
+    plot_path = luigi.Parameter(default='figures/scan_frequencies_with_modes.pdf')
 
     def requires(self):
         """"""
@@ -130,11 +150,16 @@ class PlotScanWithModes(NetSaltTask):
         plot_scan(qg, qualities, modes_df, filename=self.output().path)
         plt.savefig(self.output().path, bbox_inches="tight")
 
+    def output(self):
+        """"""
+        return luigi.LocalTarget(self.plot_path)
+
 
 class PlotScanWithModeTrajectories(NetSaltTask):
     """Plot mode trajectories."""
 
     lasing_modes_id = luigi.ListParameter()
+    plot_path = luigi.Parameter(default='figures/mode_trajectories.pdf')
 
     def requires(self):
         """"""
@@ -155,11 +180,16 @@ class PlotScanWithModeTrajectories(NetSaltTask):
         plot_scan(qg, qualities, modes_df, relax_upper=True)
         plt.savefig(self.output().path, bbox_inches="tight")
 
+    def output(self):
+        """"""
+        return luigi.LocalTarget(self.plot_path)
+
 
 class PlotScanWithThresholdModes(NetSaltTask):
     """"Plot threshold lasing modes."""
 
     lasing_modes_id = luigi.ListParameter()
+    plot_path = luigi.Parameter(default='figures/thrshold_modes.pdf')
 
     def requires(self):
         """"""
@@ -180,6 +210,10 @@ class PlotScanWithThresholdModes(NetSaltTask):
         plot_scan(qg, qualities, modes_df, relax_upper=True)
         plt.savefig(self.output().path, bbox_inches="tight")
 
+    def output(self):
+        """"""
+        return luigi.LocalTarget(self.plot_path)
+
 
 class PlotThresholdModes(NetSaltTask):
     """Plot threshold modes.
@@ -189,9 +223,10 @@ class PlotThresholdModes(NetSaltTask):
         n_modes (int): number of modes to plot (ordered by Q-values)
     """
 
-    ext = luigi.Parameter(default=".png")
+    ext = luigi.Parameter(default=".pdf")
     n_modes = luigi.IntParameter(default=10)
     lasing_modes_id = luigi.ListParameter()
+    plot_path = luigi.Parameter(default='figures/threshold_modes')
 
     def requires(self):
         """"""
@@ -218,11 +253,16 @@ class PlotThresholdModes(NetSaltTask):
             ext=self.ext,
         )
 
+    def output(self):
+        """"""
+        return luigi.LocalTarget(self.plot_path)
+
 
 class PlotLLCurve(NetSaltTask):
     """Plot LL curves from modal intensities."""
 
     lasing_modes_id = luigi.ListParameter()
+    plot_path = luigi.Parameter(default='figures/ll_curve.pdf')
 
     def requires(self):
         """"""
@@ -240,11 +280,16 @@ class PlotLLCurve(NetSaltTask):
         plot_ll_curve(qg, modes_df, with_legend=True)
         plt.savefig(self.output().path, bbox_inches="tight")
 
+    def output(self):
+        """"""
+        return luigi.LocalTarget(self.plot_path)
+
 
 class PlotStemSpectra(NetSaltTask):
     """Plot LL curves from modal intensities."""
 
     lasing_modes_id = luigi.ListParameter()
+    plot_path = luigi.Parameter(default='figures/stem_spectra.pdf')
 
     def requires(self):
         """"""
@@ -261,3 +306,55 @@ class PlotStemSpectra(NetSaltTask):
         modes_df = load_modes(self.input()["modes"].path)
         plot_stem_spectra(qg, modes_df)
         plt.savefig(self.output().path, bbox_inches="tight")
+
+    def output(self):
+        """"""
+        return luigi.LocalTarget(self.plot_path)
+
+
+class PlotOptimizedPump(NetSaltTask):
+    """Plot info about optimized pump."""
+
+    lasing_modes_id = luigi.ListParameter()
+    plot_path = luigi.Parameter(default='figures/optimized_pump.pdf')
+
+    def requires(self):
+        """"""
+        return {
+            "pump": OptimizePump(lasing_modes_id=self.lasing_modes_id),
+            "graph": CreateQuantumGraph(),
+        }
+
+    def run(self):
+        """"""
+        results = pickle.load(open(self.input()["pump"].path, "rb"))
+        qg = load_graph(self.input()["graph"].path)
+
+        with PdfPages(self.output().path) as pdf:
+            plt.figure()
+            plt.hist(results["costs"], bins=20)
+            pdf.savefig(bbox_inches="tight")
+
+            plt.figure(figsize=(20, 5))
+            for lasing_mode in results["lasing_modes_id"]:
+                plt.plot(results["pump_overlapps"][lasing_mode])
+
+            plt.twinx()
+            plt.plot(results["optimal_pump"], "r+")
+            plt.gca().set_ylim(0.5, 1.5)
+            pdf.savefig(bbox_inches="tight")
+
+            plot_quantum_graph(
+                qg,
+                edge_colors=results["optimal_pump"],
+                node_size=5,
+                # color_map=newcmp,
+                cbar_min=0,
+                cbar_max=1,
+            )
+
+            pdf.savefig(bbox_inches="tight")
+
+    def output(self):
+        """"""
+        return luigi.LocalTarget(self.plot_path)

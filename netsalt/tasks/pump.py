@@ -26,6 +26,7 @@ class OptimizePump(NetSaltTask):
     seed = luigi.IntParameter(default=42)
     n_seeds = luigi.IntParameter(default=10)
     disp = luigi.BoolParameter(default=False)
+    optimized_pump_path = luigi.Paramter(default='out/optimized_pump.pkl')
 
     def requires(self):
         """"""
@@ -56,45 +57,8 @@ class OptimizePump(NetSaltTask):
         }
         pickle.dump(results, open(self.output().path, "wb"))
 
+    def output(self):
+        ''''''
+        return luigi.LocalTarget(self.optimized_pump_path)
 
-class PlotOptimizedPump(NetSaltTask):
-    """Plot info about optimized pump."""
 
-    lasing_modes_id = luigi.ListParameter()
-
-    def requires(self):
-        """"""
-        return {
-            "pump": OptimizePump(lasing_modes_id=self.lasing_modes_id),
-            "graph": CreateQuantumGraph(),
-        }
-
-    def run(self):
-        """"""
-        results = pickle.load(open(self.input()["pump"].path, "rb"))
-        qg = load_graph(self.input()["graph"].path)
-
-        with PdfPages(self.output().path) as pdf:
-            plt.figure()
-            plt.hist(results["costs"], bins=20)
-            pdf.savefig(bbox_inches="tight")
-
-            plt.figure(figsize=(20, 5))
-            for lasing_mode in results["lasing_modes_id"]:
-                plt.plot(results["pump_overlapps"][lasing_mode])
-
-            plt.twinx()
-            plt.plot(results["optimal_pump"], "r+")
-            plt.gca().set_ylim(0.5, 1.5)
-            pdf.savefig(bbox_inches="tight")
-
-            plot_quantum_graph(
-                qg,
-                edge_colors=results["optimal_pump"],
-                node_size=5,
-                # color_map=newcmp,
-                cbar_min=0,
-                cbar_max=1,
-            )
-
-            pdf.savefig(bbox_inches="tight")
