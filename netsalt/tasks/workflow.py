@@ -18,6 +18,8 @@ from .analysis import (
     PlotStemSpectra,
     PlotThresholdModes,
     PlotOptimizedPump,
+    PlotModeCompetitionMatrix,
+    PlotPumpProfile,
 )
 from .lasing import (
     ComputeModalIntensities,
@@ -36,61 +38,47 @@ matplotlib.use("Agg")
 class ComputePassiveModes(luigi.WrapperTask):
     """Run a workflow to compute passive modes of a graph."""
 
+    rerun = luigi.BoolParameter(default=False)
+
     def requires(self):
         """"""
         return [
-            CreateQuantumGraph(),
-            PlotQuantumGraph(),
-            ScanFrequencies(),
-            PlotScan(),
-            FindPassiveModes(),
-            PlotPassiveModes(),
-            PlotScanWithModes(),
+            CreateQuantumGraph(rerun=self.rerun),
+            PlotQuantumGraph(rerun=self.rerun),
+            ScanFrequencies(rerun=self.rerun),
+            PlotScan(rerun=self.rerun),
+            FindPassiveModes(rerun=self.rerun),
+            PlotPassiveModes(rerun=self.rerun),
+            PlotScanWithModes(rerun=self.rerun),
         ]
 
 
 class ComputeLasingModes(luigi.WrapperTask):
     """Run a workflow to compute passive modes of a graph."""
 
-    def requires(self):
-        """"""
-        tasks = ComputePassiveModes().requires()
-        lasing_modes_id = CreatePumpProfile().lasing_modes_id
-        tasks += [
-            CreatePumpProfile(),
-            ComputeModeTrajectories(lasing_modes_id=lasing_modes_id),
-            PlotScanWithModeTrajectories(lasing_modes_id=lasing_modes_id),
-            FindThresholdModes(lasing_modes_id=lasing_modes_id),
-            PlotScanWithThresholdModes(lasing_modes_id=lasing_modes_id),
-            PlotThresholdModes(lasing_modes_id=lasing_modes_id),
-            ComputeModeCompetitionMatrix(lasing_modes_id=lasing_modes_id),
-            ComputeModalIntensities(lasing_modes_id=lasing_modes_id),
-            PlotLLCurve(lasing_modes_id=lasing_modes_id),
-            PlotStemSpectra(lasing_modes_id=lasing_modes_id),
-        ]
-        return tasks
-
-
-class ComputeLasingModesWithPumpOptimization(luigi.WrapperTask):
-    """Run a workflow to compute passive modes of a graph."""
+    rerun = luigi.BoolParameter(default=False)
+    rerun_all = luigi.BoolParameter(default=False)
 
     def requires(self):
         """"""
-        tasks = ComputePassiveModes().requires()
+        if self.rerun_all:
+            self.rerun = True
+
+        tasks = ComputePassiveModes(self.rerun_all).requires()
         lasing_modes_id = CreatePumpProfile().lasing_modes_id
         tasks += [
-            OptimizePump(lasing_modes_id=lasing_modes_id),
-            PlotOptimizedPump(lasing_modes_id=lasing_modes_id),
-            CreatePumpProfile(),
-            ComputeModeTrajectories(lasing_modes_id=lasing_modes_id),
-            PlotScanWithModeTrajectories(lasing_modes_id=lasing_modes_id),
-            FindThresholdModes(lasing_modes_id=lasing_modes_id),
-            PlotScanWithThresholdModes(lasing_modes_id=lasing_modes_id),
-            PlotThresholdModes(lasing_modes_id=lasing_modes_id),
-            ComputeModeCompetitionMatrix(lasing_modes_id=lasing_modes_id),
-            ComputeModalIntensities(lasing_modes_id=lasing_modes_id),
-            PlotLLCurve(lasing_modes_id=lasing_modes_id),
-            PlotStemSpectra(lasing_modes_id=lasing_modes_id),
+            CreatePumpProfile(rerun=self.rerun),
+            PlotPumpProfile(rerun=self.rerun),
+            ComputeModeTrajectories(lasing_modes_id=lasing_modes_id, rerun=self.rerun),
+            PlotScanWithModeTrajectories(lasing_modes_id=lasing_modes_id, rerun=self.rerun),
+            FindThresholdModes(lasing_modes_id=lasing_modes_id, rerun=self.rerun),
+            PlotScanWithThresholdModes(lasing_modes_id=lasing_modes_id, rerun=self.rerun),
+            PlotThresholdModes(lasing_modes_id=lasing_modes_id, rerun=self.rerun),
+            ComputeModeCompetitionMatrix(lasing_modes_id=lasing_modes_id, rerun=self.rerun),
+            PlotModeCompetitionMatrix(lasing_modes_id=lasing_modes_id, rerun=self.rerun),
+            ComputeModalIntensities(lasing_modes_id=lasing_modes_id, rerun=self.rerun),
+            PlotLLCurve(lasing_modes_id=lasing_modes_id, rerun=self.rerun),
+            PlotStemSpectra(lasing_modes_id=lasing_modes_id, rerun=self.rerun),
         ]
         return tasks
 

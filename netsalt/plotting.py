@@ -200,7 +200,7 @@ def plot_scan(
     ks, alphas = get_scan_grid(graph)
 
     if figsize is None:
-        figsize = (len(ks) / len(alphas) * 10, 5)
+        figsize = (len(ks) / len(alphas) * 3, 5)
 
     if ax is None:
         fig = plt.figure(figsize=figsize)
@@ -251,13 +251,32 @@ def plot_scan(
     return ax
 
 
+def plot_pump_profile(graph, pump, figsize=(5, 4), ax=None, node_size=1.0):
+    if ax is None:
+        fig = plt.figure(figsize=figsize)
+        ax = plt.gca()
+    else:
+        fig = None
+
+    positions = [graph.nodes[u]["position"] for u in graph]
+    pumped_edges = [e for e, pump in zip(graph.edges, pump) if pump > 0.0]
+    nx.draw_networkx_edges(
+        graph,
+        pos=positions,
+        edgelist=pumped_edges,
+        edge_color="0.8",
+        width=10,
+    )
+    plot_quantum_graph(graph, ax=ax, node_size=node_size)
+
+
 def plot_quantum_graph(
     graph,
     figsize=(5, 4),
     ax=None,
     edge_colors=None,
     node_colors=None,
-    node_size=1,
+    node_size=0.1,
     color_map="Accent_r",  # coolwarm plasma
     cbar_min=0,
     cbar_max=1,
@@ -321,6 +340,8 @@ def plot_quantum_graph(
         )
 
         plt.colorbar(edges, label=r"edge values")
+    else:
+        nx.draw_networkx_edges(graph, pos=positions, width=2)
 
     out_nodes = []
     for e in graph.edges():

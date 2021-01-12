@@ -29,7 +29,6 @@ warnings.filterwarnings("ignore")
 warnings.filterwarnings("error", category=np.ComplexWarning)
 
 L = logging.getLogger(__name__)
-logging.basicConfig(level=os.environ.get("LOGLEVEL", "DEBUG"))
 
 # pylint: disable=too-many-locals
 
@@ -80,14 +79,14 @@ def scan_frequencies(graph):
     freqs = [[k, a] for k in ks for a in alphas]
 
     worker_scan = WorkerScan(graph)
-    pool = multiprocessing.Pool(graph.graph["params"]["n_workers"])
-    qualities_list = list(
-        tqdm(
-            pool.imap(worker_scan, freqs, chunksize=10),
-            total=len(freqs),
+    chunksize = max(1, int(0.1 * len(freqs) / graph.graph["params"]["n_workers"]))
+    with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
+        qualities_list = list(
+            tqdm(
+                pool.imap(worker_scan, freqs, chunksize=chunksize),
+                total=len(freqs),
+            )
         )
-    )
-    pool.close()
 
     id_k = [k_i for k_i in range(len(ks)) for a_i in range(len(alphas))]
     id_a = [a_i for k_i in range(len(ks)) for a_i in range(len(alphas))]
@@ -114,14 +113,13 @@ def find_modes(graph, qualities):
     L.info("Found %s mode candidates.", len(estimated_modes))
     search_radii = [1 * (ks[1] - ks[0]), 1 * (alphas[1] - alphas[0])]
     worker_modes = WorkerModes(estimated_modes, graph, search_radii=search_radii)
-    pool = multiprocessing.Pool(graph.graph["params"]["n_workers"])
-    refined_modes = list(
-        tqdm(
-            pool.imap(worker_modes, range(len(estimated_modes))),
-            total=len(estimated_modes),
+    with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
+        refined_modes = list(
+            tqdm(
+                pool.imap(worker_modes, range(len(estimated_modes))),
+                total=len(estimated_modes),
+            )
         )
-    )
-    pool.close()
 
     if len(refined_modes) == 0:
         raise Exception("No modes found!")
@@ -508,22 +506,19 @@ def compute_mode_competition_matrix(graph, modes_df, with_gamma=True):
     threshold_modes = threshold_modes[lasing_thresholds_all < np.inf]
     lasing_thresholds = lasing_thresholds_all[lasing_thresholds_all < np.inf]
 
-    pool = multiprocessing.Pool(graph.graph["params"]["n_workers"])
-
     precomp = partial(
         _precomputations_mode_competition,
         graph,
         _get_mask_matrices(graph.graph["params"])[1],
     )
 
-    precomp_results = list(
-        tqdm(
-            pool.imap(precomp, zip(threshold_modes, lasing_thresholds)),
-            total=len(lasing_thresholds),
+    with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
+        precomp_results = list(
+            tqdm(
+                pool.imap(precomp, zip(threshold_modes, lasing_thresholds)),
+                total=len(lasing_thresholds),
+            )
         )
-    )
-
-    lengths = graph.graph["lengths"]
 
     input_data = []
     for mu in range(len(threshold_modes)):
@@ -536,20 +531,21 @@ def compute_mode_competition_matrix(graph, modes_df, with_gamma=True):
                 ]
             )
 
-    output_data = list(
-        tqdm(
-            pool.imap(
-                partial(
-                    _compute_mode_competition_element,
-                    lengths,
-                    graph.graph["params"],
-                    with_gamma=with_gamma,
+    with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
+        output_data = list(
+            tqdm(
+                pool.imap(
+                    partial(
+                        _compute_mode_competition_element,
+                        graph.graph["lengths"],
+                        graph.graph["params"],
+                        with_gamma=with_gamma,
+                    ),
+                    input_data,
                 ),
-                input_data,
-            ),
-            total=len(input_data),
+                total=len(input_data),
+            )
         )
-    )
 
     mode_competition_matrix = np.zeros(
         [len(threshold_modes), len(threshold_modes)], dtype=np.complex128
@@ -704,7 +700,6 @@ def pump_trajectories(modes_df, graph, return_approx=False):
         graph.graph["params"]["D0_steps"],
     )
 
-    pool = multiprocessing.Pool(graph.graph["params"]["n_workers"])
     n_modes = len(modes_df)
 
     pumped_modes = [[from_complex(mode) for mode in modes_df["passive"]]]
@@ -721,13 +716,13 @@ def pump_trajectories(modes_df, graph, return_approx=False):
             pumped_modes_approx[-1][m] = pump_linear(pumped_modes[-1][m], graph, D0s[d], D0s[d + 1])
 
         worker_modes = WorkerModes(pumped_modes_approx[-1], graph, D0s=n_modes * [D0s[d + 1]])
-        pumped_modes.append(list(tqdm(pool.imap(worker_modes, range(n_modes)), total=n_modes)))
+        with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
+            pumped_modes.append(list(tqdm(pool.imap(worker_modes, range(n_modes)), total=n_modes)))
         for i, mode in enumerate(pumped_modes[-1]):
             if mode is None:
                 L.info("Mode not be updated, consider changing the search parameters.")
                 pumped_modes[-1][i] = pumped_modes[-2][i]
 
-    pool.close()
     if "mode_trajectories" in modes_df:
         del modes_df["mode_trajectories"]
     for D0, pumped_mode in zip(D0s, pumped_modes):
@@ -762,7 +757,6 @@ def _get_new_D0(arg, graph=None, D0_steps=0.1):
 
 def find_threshold_lasing_modes(modes_df, graph):
     """Find the threshold lasing modes and associated lasing thresholds."""
-    pool = multiprocessing.Pool(graph.graph["params"]["n_workers"])
     stepsize = graph.graph["params"]["search_stepsize"]
 
     D0_steps = graph.graph["params"]["D0_max"] / graph.graph["params"]["D0_steps"]
@@ -779,11 +773,12 @@ def find_threshold_lasing_modes(modes_df, graph):
         new_D0s = np.zeros(len(modes_df))
         new_modes_approx = np.empty([len(new_modes), 2])
         args = ((mode_id, new_modes[mode_id], D0s[mode_id]) for mode_id in current_modes)
-        for mode_id, new_D0, new_mode_approx in pool.imap(
-            partial(_get_new_D0, graph=graph, D0_steps=D0_steps), args
-        ):
-            new_D0s[mode_id] = new_D0
-            new_modes_approx[mode_id] = new_mode_approx
+        with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
+            for mode_id, new_D0, new_mode_approx in pool.imap(
+                partial(_get_new_D0, graph=graph, D0_steps=D0_steps), args
+            ):
+                new_D0s[mode_id] = new_D0
+                new_modes_approx[mode_id] = new_mode_approx
 
         # this is a trick to reduce the stepsizes as we are near the solution
         graph.graph["params"]["search_stepsize"] = (
@@ -793,9 +788,11 @@ def find_threshold_lasing_modes(modes_df, graph):
         L.debug("Current search_stepsize: %s", graph.graph["params"]["search_stepsize"])
         worker_modes = WorkerModes(new_modes_approx, graph, D0s=new_D0s)
         new_modes_tmp = np.zeros([len(modes_df), 2])
-        new_modes_tmp[current_modes] = list(
-            tqdm(pool.imap(worker_modes, current_modes), total=len(current_modes))
-        )
+
+        with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
+            new_modes_tmp[current_modes] = list(
+                tqdm(pool.imap(worker_modes, current_modes), total=len(current_modes))
+            )
 
         to_delete = []
         for i, mode_index in enumerate(current_modes):
@@ -813,8 +810,6 @@ def find_threshold_lasing_modes(modes_df, graph):
         current_modes = np.delete(current_modes, to_delete)
         D0s = new_D0s.copy()
         new_modes = new_modes_tmp.copy()
-
-    pool.close()
 
     modes_df["threshold_lasing_modes"] = [to_complex(mode) for mode in threshold_lasing_modes]
     modes_df["lasing_thresholds"] = lasing_thresholds
@@ -867,7 +862,7 @@ def pump_cost(
     raise Exception("Optimisation mode not understood")
 
 
-def _optimise(seed, costf=None, bounds=None, disp=None, maxiter=100, popsize=5):
+def _optimise(seed, costf=None, bounds=None, disp=False, maxiter=1000, popsize=5):
     """Wrapper of differnetial evolution algorithm to launch multiple seeds."""
     return optimize.differential_evolution(
         func=costf,
@@ -900,7 +895,7 @@ def optimize_pump(
     popsize=5,
     seed=1,
     n_seeds=24,
-    disp=True,
+    disp=False,
 ):
     """Optimise the pump for lasing a set of modes.
 

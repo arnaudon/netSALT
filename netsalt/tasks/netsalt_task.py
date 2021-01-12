@@ -96,7 +96,7 @@ class NetSaltTask(luigi.Task):
     """
 
     rerun = luigi.BoolParameter(
-        config_path={"section": "DEFAULT", "name": "rerun"},
+        # config_path={"section": "DEFAULT", "name": "rerun"},
         default=False,
         significant=False,
     )

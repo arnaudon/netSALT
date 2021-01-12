@@ -1,6 +1,7 @@
 """Tasks for analysis of results."""
 from pathlib import Path
 import pickle
+import yaml
 
 import luigi
 import networkx as nx
@@ -12,14 +13,17 @@ import matplotlib.pyplot as plt
 from matplotlib.cm import get_cmap
 from matplotlib.colors import ListedColormap
 from matplotlib.backends.backend_pdf import PdfPages
+import seaborn as sns
 
-from netsalt.io import load_graph, load_modes, load_qualities
+from netsalt.io import load_graph, load_modes, load_qualities, load_mode_competition_matrix
+from netsalt.quantum_graph import oversample_graph
 from netsalt.plotting import (
     plot_ll_curve,
     plot_modes,
     plot_quantum_graph,
     plot_scan,
     plot_stem_spectra,
+    plot_pump_profile,
 )
 
 from .lasing import (
@@ -27,6 +31,7 @@ from .lasing import (
     ComputeModeTrajectories,
     CreatePumpProfile,
     FindThresholdModes,
+    ComputeModeCompetitionMatrix,
 )
 from .netsalt_task import NetSaltTask
 from .passive import CreateQuantumGraph, FindPassiveModes, ScanFrequencies
@@ -69,7 +74,6 @@ class PlotQuantumGraph(NetSaltTask):
         plot_quantum_graph(
             qg,
             edge_colors=qg.graph["params"]["dielectric_constant"],
-            node_size=5,
             color_map=newcmp,
             cbar_min=1,
             cbar_max=np.max(np.abs(qg.graph["params"]["dielectric_constant"])),
@@ -113,6 +117,7 @@ class PlotPassiveModes(NetSaltTask):
 
     ext = luigi.Parameter(default=".pdf")
     n_modes = luigi.IntParameter(default=10)
+    edge_size = luigi.FloatParameter(default=1.0)
     plot_path = luigi.Parameter(default="figures/passive_modes")
 
     def requires(self):
@@ -122,6 +127,8 @@ class PlotPassiveModes(NetSaltTask):
     def run(self):
         """"""
         qg = FindPassiveModes().get_graph(self.input()["graph"].path)
+        qg.graph["params"]["plot_edgesize"] = self.edge_size
+        qg = oversample_graph(qg, qg.graph["params"])
         modes_df = load_modes(self.input()["modes"].path).head(self.n_modes)
 
         if not Path(self.output().path).exists():
@@ -191,7 +198,7 @@ class PlotScanWithThresholdModes(NetSaltTask):
     """"Plot threshold lasing modes."""
 
     lasing_modes_id = luigi.ListParameter()
-    plot_path = luigi.Parameter(default="figures/thrshold_modes.pdf")
+    plot_path = luigi.Parameter(default="figures/threshold_modes.pdf")
 
     def requires(self):
         """"""
@@ -227,6 +234,7 @@ class PlotThresholdModes(NetSaltTask):
 
     ext = luigi.Parameter(default=".pdf")
     n_modes = luigi.IntParameter(default=10)
+    edge_size = luigi.FloatParameter(default=1.0)
     lasing_modes_id = luigi.ListParameter()
     plot_path = luigi.Parameter(default="figures/threshold_modes")
 
@@ -241,6 +249,9 @@ class PlotThresholdModes(NetSaltTask):
     def run(self):
         """"""
         qg = self.get_graph_with_pump(self.input()["graph"].path)
+        qg.graph["params"]["plot_edgesize"] = self.edge_size
+        qg = oversample_graph(qg, qg.graph["params"])
+
         modes_df = load_modes(self.input()["modes"].path).head(10)
 
         if not Path(self.output().path).exists():
@@ -329,7 +340,7 @@ class PlotOptimizedPump(NetSaltTask):
 
     def run(self):
         """"""
-        results = pickle.load(open(self.input()["pump"].path, "rb"))
+        results = pickle.load(self.input()["pump"].open())
         qg = load_graph(self.input()["graph"].path)
 
         with PdfPages(self.output().path) as pdf:
@@ -356,6 +367,49 @@ class PlotOptimizedPump(NetSaltTask):
             )
 
             pdf.savefig(bbox_inches="tight")
+
+    def output(self):
+        """"""
+        return luigi.LocalTarget(self.plot_path)
+
+
+class PlotModeCompetitionMatrix(NetSaltTask):
+    """Plot the mode competition matrix."""
+
+    lasing_modes_id = luigi.ListParameter()
+    plot_path = luigi.Parameter(default="figures/mode_competition_matrix.pdf")
+
+    def requires(self):
+        """"""
+        return ComputeModeCompetitionMatrix(lasing_modes_id=self.lasing_modes_id)
+
+    def run(self):
+        """"""
+        competition_matrix = load_mode_competition_matrix(filename=self.input().path)
+        plt.figure()
+        sns.heatmap(competition_matrix, ax=plt.gca())
+        plt.savefig(self.output().path)
+
+    def output(self):
+        """"""
+        return luigi.LocalTarget(self.plot_path)
+
+
+class PlotPumpProfile(NetSaltTask):
+    """Plot the pump profile."""
+
+    plot_path = luigi.Parameter(default="figures/pump_profile.pdf")
+
+    def requires(self):
+        """"""
+        return {"graph": CreateQuantumGraph(), "pump": CreatePumpProfile()}
+
+    def run(self):
+        """"""
+        qg = ScanFrequencies().get_graph(self.input()["graph"].path)
+        pump = yaml.safe_load(self.input()["pump"].open())
+        plot_pump_profile(qg, pump)
+        plt.savefig(self.output().path, bbox_inches="tight")
 
     def output(self):
         """"""
