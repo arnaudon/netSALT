@@ -1,4 +1,5 @@
 """Main tasks to run entire workflows."""
+import pickle
 import numpy as np
 import luigi
 import matplotlib
@@ -30,7 +31,6 @@ from .lasing import (
 )
 from .netsalt_task import NetSaltTask
 from .passive import CreateQuantumGraph, FindPassiveModes, ScanFrequencies
-from .pump import OptimizePump
 
 matplotlib.use("Agg")
 
@@ -83,12 +83,23 @@ class ComputeLasingModes(luigi.WrapperTask):
         return tasks
 
 
+def compute_controllability(spectra_matrix):
+    """Compute the controllability matrix and value from spectra."""
+    single_mode_matrix = spectra_matrix.copy()
+    single_mode_matrix[np.isnan(single_mode_matrix)] = 0
+    for i, _ in enumerate(single_mode_matrix):
+        single_mode_matrix[i] /= np.sum(single_mode_matrix[i])
+
+    controllability = np.trace(single_mode_matrix) / len(single_mode_matrix)
+    return single_mode_matrix, controllability
+
+
 class ComputeControllability(NetSaltTask):
     """Run pump optimisation on several modes to see which can be single lased."""
 
     n_top_modes = luigi.IntParameter(default=4)
     pump_path = luigi.Parameter(default="pumps")
-    plot_path = luigi.Parameter(default=" figures/single_mode_control.pdf")
+    single_mode_matrix_path = luigi.Parameter(default="out/single_mode_matrix.pkl")
 
     def requires(self):
         """"""
@@ -100,7 +111,7 @@ class ComputeControllability(NetSaltTask):
         modes_df = load_modes(self.input()[0].path)
         lasing_modes_id = modes_df.head(self.n_top_modes).index
 
-        single_mode_matrix = []
+        spectra_matrix = []
         for mode_id in lasing_modes_id:
             yield CreatePumpProfile(lasing_modes_id=[mode_id])
             yield PlotOptimizedPump(lasing_modes_id=[mode_id])
@@ -109,29 +120,51 @@ class ComputeControllability(NetSaltTask):
             intensities_task = yield ComputeModalIntensities(lasing_modes_id=[mode_id])
             yield PlotLLCurve(lasing_modes_id=[mode_id])
             int_df = load_modes(intensities_task.path)
-            if (
-                ComputeModalIntensities(lasing_modes_id=[mode_id]).D0_max
-                in int_df["modal_intensities"].columns
-            ):
-                spectra = int_df[
-                    "modal_intensities",
-                    ComputeModalIntensities(lasing_modes_id=[mode_id]).D0_max,
-                ].to_numpy()[: len(lasing_modes_id)]
 
-                single_mode_matrix.append(spectra / np.sum(spectra[~np.isnan(spectra)]))
-            # else:
-            #    single_mode_matrix.append(np.zeros(len(lasing_modes_id)) * np.nan)
+            spectra = int_df[
+                "modal_intensities",
+                ComputeModalIntensities(lasing_modes_id=[mode_id]).D0_max,
+            ].to_numpy()[: len(lasing_modes_id)]
+
+            spectra_matrix.append(spectra)
+
+        spectra_matrix = np.array(spectra_matrix)
+        single_mode_matrix, controllability = compute_controllability(spectra_matrix)
+        pickle.dump(
+            {
+                "spectra_matrix": spectra_matrix,
+                "single_mode_matrix": single_mode_matrix,
+                "controllability": controllability,
+            },
+            open(self.output().path, "wb"),
+        )
+
+    def output(self):
+        """"""
+        return luigi.LocalTarget(self.single_mode_matrix_path)
+
+
+class PlotControllability(NetSaltTask):
+    """Plot controllability matrix."""
+
+    plot_path = luigi.Parameter(default="figures/single_mode_control.pdf")
+
+    def requires(self):
+        """"""
+        return ComputeControllability()
+
+    def run(self):
+        """"""
+        data = pickle.load(open(self.input().path, "rb"))
+
+        print(f"Controllability = {data['controllability']}")
 
         plt.figure(figsize=(6, 5))
-        sns.heatmap(single_mode_matrix, annot=False, fmt=".1f", cmap="Reds")
+        sns.heatmap(data["single_mode_matrix"], annot=False, fmt=".1f", cmap="Reds")
+        plt.suptitle(f"Controllability = {data['controllability']}")
         plt.ylabel("Mode ids to single lase")
         plt.xlabel("Modal ids")
         plt.savefig(self.output().path, bbox_inches="tight")
-
-        single_mode_matrix = np.array(single_mode_matrix)
-        single_mode_matrix[np.isnan(single_mode_matrix)] = 0
-        controlability = np.trace(single_mode_matrix) / len(single_mode_matrix)
-        print(controlability)
 
     def output(self):
         """"""

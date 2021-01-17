@@ -81,14 +81,25 @@ def get_total_inner_length(graph):
     return sum([graph[u][v]["length"] for u, v in graph.edges() if graph[u][v]["inner"]])
 
 
-def set_total_length(graph, total_length, inner=True, with_position=True):
+def set_total_length(graph, total_length=None, max_extent=None, inner=True, with_position=True):
     """Set the inner total lenghts of the graph to a given value."""
-    if inner:
-        original_total_lenght = get_total_inner_length(graph)
-    else:
-        original_total_lenght = get_total_length(graph)
+    if total_length is not None and max_extent is not None:
+        raise Exception("only one of total_length or max_extent is allowed")
+    length_ratio = 1.0
+    if total_length is not None:
+        if inner:
+            original_total_lenght = get_total_inner_length(graph)
+        else:
+            original_total_lenght = get_total_length(graph)
+        length_ratio = total_length / original_total_lenght
 
-    length_ratio = total_length / original_total_lenght
+    if max_extent is not None:
+        _min_pos = min(np.array([graph.nodes[u]["position"] for u in graph.nodes()]).flatten())
+        _max_pos = max(np.array([graph.nodes[u]["position"] for u in graph.nodes()]).flatten())
+        _extent = _max_pos - _min_pos
+        length_ratio = max_extent / _extent
+        print(_extent, length_ratio)
+
     for u, v in graph.edges:
         graph[u][v]["length"] *= length_ratio
     if with_position:

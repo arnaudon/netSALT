@@ -3,7 +3,6 @@ import multiprocessing
 import warnings
 from functools import partial
 import logging
-import os
 
 import numpy as np
 import pandas as pd
@@ -294,7 +293,7 @@ def mean_mode_on_edges(mode, graph):
         z[1, 1] = z[0, 0]
 
         mean_edge_solution[ei] = np.real(
-            np.conj(edge_flux[2 * ei : 2 * ei + 2]).T.dot(z.dot(edge_flux[2 * ei : 2 * ei + 2]))
+            edge_flux[2 * ei : 2 * ei + 2].T.dot(z.dot(np.conj(edge_flux[2 * ei : 2 * ei + 2])))
         )
 
     return mean_edge_solution
@@ -512,10 +511,11 @@ def compute_mode_competition_matrix(graph, modes_df, with_gamma=True):
         _get_mask_matrices(graph.graph["params"])[1],
     )
 
+    chunksize = max(1, int(0.1 * len(lasing_thresholds) / graph.graph["params"]["n_workers"]))
     with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
         precomp_results = list(
             tqdm(
-                pool.imap(precomp, zip(threshold_modes, lasing_thresholds)),
+                pool.imap(precomp, zip(threshold_modes, lasing_thresholds), chunksize=chunksize),
                 total=len(lasing_thresholds),
             )
         )
@@ -531,6 +531,7 @@ def compute_mode_competition_matrix(graph, modes_df, with_gamma=True):
                 ]
             )
 
+    chunksize = max(1, int(0.1 * len(input_data) / graph.graph["params"]["n_workers"]))
     with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
         output_data = list(
             tqdm(
@@ -542,6 +543,7 @@ def compute_mode_competition_matrix(graph, modes_df, with_gamma=True):
                         with_gamma=with_gamma,
                     ),
                     input_data,
+                    chunksize=chunksize,
                 ),
                 total=len(input_data),
             )

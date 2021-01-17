@@ -31,6 +31,18 @@ def _savefig(graph, fig, folder, filename):
             fig.savefig((folder_ext / filename).with_suffix(ext), bbox_inches="tight")
 
 
+def get_spectra(graph, modes_df, pump_index=-1, width=0.0005):
+    """Compute spectra."""
+    threshold_modes = np.real(modes_df["threshold_lasing_modes"])
+    modal_amplitudes = np.real(modes_df["modal_intensities"].iloc[:, pump_index])
+    ks = np.linspace(graph.graph["params"]["k_min"], graph.graph["params"]["k_max"], 10000)
+    spectra = np.zeros(len(ks))
+    for mode, amplitude in zip(threshold_modes, modal_amplitudes):
+        if amplitude > 0:
+            spectra += amplitude * linewidth(ks, np.real(mode), width)
+    return ks, spectra
+
+
 def plot_spectra(
     graph,
     modes_df,
@@ -42,25 +54,16 @@ def plot_spectra(
     save_option=False,
 ):
     """Plot spectra with linewidths."""
-    threshold_modes = np.real(modes_df["threshold_lasing_modes"])
-    modal_amplitudes = np.real(modes_df["modal_intensities"].iloc[:, pump_index])
 
     if ax is None:
         fig = plt.figure(figsize=(5, 2))
         ax = plt.gca()
     else:
         fig = None
-
-    ks = np.linspace(graph.graph["params"]["k_min"], graph.graph["params"]["k_max"], 10000)
-    spectra = np.zeros(len(ks))
-    for mode, amplitude in zip(threshold_modes, modal_amplitudes):
-        if amplitude > 0:
-            spectra += amplitude * linewidth(ks, np.real(mode), width)
-
+    ks, spectra = get_spectra(graph, modes_df, pump_index=pump_index, width=width)
     ax.plot(ks, spectra)
 
     ax2 = ax.twinx()
-    ks = np.linspace(graph.graph["params"]["k_min"], graph.graph["params"]["k_max"], 1000)
     ax2.plot(ks, lorentzian(ks, graph), "r--")
     ax2.set_xlabel(r"$\lambda$")
     ax2.set_ylabel("Gain spectrum (a.u.)")
@@ -254,11 +257,10 @@ def plot_scan(
 
 
 def plot_pump_profile(graph, pump, figsize=(5, 4), ax=None, node_size=1.0):
+    """Plot the pump profile on top of the graph structure."""
     if ax is None:
-        fig = plt.figure(figsize=figsize)
+        plt.figure(figsize=figsize)
         ax = plt.gca()
-    else:
-        fig = None
 
     positions = [graph.nodes[u]["position"] for u in graph]
     pumped_edges = [e for e, pump in zip(graph.edges, pump) if pump > 0.0]

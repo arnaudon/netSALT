@@ -26,9 +26,9 @@ from .pump import OptimizePump
 class CreatePumpProfile(NetSaltTask):
     """Create a pump profile."""
 
+    lasing_modes_id = luigi.ListParameter(default=[])
     mode = luigi.ChoiceParameter(default="uniform", choices=["uniform", "optimized", "custom"])
     custom_pump_path = luigi.Parameter(default="pump_profile.yaml")
-    lasing_modes_id = luigi.ListParameter()
     pump_profile_path = luigi.Parameter(default="out/pump_profile.yaml")
 
     def requires(self):
@@ -37,7 +37,7 @@ class CreatePumpProfile(NetSaltTask):
             return {"graph": CreateQuantumGraph()}
         if self.mode == "optimized":
             return {"optimize": OptimizePump(lasing_modes_id=self.lasing_modes_id)}
-        raise Exception("Mode not understood")
+        return None
 
     def run(self):
         """"""
@@ -48,24 +48,26 @@ class CreatePumpProfile(NetSaltTask):
                 if qg[u][v]["inner"]:
                     pump[i] = 1
             pump = pump.tolist()
-        if self.mode == "optimized":
+        elif self.mode == "optimized":
             results = pickle.load(open(self.input()["optimize"].path, "rb"))
             pump = results["optimal_pump"].tolist()
-        if self.mode == "custom":
+        elif self.mode == "custom":
             pump = yaml.load(open(self.custom_pump_path, "r"))
+        else:
+            raise Exception("Mode not understood")
 
         yaml.dump(pump, open(self.output().path, "w"))
 
     def output(self):
         """"""
-        return luigi.LocalTarget(self.pump_profile_path)
+        return luigi.LocalTarget(self.add_lasing_modes_id(self.pump_profile_path))
 
 
 class ComputeModeTrajectories(NetSaltTask):
     """Compute mode trajectories from passive modes."""
 
     lasing_modes_id = luigi.ListParameter()
-    modes_trajectories_path = luigi.Parameter(default="out/mode_traajectories.h5")
+    modes_trajectories_path = luigi.Parameter(default="out/mode_trajectories.h5")
 
     def requires(self):
         """"""
@@ -85,14 +87,14 @@ class ComputeModeTrajectories(NetSaltTask):
 
     def output(self):
         """"""
-        return luigi.LocalTarget(self.modes_trajectories_path)
+        return luigi.LocalTarget(self.add_lasing_modes_id(self.modes_trajectories_path))
 
 
 class FindThresholdModes(NetSaltTask):
     """Find the lasing thresholds and associated modes."""
 
     lasing_modes_id = luigi.ListParameter()
-    threshold_modes_path = luigi.Parameter(default="out/lasingthresholds_modes.h5")
+    threshold_modes_path = luigi.Parameter(default="out/lasing_thresholds_modes.h5")
 
     def requires(self):
         """"""
@@ -111,7 +113,7 @@ class FindThresholdModes(NetSaltTask):
 
     def output(self):
         """"""
-        return luigi.LocalTarget(self.threshold_modes_path)
+        return luigi.LocalTarget(self.add_lasing_modes_id(self.threshold_modes_path))
 
 
 class ComputeModeCompetitionMatrix(NetSaltTask):
@@ -130,7 +132,6 @@ class ComputeModeCompetitionMatrix(NetSaltTask):
 
     def run(self):
         """"""
-
         qg = self.get_graph_with_pump(self.input()["graph"].path)
         modes_df = load_modes(self.input()["modes"].path)
         mode_competition_matrix = compute_mode_competition_matrix(qg, modes_df)
@@ -138,7 +139,7 @@ class ComputeModeCompetitionMatrix(NetSaltTask):
 
     def output(self):
         """"""
-        return luigi.LocalTarget(self.competition_matrix_path)
+        return luigi.LocalTarget(self.add_lasing_modes_id(self.competition_matrix_path))
 
 
 class ComputeModalIntensities(NetSaltTask):
@@ -169,4 +170,4 @@ class ComputeModalIntensities(NetSaltTask):
 
     def output(self):
         """"""
-        return luigi.LocalTarget(self.modal_intensities_path)
+        return luigi.LocalTarget(self.add_lasing_modes_id(self.modal_intensities_path))

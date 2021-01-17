@@ -31,7 +31,8 @@ class CreateQuantumGraph(NetSaltTask):
 
     graph_path = luigi.Parameter(default="graph.gpickle")
     graph_mode = luigi.ChoiceParameter(default="open", choices=["open", "closed", "custom"])
-    inner_total_length = luigi.FloatParameter(default=1.0)
+    inner_total_length = luigi.FloatParameter(default=None)
+    max_extent = luigi.FloatParameter(default=None)
 
     dielectric_mode = luigi.Parameter(default="refraction_params")
     method = luigi.Parameter(default="uniform")
@@ -64,7 +65,9 @@ class CreateQuantumGraph(NetSaltTask):
         positions = np.array([quantum_graph.nodes[u]["position"] for u in quantum_graph.nodes])
         create_quantum_graph(quantum_graph, params, positions=positions)
 
-        set_total_length(quantum_graph, self.inner_total_length, inner=True)
+        set_total_length(
+            quantum_graph, self.inner_total_length, max_extent=self.max_extent, inner=True
+        )
         set_dielectric_constant(quantum_graph, params)
         set_dispersion_relation(quantum_graph, dispersion_relation_pump, params)
 
@@ -100,7 +103,7 @@ class ScanFrequencies(NetSaltTask):
 class FindPassiveModes(NetSaltTask):
     """Find passive modes from quality scan."""
 
-    passive_modes_path = luigi.Parameter(default="out/passive_mods.h5")
+    passive_modes_path = luigi.Parameter(default="out/passive_modes.h5")
 
     def requires(self):
         """"""

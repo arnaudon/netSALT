@@ -191,7 +191,7 @@ class PlotScanWithModeTrajectories(NetSaltTask):
 
     def output(self):
         """"""
-        return luigi.LocalTarget(self.plot_path)
+        return luigi.LocalTarget(self.add_lasing_modes_id(self.plot_path))
 
 
 class PlotScanWithThresholdModes(NetSaltTask):
@@ -221,7 +221,7 @@ class PlotScanWithThresholdModes(NetSaltTask):
 
     def output(self):
         """"""
-        return luigi.LocalTarget(self.plot_path)
+        return luigi.LocalTarget(self.add_lasing_modes_id(self.plot_path))
 
 
 class PlotThresholdModes(NetSaltTask):
@@ -232,10 +232,11 @@ class PlotThresholdModes(NetSaltTask):
         n_modes (int): number of modes to plot (ordered by Q-values)
     """
 
+    lasing_modes_id = luigi.ListParameter(default=[])
     ext = luigi.Parameter(default=".pdf")
     n_modes = luigi.IntParameter(default=10)
+    mode_ids = luigi.ListParameter(default=[])
     edge_size = luigi.FloatParameter(default=1.0)
-    lasing_modes_id = luigi.ListParameter()
     plot_path = luigi.Parameter(default="figures/threshold_modes")
 
     def requires(self):
@@ -252,8 +253,11 @@ class PlotThresholdModes(NetSaltTask):
         qg.graph["params"]["plot_edgesize"] = self.edge_size
         qg = oversample_graph(qg, qg.graph["params"])
 
-        modes_df = load_modes(self.input()["modes"].path).head(10)
-
+        if self.mode_ids:
+            modes_df = load_modes(self.input()["modes"].path).loc[list(self.mode_ids)]
+        else:
+            modes_df = load_modes(self.input()["modes"].path).head(self.n_modes)
+        print(modes_df)
         if not Path(self.output().path).exists():
             Path(self.output().path).mkdir()
         pd.options.mode.use_inf_as_na = True
@@ -268,7 +272,7 @@ class PlotThresholdModes(NetSaltTask):
 
     def output(self):
         """"""
-        return luigi.LocalTarget(self.plot_path)
+        return luigi.LocalTarget(self.add_lasing_modes_id(self.plot_path))
 
 
 class PlotLLCurve(NetSaltTask):
@@ -295,7 +299,7 @@ class PlotLLCurve(NetSaltTask):
 
     def output(self):
         """"""
-        return luigi.LocalTarget(self.plot_path)
+        return luigi.LocalTarget(self.add_lasing_modes_id(self.plot_path))
 
 
 class PlotStemSpectra(NetSaltTask):
@@ -322,7 +326,7 @@ class PlotStemSpectra(NetSaltTask):
 
     def output(self):
         """"""
-        return luigi.LocalTarget(self.plot_path)
+        return luigi.LocalTarget(self.add_lasing_modes_id(self.plot_path))
 
 
 class PlotOptimizedPump(NetSaltTask):
@@ -340,10 +344,14 @@ class PlotOptimizedPump(NetSaltTask):
 
     def run(self):
         """"""
-        results = pickle.load(self.input()["pump"].open())
+        results = pickle.load(open(self.input()["pump"].path, "rb"))
         qg = load_graph(self.input()["graph"].path)
 
         with PdfPages(self.output().path) as pdf:
+
+            plot_pump_profile(qg, results["optimal_pump"])
+            pdf.savefig(bbox_inches="tight")
+
             plt.figure()
             plt.hist(results["costs"], bins=20)
             pdf.savefig(bbox_inches="tight")
@@ -357,20 +365,9 @@ class PlotOptimizedPump(NetSaltTask):
             plt.gca().set_ylim(0.5, 1.5)
             pdf.savefig(bbox_inches="tight")
 
-            plot_quantum_graph(
-                qg,
-                edge_colors=results["optimal_pump"],
-                node_size=5,
-                # color_map=newcmp,
-                cbar_min=0,
-                cbar_max=1,
-            )
-
-            pdf.savefig(bbox_inches="tight")
-
     def output(self):
         """"""
-        return luigi.LocalTarget(self.plot_path)
+        return luigi.LocalTarget(self.add_lasing_modes_id(self.plot_path))
 
 
 class PlotModeCompetitionMatrix(NetSaltTask):
@@ -392,7 +389,7 @@ class PlotModeCompetitionMatrix(NetSaltTask):
 
     def output(self):
         """"""
-        return luigi.LocalTarget(self.plot_path)
+        return luigi.LocalTarget(self.add_lasing_modes_id(self.plot_path))
 
 
 class PlotPumpProfile(NetSaltTask):

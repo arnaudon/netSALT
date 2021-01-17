@@ -53,4 +53,4 @@ class OptimizePump(NetSaltTask):
 
     def output(self):
         """"""
-        return luigi.LocalTarget(self.optimized_pump_path)
+        return luigi.LocalTarget(self.add_lasing_modes_id(self.optimized_pump_path))
