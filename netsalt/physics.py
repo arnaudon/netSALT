@@ -1,6 +1,7 @@
 """All physics-related functions."""
 import logging
 from functools import partial
+
 import numpy as np
 
 from .utils import from_complex

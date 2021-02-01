@@ -1,5 +1,6 @@
 """graph construction methods"""
 import logging
+
 import networkx as nx
 import numpy as np
 import scipy as sc
@@ -10,25 +11,26 @@ from .utils import to_complex
 L = logging.getLogger(__name__)
 
 
-def create_quantum_graph(graph, params, positions=None, lengths=None):
+def create_quantum_graph(graph, params, positions=None, lengths=None, seed=42, noise_level=0.001):
     """append a networkx graph with necessary attributes for being a NAQ graph"""
     set_node_positions(graph, positions)
     set_edge_lengths(graph, lengths=lengths)
-    _verify_lengths(graph)
+    _verify_lengths(graph, seed=seed, noise_level=noise_level)
     set_inner_edges(graph, params)
     update_parameters(graph, params)
 
 
-def _verify_lengths(graph):
+def _verify_lengths(graph, seed=42, noise_level=0.001):
     """Add noise to lenghts if many are equal."""
     lengths = [graph[u][v]["length"] for u, v in graph.edges]
+    np.random.seed(seed)
     if np.max(np.unique(np.around(lengths, 5), return_counts=True)) > 0.2 * len(graph.edges):
         L.info(
             """You have more than 20% of edges of the same length,
                so we add some small noise for safety for the numerics."""
         )
         for u in graph:
-            graph.nodes[u]["position"][0] += np.random.normal(0, 0.001 * np.min(lengths))
+            graph.nodes[u]["position"][0] += np.random.normal(0, noise_level * np.min(lengths))
         set_edge_lengths(graph)
 
 
@@ -98,7 +100,6 @@ def set_total_length(graph, total_length=None, max_extent=None, inner=True, with
         _max_pos = max(np.array([graph.nodes[u]["position"] for u in graph.nodes()]).flatten())
         _extent = _max_pos - _min_pos
         length_ratio = max_extent / _extent
-        print(_extent, length_ratio)
 
     for u, v in graph.edges:
         graph[u][v]["length"] *= length_ratio

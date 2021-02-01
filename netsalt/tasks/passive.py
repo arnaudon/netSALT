@@ -2,13 +2,7 @@
 import luigi
 import numpy as np
 
-from netsalt.io import (
-    load_graph,
-    load_qualities,
-    save_graph,
-    save_modes,
-    save_qualities,
-)
+from netsalt.io import load_graph, load_qualities, save_graph, save_modes, save_qualities
 from netsalt.modes import find_modes, scan_frequencies
 from netsalt.physics import (
     dispersion_relation_pump,
@@ -43,6 +37,8 @@ class CreateQuantumGraph(NetSaltTask):
     k_a = luigi.FloatParameter(default=15.0)
     gamma_perp = luigi.FloatParameter(default=3.0)
 
+    noise_level = luigi.FloatParameter(default=0.001)
+
     quantum_graph_path = luigi.Parameter(default="out/quantum_graph.gpickle")
 
     def run(self):
@@ -63,7 +59,9 @@ class CreateQuantumGraph(NetSaltTask):
 
         quantum_graph = load_graph(self.graph_path)
         positions = np.array([quantum_graph.nodes[u]["position"] for u in quantum_graph.nodes])
-        create_quantum_graph(quantum_graph, params, positions=positions)
+        create_quantum_graph(
+            quantum_graph, params, positions=positions, noise_level=self.noise_level
+        )
 
         set_total_length(
             quantum_graph, self.inner_total_length, max_extent=self.max_extent, inner=True

@@ -11,6 +11,8 @@ from .io import (
     save_qualities,
 )
 from .modes import (
+    compute_modal_intensities,
+    compute_mode_competition_matrix,
     compute_overlapping_single_edges,
     find_modes,
     find_threshold_lasing_modes,
@@ -18,11 +20,9 @@ from .modes import (
     mode_on_nodes,
     pump_trajectories,
     scan_frequencies,
-    compute_mode_competition_matrix,
-    compute_modal_intensities,
-    optimize_pump,
 )
 from .physics import set_dielectric_constant, set_dispersion_relation
+from .pump import optimize_pump
 from .quantum_graph import (
     create_quantum_graph,
     oversample_graph,

@@ -1,16 +1,20 @@
 """Main tasks to run entire workflows."""
 import pickle
-import numpy as np
+
 import luigi
 import matplotlib
 import matplotlib.pyplot as plt
+import numpy as np
 import seaborn as sns
 
 from netsalt.io import load_modes
 
 from .analysis import (
     PlotLLCurve,
+    PlotModeCompetitionMatrix,
+    PlotOptimizedPump,
     PlotPassiveModes,
+    PlotPumpProfile,
     PlotQuantumGraph,
     PlotScan,
     PlotScanWithModes,
@@ -18,9 +22,6 @@ from .analysis import (
     PlotScanWithThresholdModes,
     PlotStemSpectra,
     PlotThresholdModes,
-    PlotOptimizedPump,
-    PlotModeCompetitionMatrix,
-    PlotPumpProfile,
 )
 from .lasing import (
     ComputeModalIntensities,
@@ -31,6 +32,7 @@ from .lasing import (
 )
 from .netsalt_task import NetSaltTask
 from .passive import CreateQuantumGraph, FindPassiveModes, ScanFrequencies
+from .pump import OptimizePump
 
 matplotlib.use("Agg")
 
@@ -67,6 +69,7 @@ class ComputeLasingModes(luigi.WrapperTask):
         tasks = ComputePassiveModes(self.rerun_all).requires()
         lasing_modes_id = CreatePumpProfile().lasing_modes_id
         tasks += [
+            OptimizePump(lasing_modes_id=lasing_modes_id, rerun=self.rerun),
             CreatePumpProfile(rerun=self.rerun),
             PlotPumpProfile(rerun=self.rerun),
             ComputeModeTrajectories(lasing_modes_id=lasing_modes_id, rerun=self.rerun),

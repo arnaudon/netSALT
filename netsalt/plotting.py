@@ -1,6 +1,6 @@
 """plotting function"""
-import os
 import logging
+import os
 from itertools import cycle
 from pathlib import Path
 
@@ -231,8 +231,14 @@ def plot_scan(
         for index, modes in modes_df.iterrows():
             k = np.real(modes["passive"][0])
             alpha = -np.imag(modes["passive"][0])
-            ax.scatter(k, alpha, marker="+", color="r")
-            ax.annotate(index, (k, alpha))
+            ax.scatter(
+                k,
+                alpha,
+                marker="o",
+                color="r",
+                s=np.real(modes["q_factor"]) / np.max(modes_df["q_factor"]) * 20,
+            )
+            ax.annotate(index, (k, alpha), size="x-small")
         if "threshold_lasing_modes" in modes_df:
             ax.scatter(
                 np.real(modes_df["threshold_lasing_modes"].to_numpy()),

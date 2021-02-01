@@ -1,5 +1,6 @@
 """All algorithms."""
 import logging
+
 import numpy as np
 from skimage.feature import peak_local_max
 

@@ -1,13 +1,12 @@
 """Functions related to modes."""
+import logging
 import multiprocessing
 import warnings
 from functools import partial
-import logging
 
 import numpy as np
 import pandas as pd
 import scipy as sc
-from scipy import optimize
 from tqdm import tqdm
 
 from .algorithm import (
@@ -128,17 +127,22 @@ def find_modes(graph, qualities):
     true_modes = clean_duplicate_modes(refined_modes, ks[1] - ks[0], alphas[1] - alphas[0])
     L.info("Found %s after refinements.", len(true_modes))
 
-    # sort by Q value
-    modes_sorted = true_modes[np.argsort(true_modes[:, 1] / (2 * true_modes[:, 0]))]
+    # sort by decreasing Q*\Gamma value
+    _gammas = gamma(to_complex(true_modes.T), graph.graph["params"])
+    q_factors = -np.imag(_gammas) * true_modes[:, 1] / (2 * true_modes[:, 0])
+    modes_sorted = true_modes[np.argsort(q_factors)[::-1]]
+    q_factors = np.sort(q_factors)[::-1]
     if "n_modes_max" in graph.graph["params"] and graph.graph["params"]["n_modes_max"]:
         L.info(
             "...but we will use the top %s modes only",
             graph.graph["params"]["n_modes_max"],
         )
         modes_sorted = modes_sorted[: graph.graph["params"]["n_modes_max"]]
+        q_factors = q_factors[: graph.graph["params"]["n_modes_max"]]
 
     modes_df = _init_dataframe()
     modes_df["passive"] = [to_complex(mode_sorted) for mode_sorted in modes_sorted]
+    modes_df["q_factor"] = q_factors
     return modes_df
 
 
@@ -826,135 +830,3 @@ def lasing_threshold_linear(mode, graph, D0):
         * -np.imag(gamma(to_complex(mode), graph.graph["params"]))
         * np.real(compute_overlapping_factor(mode, graph))
     )
-
-
-def _overlap_matrix_element(graph, mode):
-    """Compute the overlapp between a mode and each inner edges of the graph."""
-    return list(
-        -q_value(mode)
-        * compute_overlapping_single_edges(mode, graph)
-        * np.imag(gamma(to_complex(mode), graph.graph["params"]))
-    )
-
-
-def pump_cost(
-    pump,
-    modes_to_optimise,
-    pump_overlapps,
-    pump_min_size,
-    mode="diff",
-    n_modes=20,  # 10
-):
-    """Cost function to minimize."""
-    pump = np.round(pump, 0)
-    if pump.sum() < pump_min_size:
-        return 1e10
-
-    pump_with_opt_modes = pump_overlapps[modes_to_optimise][:, pump == 1].sum(axis=1)
-    pump_without_opt_modes = sorted(
-        pump_overlapps[~modes_to_optimise][:, pump == 1].sum(axis=1), reverse=True
-    )
-
-    if mode == "diff":
-        return np.mean(pump_without_opt_modes[:n_modes]) - np.min(pump_with_opt_modes)
-    if mode == "diff2":
-        return np.max(pump_without_opt_modes) - np.min(pump_with_opt_modes)
-    if mode == "ratio":
-        return np.mean(pump_without_opt_modes[:n_modes]) / np.min(pump_with_opt_modes)
-    raise Exception("Optimisation mode not understood")
-
-
-def _optimise(seed, costf=None, bounds=None, disp=False, maxiter=1000, popsize=5):
-    """Wrapper of differnetial evolution algorithm to launch multiple seeds."""
-    return optimize.differential_evolution(
-        func=costf,
-        bounds=bounds,
-        maxiter=maxiter,
-        disp=disp,
-        popsize=popsize,
-        workers=1,
-        seed=seed,
-        strategy="randtobest1bin",
-    )
-
-
-def compute_pump_overlapping_matrix(graph, modes_df):
-    """Compute the matrix of pump overlapp with each edge."""
-    with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
-        overlapp_iter = pool.imap(partial(_overlap_matrix_element, graph), modes_df["passive"])
-        pump_overlapps = np.empty([len(modes_df["passive"]), len(graph.edges)])
-        for mode_id, overlapp in tqdm(enumerate(overlapp_iter), total=len(pump_overlapps)):
-            pump_overlapps[mode_id] = overlapp
-    return pump_overlapps
-
-
-def optimize_pump(
-    modes_df,
-    graph,
-    lasing_modes_id,
-    pump_min_frac=0.5,
-    maxiter=500,
-    popsize=5,
-    seed=1,
-    n_seeds=24,
-    disp=False,
-):
-    """Optimise the pump for lasing a set of modes.
-
-    Args:
-        modes_df (dataframe): modes dataframe
-        graph (networkx): quantum raph
-        lasing_modes_id (list): list of modes to optimise the pump for lasing first
-        pump_min_frac (float): minimum fraction of edges in the pump
-        maxiter (int): maximum number of iterations (for scipy.optimize.differential_evolution)
-        popsize (int): size of population (for scipy.optimize.differential_evolution)
-        seed (int): seed for random number generator
-        n_seeds (int): number of run with different seends in parallel
-        disp (bool): if True, display the optimisation iterations
-
-    Returns:
-        optimal_pump, pump_overlapps, costs: best pump, overlapping matrix, all costs from seeds
-    """
-    if "pump" not in graph.graph["params"]:
-        graph.graph["params"]["pump"] = np.ones(len(graph.edges))
-
-    pump_overlapps = compute_pump_overlapping_matrix(graph, modes_df)
-
-    mode_mask = np.array(len(pump_overlapps) * [False])
-    mode_mask[lasing_modes_id] = True
-    pump_min_size = int(pump_min_frac * len(np.where(graph.graph["params"]["inner"])[0]))
-
-    _costf = partial(
-        pump_cost,
-        modes_to_optimise=mode_mask,
-        pump_min_size=pump_min_size,
-        pump_overlapps=pump_overlapps,
-    )
-
-    np.random.seed(seed)
-    with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
-        results = list(
-            tqdm(
-                pool.imap(
-                    partial(
-                        _optimise,
-                        costf=_costf,
-                        bounds=len(graph.edges) * [(0, 1)],
-                        disp=disp,
-                        maxiter=maxiter,
-                        popsize=popsize,
-                    ),
-                    np.random.randint(0, 1000000, n_seeds),
-                ),
-                total=n_seeds,
-            )
-        )
-
-    costs = [result.fun for result in results]
-    optimal_pump = np.round(results[np.argmin(costs)].x, 0)
-    final_cost = _costf(optimal_pump)
-    L.info("Final cost is: %s", final_cost)
-    if final_cost > 0:
-        L.info("This pump may not provide single lasing!")
-
-    return optimal_pump, pump_overlapps, costs, final_cost

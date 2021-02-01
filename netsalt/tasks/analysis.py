@@ -1,37 +1,36 @@
 """Tasks for analysis of results."""
-from pathlib import Path
 import pickle
-import yaml
+from pathlib import Path
 
 import luigi
+import matplotlib
+import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
 import pandas as pd
-
-import matplotlib
-import matplotlib.pyplot as plt
+import seaborn as sns
+import yaml
+from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.cm import get_cmap
 from matplotlib.colors import ListedColormap
-from matplotlib.backends.backend_pdf import PdfPages
-import seaborn as sns
 
-from netsalt.io import load_graph, load_modes, load_qualities, load_mode_competition_matrix
-from netsalt.quantum_graph import oversample_graph
+from netsalt.io import load_graph, load_mode_competition_matrix, load_modes, load_qualities
 from netsalt.plotting import (
     plot_ll_curve,
     plot_modes,
+    plot_pump_profile,
     plot_quantum_graph,
     plot_scan,
     plot_stem_spectra,
-    plot_pump_profile,
 )
+from netsalt.quantum_graph import oversample_graph
 
 from .lasing import (
     ComputeModalIntensities,
+    ComputeModeCompetitionMatrix,
     ComputeModeTrajectories,
     CreatePumpProfile,
     FindThresholdModes,
-    ComputeModeCompetitionMatrix,
 )
 from .netsalt_task import NetSaltTask
 from .passive import CreateQuantumGraph, FindPassiveModes, ScanFrequencies
@@ -67,6 +66,7 @@ class PlotQuantumGraph(NetSaltTask):
         print("min edge length", np.min(lengths))
         print("max edge length", np.max(lengths))
         print("mean edge length", np.mean(lengths))
+        print("total edge length", sum(lengths))
 
         cmap = get_cmap("Pastel1_r")
         newcolors = cmap(np.take(np.linspace(0, 1, 9), [0, 4, 2, 3, 1, 8, 6, 7, 5]))

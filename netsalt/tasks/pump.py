@@ -4,7 +4,7 @@ import pickle
 import luigi
 
 from netsalt.io import load_modes
-from netsalt.modes import optimize_pump
+from netsalt.pump import optimize_pump
 
 from .netsalt_task import NetSaltTask
 from .passive import CreateQuantumGraph, FindPassiveModes
@@ -21,6 +21,7 @@ class OptimizePump(NetSaltTask):
     n_seeds = luigi.IntParameter(default=10)
     disp = luigi.BoolParameter(default=False)
     optimized_pump_path = luigi.Parameter(default="out/optimized_pump.pkl")
+    use_modes = luigi.BoolParameter(default=True)
 
     def requires(self):
         """"""
@@ -41,6 +42,7 @@ class OptimizePump(NetSaltTask):
             seed=self.seed,
             n_seeds=self.n_seeds,
             disp=self.disp,
+            use_modes=self.use_modes,
         )
         results = {
             "optimal_pump": optimal_pump,
