@@ -29,8 +29,8 @@ def add_leads(graph, lead_prob=1):
 
 
 if __name__ == "__main__":
-    n = 2
-    m = 2
+    n = 9
+    m = 7
     graph = nx.grid_2d_graph(n, m, periodic=False)
     for u in graph.nodes:
         graph.nodes[u]["position"] = np.array(u, dtype=np.float)
