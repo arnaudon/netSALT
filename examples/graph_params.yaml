@@ -317,6 +317,51 @@ buffon:
         #figure format
         exts: ['.png', '.svg']
 
+buffon_grid:
+        #network params
+        n_workers: 40
+        n: 6
+        m: 6
+        lead_prob: 0 #-1.
+        seed: 2
+        innerL: 2500 #1000 #2000
+        refraction_params: 
+            method: 'uniform'
+            inner_value: 1.5
+            loss: 0.001
+            outer_value: 1.5
+        open_model: 'open_ends'
+        plot_edgesize: 20.0 #2.5
+        n_modes_max: False
+        
+        #mode search params
+        k_min: 10.35 #10.0 #10.35 #10.60
+        k_max: 11.00 #20.0 #11.00 #10.76
+        k_n: 4000 #1000 #2000
+        alpha_min: 0.006 #0.0
+        alpha_max: 0.018 #0.04
+        alpha_n: 200 #100
+        
+        # params for mode search
+        quality_threshold: 1.e-6 #1.e-5
+        search_stepsize: 0.000005 #0.00001
+        max_steps: 10000
+        max_tries_reduction: 50 
+        reduction_factor: 0.80 #1.0 
+
+        #pumping parameters
+        D0_max: 0.012 #0.006
+        D0_steps: 21 #5 #13 #2
+        k_a: 10.68
+        gamma_perp: 0.5
+
+        #WIP params
+        pump_edges: 'all' #'mode' #'centre' #[100, 101, 103, 132]
+        open_nodes: []
+
+        #figure format
+        exts: ['.png', '.svg']
+
 tree:
         #network params
         n_workers: 10

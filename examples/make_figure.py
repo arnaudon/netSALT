@@ -10,9 +10,9 @@ import numpy as np
 import pandas as pd
 import yaml as yaml
 
-import naq_graphs as naq
+import netsalt
 from graph_generator import generate_graph, generate_index
-from naq_graphs import plotting
+from netsalt import plotting
 
 # First load graph:
 if len(sys.argv) > 1:
@@ -24,15 +24,15 @@ params = yaml.full_load(open("graph_params.yaml", "rb"))[graph_tpe]
 
 os.chdir(graph_tpe)
 
-graph = naq.load_graph()
-# graph = naq.oversample_graph(graph, params)
+graph = netsalt.load_graph()
+graph = netsalt.oversample_graph(graph, params)
 
 custom_index = generate_index(graph_tpe, graph, params)
-naq.set_dielectric_constant(graph, params, custom_values=custom_index)
+netsalt.set_dielectric_constant(graph, params, custom_values=custom_index)
 
 # Load data:
-modes_df = naq.load_modes()
-lasing_mode_id = 17  # 19 #this has to be a single integer
+modes_df = netsalt.load_modes()
+lasing_mode_id = 4 #mode id to plot 
 
 pumped_edges = len(np.where(graph.graph["params"]["pump"])[0])
 graph_edges = len(np.where(graph.graph["params"]["inner"])[0])
@@ -42,24 +42,43 @@ frac_pumped = np.round(
 print("frac_pumped", frac_pumped)
 
 #### PLOTTING ####
-fig = plt.figure(figsize=(10, 8), constrained_layout=True)
+fig = plt.figure(figsize=(3,8), constrained_layout=True)
 
-gs = gridspec.GridSpec(ncols=3, nrows=3, figure=fig)
+gs = gridspec.GridSpec(ncols=1, nrows=4, figure=fig)
 
-ax0 = fig.add_subplot(gs[0, 0], aspect=1)
-ax0.set_title("pump profile")
-# plotting.plot_naq_graph(graph, edge_colors=params["dielectric_constant"], node_size=0.1, ax=ax0)
-plotting.plot_naq_graph(
-    graph, edge_colors=graph.graph["params"]["pump"], node_size=0.5, ax=ax0
+ax00 = fig.add_subplot(gs[0,0], aspect=1)
+ax00.set_title("index profile")
+plotting.plot_quantum_graph(
+    graph,
+    edge_colors=params["dielectric_constant"], 
+    node_size=0.5,
+    cbar_min=1,
+    cbar_max=np.max(np.abs(params["dielectric_constant"])),
+    color_map="Pastel1",
+    ax=ax00
 )
 
-ax1 = fig.add_subplot(gs[1, 0], aspect=1)
+ax0 = fig.add_subplot(gs[1,0], aspect=1)
+ax0.set_title("pump profile")
+plotting.plot_quantum_graph(
+    graph,
+    edge_colors=graph.graph["params"]["pump"],
+    node_size=0.5,
+    ax=ax0
+)
+
+ax1 = fig.add_subplot(gs[2,0], aspect=1)
 ax1.set_title("mode profile")
 plotting.plot_single_mode(
-    graph, modes_df, lasing_mode_id, df_entry="passive", colorbar=True, ax=ax1
+    graph,
+    modes_df,
+    lasing_mode_id,
+    df_entry="passive",
+    colorbar=True,
+    ax=ax1
 )
 
-ax2 = fig.add_subplot(gs[2, 0], aspect=1)
+ax2 = fig.add_subplot(gs[3,0], aspect=1)
 ax2.set_title("threshold profile")
 plotting.plot_single_mode(
     graph,
@@ -70,7 +89,15 @@ plotting.plot_single_mode(
     ax=ax2,
 )
 
-ax3 = fig.add_subplot(gs[0, 1:])
+fig.savefig("draft_figure_graph.svg", bbox_inches="tight")
+
+
+# SPECTRUM AND LL
+fig2 = plt.figure(figsize=(6, 8), constrained_layout=True)
+
+gs = gridspec.GridSpec(ncols=3, nrows=4, figure=fig2)
+
+ax3 = fig2.add_subplot(gs[0,0:])
 ax3.set_title("spectrum")
 ax3.set_xlabel(r"$k (\mu m)$")
 ax3.set_ylabel("Intensity")
@@ -85,7 +112,7 @@ opt_modal_amplitude = np.real(modes_df["modal_intensities"].iloc[lasing_mode_id,
 ax3.stem(opt_mode_kth * np.ones(2), [0, opt_modal_amplitude], "C0-", markerfmt=" ")
 # ax3.axis([10.36, 11.0, 0, 220])
 
-ax4 = fig.add_subplot(gs[1:, 1:])
+ax4 = fig2.add_subplot(gs[1:,0:])
 ax4.set_title("LL")
 ax4.set_xlabel(r"$D0$", fontsize=14)
 ax4.set_ylabel("Intensity")
@@ -107,6 +134,7 @@ ax4.plot(D0s, opt_mode_df)
 D0s = modes_df["modal_intensities"].columns.values
 top = np.max(np.nan_to_num(modes_df["modal_intensities"].to_numpy()[:, D0_id]))
 # top = np.max(total_intensity[D0_id])
+
 ax4.axis([0, D0s[D0_id], -0.01, top])
 # ax4.axis([0.002, 0.008, 0, 200])
 
@@ -114,5 +142,5 @@ ax4.axis([0, D0s[D0_id], -0.01, top])
 # ax4.xaxis.label.set_size(8)
 # ax4.yaxis.label.set_size(8)
 
-fig.savefig("draft_figure.svg", bbox_inches="tight")
+fig2.savefig("draft_figure.svg", bbox_inches="tight")
 plt.show()

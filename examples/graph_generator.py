@@ -292,6 +292,16 @@ def generate_graph(tpe="SM", params={}):
         #pos = np.array(list(nx.spectral_layout(G).values()))
         #pos = np.array(list(nx.kamada_kawai_layout(G).values()))
 
+    elif tpe == "buffon_grid":
+        import scipy.io as io
+
+        mat = io.loadmat("datasets/buffon_graph_grid.mat")
+        GG = nx.Graph(mat["Adj"])
+        # get only the largest connected component
+        GG = GG.subgraph(max(nx.connected_components(GG), key=len))
+        G = nx.Graph(GG)
+        pos = mat["V"][list(G.nodes)]
+
     elif (
         tpe == "uniform_delaunay_0"
         or tpe == "uniform_delaunay_1"
