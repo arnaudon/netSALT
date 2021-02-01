@@ -257,7 +257,6 @@ class PlotThresholdModes(NetSaltTask):
             modes_df = load_modes(self.input()["modes"].path).loc[list(self.mode_ids)]
         else:
             modes_df = load_modes(self.input()["modes"].path).head(self.n_modes)
-        print(modes_df)
         if not Path(self.output().path).exists():
             Path(self.output().path).mkdir()
         pd.options.mode.use_inf_as_na = True

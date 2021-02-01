@@ -64,6 +64,7 @@ Documentation of the code.
     physics
     quantum_graph
     algorithm
+    pump
     plotting
     io
     utils

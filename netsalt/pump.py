@@ -171,13 +171,10 @@ def optimize_pump(  # pylint: disable=too-many-locals
             )
         )
 
-    print(results)
     costs = [result.fun for result in results]
-    print(costs)
     optimal_pump = results[np.argmin(costs)].x
     final_cost = _costf(optimal_pump)
 
-    print(optimal_pump)
     if use_modes:
         optimal_pump = _map(optimal_pump)
     else:
