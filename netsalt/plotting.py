@@ -94,7 +94,7 @@ def plot_stem_spectra(
     else:
         fig = None
 
-    markerline, stemlines, baseline = ax.stem(
+    markerline, _, baseline = ax.stem(
         threshold_modes, modal_amplitudes, "-", linefmt="grey", markerfmt=" "
     )
 
