@@ -129,7 +129,7 @@ def find_modes(graph, qualities):
 
     # sort by decreasing Q*\Gamma value
     _gammas = gamma(to_complex(true_modes.T), graph.graph["params"])
-    q_factors = -np.imag(_gammas) * true_modes[:, 1] / (2 * true_modes[:, 0])
+    q_factors = -np.imag(_gammas) * true_modes[:, 0] / (2 * true_modes[:, 1])
     modes_sorted = true_modes[np.argsort(q_factors)[::-1]]
     q_factors = np.sort(q_factors)[::-1]
     if "n_modes_max" in graph.graph["params"] and graph.graph["params"]["n_modes_max"]:

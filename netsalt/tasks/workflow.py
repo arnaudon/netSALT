@@ -69,7 +69,6 @@ class ComputeLasingModes(luigi.WrapperTask):
         tasks = ComputePassiveModes(self.rerun_all).requires()
         lasing_modes_id = CreatePumpProfile().lasing_modes_id
         tasks += [
-            OptimizePump(lasing_modes_id=lasing_modes_id, rerun=self.rerun),
             CreatePumpProfile(rerun=self.rerun),
             PlotPumpProfile(rerun=self.rerun),
             ComputeModeTrajectories(lasing_modes_id=lasing_modes_id, rerun=self.rerun),
@@ -92,7 +91,6 @@ def compute_controllability(spectra_matrix):
     single_mode_matrix[np.isnan(single_mode_matrix)] = 0
     for i, _ in enumerate(single_mode_matrix):
         single_mode_matrix[i] /= np.sum(single_mode_matrix[i])
-
     controllability = np.trace(single_mode_matrix) / len(single_mode_matrix)
     return single_mode_matrix, controllability
 
@@ -126,8 +124,8 @@ class ComputeControllability(NetSaltTask):
 
             spectra = int_df[
                 "modal_intensities",
-                ComputeModalIntensities(lasing_modes_id=[mode_id]).D0_max,
-            ].to_numpy()[: len(lasing_modes_id)]
+                int_df["modal_intensities"].columns[-1],
+            ].to_numpy()
 
             spectra_matrix.append(spectra)
 
