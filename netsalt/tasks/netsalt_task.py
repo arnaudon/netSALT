@@ -30,6 +30,7 @@ class NetSaltTask(luigi.Task):
         """Init."""
         super().__init__(*args, **kwargs)
 
+        self.lasing_modes_id = None
         if self.rerun is True:
             targets = luigi.task.flatten(self.output())
             for target in targets:
@@ -72,12 +73,14 @@ class NetSaltTask(luigi.Task):
 
     def add_lasing_modes_id(self, filename):
         """Add lasing modes ids."""
+        if self.lasing_modes_id is None:
+            return filename
         filename = Path(filename)
         ext = filename.suffix
         return (
             "_".join(
                 [str(filename.with_suffix(""))]
-                + [str(_id) for _id in self.lasing_modes_id]  # pylint: disable=no-member
+                + [str(_id) for _id in self.lasing_modes_id]  # pylint: disable=not-an-iterable
             )
             + ext
         )

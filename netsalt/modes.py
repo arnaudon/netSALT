@@ -44,20 +44,20 @@ class WorkerModes:
 
     def set_search_radii(self, mode):
         """This fixes a local search region set by search radii."""
-        if self.search_radii is not None:
-            self.params["k_min"] = mode[0] - self.search_radii[0]
-            self.params["k_max"] = mode[0] + self.search_radii[0]
-            self.params["alpha_min"] = mode[1] - self.search_radii[1]
-            self.params["alpha_max"] = mode[1] + self.search_radii[1]
-            # the 0.1 is hardcoded, and seems to be a good value
-            self.params["search_stepsize"] = 0.1 * np.linalg.norm(self.search_radii)
+        self.params["k_min"] = mode[0] - self.search_radii[0]
+        self.params["k_max"] = mode[0] + self.search_radii[0]
+        self.params["alpha_min"] = mode[1] - self.search_radii[1]
+        self.params["alpha_max"] = mode[1] + self.search_radii[1]
+        # the 0.1 is hardcoded, and seems to be a good value
+        self.params["search_stepsize"] = 0.1 * np.linalg.norm(self.search_radii)
 
     def __call__(self, mode_id):
         """Call function of the worker."""
         if self.D0s is not None:
             self.params["D0"] = self.D0s[mode_id]
         mode = self.estimated_modes[mode_id]
-        self.set_search_radii(mode)
+        if self.search_radii is not None:
+            self.set_search_radii(mode)
         return refine_mode_brownian_ratchet(mode, self.graph, self.params)
 
 
@@ -764,9 +764,7 @@ def _get_new_D0(arg, graph=None, D0_steps=0.1):
 def find_threshold_lasing_modes(modes_df, graph):
     """Find the threshold lasing modes and associated lasing thresholds."""
     stepsize = graph.graph["params"]["search_stepsize"]
-
     D0_steps = graph.graph["params"]["D0_max"] / graph.graph["params"]["D0_steps"]
-
     new_modes = modes_df["passive"].to_numpy()
 
     threshold_lasing_modes = np.zeros([len(modes_df), 2])

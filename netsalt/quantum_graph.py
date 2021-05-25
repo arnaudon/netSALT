@@ -190,7 +190,7 @@ def construct_laplacian(freq, graph):
 
 def set_wavenumber(graph, freq):
     """set edge wavenumbers from frequency and dispersion relation"""
-    graph.graph["ks"] = graph.graph["dispersion_relation"](freq)
+    graph.graph["ks"] = graph.graph["dispersion_relation"](freq, params=graph.graph["params"])
 
 
 def construct_incidence_matrix(graph):

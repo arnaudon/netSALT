@@ -155,4 +155,3 @@ plt.twinx()
 plt.plot(optimal_pump, "r+")
 plt.gca().set_ylim(0.5, 1.5)
 plt.savefig("pump.png")
-

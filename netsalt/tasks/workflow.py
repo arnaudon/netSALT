@@ -32,7 +32,6 @@ from .lasing import (
 )
 from .netsalt_task import NetSaltTask
 from .passive import CreateQuantumGraph, FindPassiveModes, ScanFrequencies
-from .pump import OptimizePump
 
 matplotlib.use("Agg")
 
@@ -43,7 +42,7 @@ class ComputePassiveModes(luigi.WrapperTask):
     rerun = luigi.BoolParameter(default=False)
 
     def requires(self):
-        """"""
+        """ """
         return [
             CreateQuantumGraph(rerun=self.rerun),
             PlotQuantumGraph(rerun=self.rerun),
@@ -62,7 +61,7 @@ class ComputeLasingModes(luigi.WrapperTask):
     rerun_all = luigi.BoolParameter(default=False)
 
     def requires(self):
-        """"""
+        """ """
         if self.rerun_all:
             self.rerun = True
 
@@ -103,11 +102,11 @@ class ComputeControllability(NetSaltTask):
     single_mode_matrix_path = luigi.Parameter(default="out/single_mode_matrix.pkl")
 
     def requires(self):
-        """"""
+        """ """
         return [FindPassiveModes(), ComputePassiveModes().requires()]
 
     def run(self):
-        """"""
+        """ """
 
         modes_df = load_modes(self.input()[0].path)
         lasing_modes_id = modes_df.head(self.n_top_modes).index
@@ -141,7 +140,7 @@ class ComputeControllability(NetSaltTask):
         )
 
     def output(self):
-        """"""
+        """ """
         return luigi.LocalTarget(self.single_mode_matrix_path)
 
 
@@ -151,11 +150,11 @@ class PlotControllability(NetSaltTask):
     plot_path = luigi.Parameter(default="figures/single_mode_control.pdf")
 
     def requires(self):
-        """"""
+        """ """
         return ComputeControllability()
 
     def run(self):
-        """"""
+        """ """
         data = pickle.load(open(self.input().path, "rb"))
 
         print(f"Controllability = {data['controllability']}")
@@ -168,5 +167,5 @@ class PlotControllability(NetSaltTask):
         plt.savefig(self.output().path, bbox_inches="tight")
 
     def output(self):
-        """"""
+        """ """
         return luigi.LocalTarget(self.plot_path)

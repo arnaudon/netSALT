@@ -1,6 +1,7 @@
 """Tasks for passive modes."""
-import luigi
+import yaml
 import numpy as np
+import luigi
 
 from netsalt.io import load_graph, load_qualities, save_graph, save_modes, save_qualities
 from netsalt.modes import find_modes, scan_frequencies
@@ -30,6 +31,7 @@ class CreateQuantumGraph(NetSaltTask):
 
     dielectric_mode = luigi.Parameter(default="refraction_params")
     method = luigi.Parameter(default="uniform")
+    custom_index = luigi.Parameter(default="index.yaml")
     inner_value = luigi.FloatParameter(default=1.5)
     loss = luigi.FloatParameter(default=0.005)
     outer_value = luigi.FloatParameter(default=1.0)
@@ -42,7 +44,7 @@ class CreateQuantumGraph(NetSaltTask):
     quantum_graph_path = luigi.Parameter(default="out/quantum_graph.gpickle")
 
     def run(self):
-        """"""
+        """ """
         params = {
             "open_model": self.graph_mode,
             self.dielectric_mode: {
@@ -66,15 +68,19 @@ class CreateQuantumGraph(NetSaltTask):
         set_total_length(
             quantum_graph, self.inner_total_length, max_extent=self.max_extent, inner=True
         )
-        set_dielectric_constant(quantum_graph, params)
-        set_dispersion_relation(quantum_graph, dispersion_relation_pump, params)
+        custom_index = None
+        if self.method == "custom":
+            custom_index = yaml.load(open(self.custom_index, "r"))
+
+        set_dielectric_constant(quantum_graph, params, custom_values=custom_index)
+        set_dispersion_relation(quantum_graph, dispersion_relation_pump)
 
         quantum_graph = oversample_graph(quantum_graph, params)
         update_parameters(quantum_graph, params)
         save_graph(quantum_graph, self.output().path)
 
     def output(self):
-        """"""
+        """ """
         return luigi.LocalTarget(self.quantum_graph_path)
 
 
@@ -84,17 +90,17 @@ class ScanFrequencies(NetSaltTask):
     qualities_path = luigi.Parameter(default="out/qualities.h5")
 
     def requires(self):
-        """"""
+        """ """
         return CreateQuantumGraph()
 
     def run(self):
-        """"""
+        """ """
         qg = self.get_graph(self.input().path)
         qualities = scan_frequencies(qg)
         save_qualities(qualities, filename=self.output().path)
 
     def output(self):
-        """"""
+        """ """
         return luigi.LocalTarget(self.qualities_path)
 
 
@@ -104,16 +110,16 @@ class FindPassiveModes(NetSaltTask):
     passive_modes_path = luigi.Parameter(default="out/passive_modes.h5")
 
     def requires(self):
-        """"""
+        """ """
         return {"graph": CreateQuantumGraph(), "qualities": ScanFrequencies()}
 
     def run(self):
-        """"""
+        """ """
         qg = self.get_graph(self.input()["graph"].path)
         qualities = load_qualities(filename=self.input()["qualities"].path)
         modes_df = find_modes(qg, qualities)
         save_modes(modes_df, filename=self.output().path)
 
     def output(self):
-        """"""
+        """ """
         return luigi.LocalTarget(self.passive_modes_path)

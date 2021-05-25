@@ -1,6 +1,5 @@
 """All physics-related functions."""
 import logging
-from functools import partial
 
 import numpy as np
 
@@ -25,7 +24,7 @@ def gamma(freq, params):
     return params["gamma_perp"] / (np.real(freq) - params["k_a"] + 1.0j * params["gamma_perp"])
 
 
-def set_dispersion_relation(graph, dispersion_relation, params):
+def set_dispersion_relation(graph, dispersion_relation):
     """Set the dispersion relation on the graph.
 
     Args:
@@ -33,7 +32,7 @@ def set_dispersion_relation(graph, dispersion_relation, params):
         dispersion_relation (function): dispersion relation function
         params (dict): parameters
     """
-    graph.graph["dispersion_relation"] = partial(dispersion_relation, params=params)
+    graph.graph["dispersion_relation"] = dispersion_relation
 
 
 def dispersion_relation_linear(freq, params=None):

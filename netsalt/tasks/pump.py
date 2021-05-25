@@ -24,11 +24,11 @@ class OptimizePump(NetSaltTask):
     use_modes = luigi.BoolParameter(default=True)
 
     def requires(self):
-        """"""
+        """ """
         return {"graph": CreateQuantumGraph(), "modes": FindPassiveModes()}
 
     def run(self):
-        """"""
+        """ """
         qg = self.get_graph(self.input()["graph"].path)
         modes_df = load_modes(self.input()["modes"].path)
 
@@ -54,5 +54,5 @@ class OptimizePump(NetSaltTask):
         pickle.dump(results, open(self.output().path, "wb"))
 
     def output(self):
-        """"""
+        """ """
         return luigi.LocalTarget(self.add_lasing_modes_id(self.optimized_pump_path))
