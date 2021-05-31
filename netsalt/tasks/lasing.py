@@ -26,7 +26,7 @@ from .pump import OptimizePump
 class CreatePumpProfile(NetSaltTask):
     """Create a pump profile."""
 
-    lasing_modes_id = luigi.ListParameter(default=None)
+    lasing_modes_id = luigi.ListParameter()
     mode = luigi.ChoiceParameter(default="uniform", choices=["uniform", "optimized", "custom"])
     custom_pump_path = luigi.Parameter(default="pump_profile.yaml")
     pump_profile_path = luigi.Parameter(default="out/pump_profile.yaml")
@@ -71,6 +71,7 @@ class ComputeModeTrajectories(NetSaltTask):
 
     def requires(self):
         """ """
+
         return {
             "graph": CreateQuantumGraph(),
             "modes": FindPassiveModes(),

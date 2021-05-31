@@ -120,19 +120,20 @@ def optimize_pump(  # pylint: disable=too-many-locals
     pump_overlapps = compute_pump_overlapping_matrix(graph, modes_df)
 
     mode_mask = np.array(len(pump_overlapps) * [False])
+    lasing_modes_id = np.array(lasing_modes_id)
     mode_mask[lasing_modes_id] = True
     pump_min_size = int(pump_min_frac * len(np.where(graph.graph["params"]["inner"])[0]))
-    mean_edge_modes = []
-    for mode in modes_df["passive"]:
-        _m = mean_mode_on_edges(mode, graph)
-        mean_edge_modes.append(_m / _m.max())
 
-    mean_edge_modes = np.array(mean_edge_modes)
-
+    mean_edge_modes = None
     if use_modes:
-        _map = partial(pump_mapping, mean_edge_modes=mean_edge_modes)
-    else:
-        _map = None
+        mean_edge_modes = []
+        for mode in modes_df["passive"]:
+            _m = mean_mode_on_edges(mode, graph)
+            mean_edge_modes.append(_m / _m.max())
+
+        mean_edge_modes = np.array(mean_edge_modes)
+
+    _map = partial(pump_mapping, mean_edge_modes=mean_edge_modes) if use_modes else None
 
     _costf = partial(
         pump_cost,
@@ -142,25 +143,15 @@ def optimize_pump(  # pylint: disable=too-many-locals
         pump_mapper=_map,
     )
 
-    if use_modes:
-        _optimizer = partial(
-            _optimise_diff_evolution,
-            costf=_costf,
-            bounds=len(mean_edge_modes) * [(-10, 10)],
-            disp=disp,
-            maxiter=maxiter,
-            popsize=popsize,
-        )
+    _optimizer = partial(
+        _optimise_diff_evolution,
+        costf=_costf,
+        bounds=len(mean_edge_modes) * [(-10, 10)] if use_modes else len(graph.edges) * [(0, 1)],
+        disp=disp,
+        maxiter=maxiter,
+        popsize=popsize,
+    )
 
-    else:
-        _optimizer = partial(
-            _optimise_diff_evolution,
-            costf=_costf,
-            bounds=len(graph.edges) * [(0, 1)],
-            disp=disp,
-            maxiter=maxiter,
-            popsize=popsize,
-        )
     np.random.seed(seed)
 
     with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:

@@ -21,7 +21,6 @@ class NetSaltTask(luigi.Task):
     """
 
     rerun = luigi.BoolParameter(
-        # config_path={"section": "DEFAULT", "name": "rerun"},
         default=False,
         significant=False,
     )
@@ -30,7 +29,6 @@ class NetSaltTask(luigi.Task):
         """Init."""
         super().__init__(*args, **kwargs)
 
-        self.lasing_modes_id = None
         if self.rerun is True:
             targets = luigi.task.flatten(self.output())
             for target in targets:
@@ -84,3 +82,7 @@ class NetSaltTask(luigi.Task):
             )
             + ext
         )
+
+
+class NetSaltWrapperTask(NetSaltTask, luigi.WrapperTask):
+    """Wrapper netsalt task"""

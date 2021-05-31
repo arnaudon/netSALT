@@ -395,11 +395,15 @@ class PlotModeCompetitionMatrix(NetSaltTask):
 class PlotPumpProfile(NetSaltTask):
     """Plot the pump profile."""
 
+    lasing_modes_id = luigi.ListParameter()
     plot_path = luigi.Parameter(default="figures/pump_profile.pdf")
 
     def requires(self):
         """ """
-        return {"graph": CreateQuantumGraph(), "pump": CreatePumpProfile()}
+        return {
+            "graph": CreateQuantumGraph(),
+            "pump": CreatePumpProfile(lasing_modes_id=self.lasing_modes_id),
+        }
 
     def run(self):
         """ """

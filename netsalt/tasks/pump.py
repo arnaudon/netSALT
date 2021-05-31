@@ -21,7 +21,7 @@ class OptimizePump(NetSaltTask):
     n_seeds = luigi.IntParameter(default=10)
     disp = luigi.BoolParameter(default=False)
     optimized_pump_path = luigi.Parameter(default="out/optimized_pump.pkl")
-    use_modes = luigi.BoolParameter(default=True)
+    use_modes = luigi.BoolParameter(default=False)
 
     def requires(self):
         """ """
