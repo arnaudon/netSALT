@@ -181,8 +181,29 @@ def generate_graph(tpe="SM", params={}):
         G = nx.erdos_renyi_graph(params["n"], params["p"])
 
     elif tpe == "grid":
-        G = nx.grid_2d_graph(params["n"], params["m"], periodic=True)
+        G = nx.grid_2d_graph(params["n"]+1, params["m"]+1, periodic=False)
+        pos = []
+        for u in G.nodes:
+            pos.append(np.array(u, dtype=np.float))
         G = nx.convert_node_labels_to_integers(G)
+        #re-centre graph to origin
+        pos = np.array(pos)
+        offset = (pos.max(axis=0) - pos.min(axis=0))/2
+        #print(offset)
+        pos -= offset
+
+    elif tpe == "hexgrid":
+        G = nx.hexagonal_lattice_graph(params["n"], params["m"], periodic=False, with_positions=True)
+        pos_dic = nx.get_node_attributes(G, 'pos')
+        pos = []
+        for u in G.nodes:
+            pos.append(np.array(pos_dic[u], dtype=np.float))
+        G = nx.convert_node_labels_to_integers(G)
+        #re-centre graph to origin
+        pos = np.array(pos)
+        offset = (pos.max(axis=0) - pos.min(axis=0))/2
+        #print(offset)
+        pos -= offset
 
     elif tpe == "line" or tpe == "line_semi" or tpe == "line_PRA":
         G = nx.grid_2d_graph(params["n"], 1, periodic=False)
@@ -273,12 +294,16 @@ def generate_graph(tpe="SM", params={}):
     elif tpe == "tree":
         G = nx.balanced_tree(params["r"], params["h"])
         G = nx.convert_node_labels_to_integers(G)
-        pos = np.array(list(nx.spring_layout(G).values()))
+        #pos = np.array(list(nx.spring_layout(G).values()))
+        #pos = np.array(list(nx.spectral_layout(G).values()))
+        pos = np.array(list(nx.kamada_kawai_layout(G).values()))
 
     elif tpe == "rtree":
         G = nx.full_rary_tree(params["r"], params["h"])
         G = nx.convert_node_labels_to_integers(G)
         pos = np.array(list(nx.spring_layout(G).values()))
+        #pos = np.array(list(nx.spectral_layout(G).values()))
+        #pos = np.array(list(nx.kamada_kawai_layout(G).values()))
 
     elif tpe == "buffon":
         import scipy.io as io
