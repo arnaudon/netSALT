@@ -71,15 +71,13 @@ class NetSaltTask(luigi.Task):
 
     def add_lasing_modes_id(self, filename):
         """Add lasing modes ids."""
+        # pylint: disable=no-member,disable=not-an-iterable
         if self.lasing_modes_id is None:
             return filename
         filename = Path(filename)
         ext = filename.suffix
         return (
-            "_".join(
-                [str(filename.with_suffix(""))]
-                + [str(_id) for _id in self.lasing_modes_id]  # pylint: disable=not-an-iterable
-            )
+            "_".join([str(filename.with_suffix(""))] + [str(_id) for _id in self.lasing_modes_id])
             + ext
         )
 
