@@ -14,24 +14,15 @@ from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.cm import get_cmap
 from matplotlib.colors import ListedColormap
 
-from netsalt.io import load_graph, load_mode_competition_matrix, load_modes, load_qualities
-from netsalt.plotting import (
-    plot_ll_curve,
-    plot_modes,
-    plot_pump_profile,
-    plot_quantum_graph,
-    plot_scan,
-    plot_stem_spectra,
-)
+from netsalt.io import (load_graph, load_mode_competition_matrix, load_modes,
+                        load_qualities)
+from netsalt.plotting import (plot_ll_curve, plot_modes, plot_pump_profile,
+                              plot_quantum_graph, plot_scan, plot_stem_spectra)
 from netsalt.quantum_graph import oversample_graph
 
-from .lasing import (
-    ComputeModalIntensities,
-    ComputeModeCompetitionMatrix,
-    ComputeModeTrajectories,
-    CreatePumpProfile,
-    FindThresholdModes,
-)
+from .lasing import (ComputeModalIntensities, ComputeModeCompetitionMatrix,
+                     ComputeModeTrajectories, CreatePumpProfile,
+                     FindThresholdModes)
 from .netsalt_task import NetSaltTask
 from .passive import CreateQuantumGraph, FindPassiveModes, ScanFrequencies
 from .pump import OptimizePump

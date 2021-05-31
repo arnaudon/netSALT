@@ -5,18 +5,11 @@ import luigi
 import numpy as np
 import yaml
 
-from netsalt.io import (
-    load_mode_competition_matrix,
-    load_modes,
-    save_mode_competition_matrix,
-    save_modes,
-)
-from netsalt.modes import (
-    compute_modal_intensities,
-    compute_mode_competition_matrix,
-    find_threshold_lasing_modes,
-    pump_trajectories,
-)
+from netsalt.io import (load_mode_competition_matrix, load_modes,
+                        save_mode_competition_matrix, save_modes)
+from netsalt.modes import (compute_modal_intensities,
+                           compute_mode_competition_matrix,
+                           find_threshold_lasing_modes, pump_trajectories)
 
 from .netsalt_task import NetSaltTask
 from .passive import CreateQuantumGraph, FindPassiveModes

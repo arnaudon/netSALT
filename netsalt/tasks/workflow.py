@@ -9,30 +9,16 @@ import seaborn as sns
 
 from netsalt.io import load_modes
 
-from .analysis import (
-    PlotLLCurve,
-    PlotModeCompetitionMatrix,
-    PlotOptimizedPump,
-    PlotPassiveModes,
-    PlotPumpProfile,
-    PlotQuantumGraph,
-    PlotScan,
-    PlotScanWithModes,
-    PlotScanWithModeTrajectories,
-    PlotScanWithThresholdModes,
-    PlotStemSpectra,
-    PlotThresholdModes,
-)
-from .lasing import (
-    ComputeModalIntensities,
-    ComputeModeCompetitionMatrix,
-    ComputeModeTrajectories,
-    CreatePumpProfile,
-    FindThresholdModes,
-)
+from .analysis import (PlotLLCurve, PlotModeCompetitionMatrix,
+                       PlotOptimizedPump, PlotPassiveModes, PlotPumpProfile,
+                       PlotQuantumGraph, PlotScan, PlotScanWithModes,
+                       PlotScanWithModeTrajectories,
+                       PlotScanWithThresholdModes, PlotStemSpectra,
+                       PlotThresholdModes)
+from .lasing import (ComputeModalIntensities, ComputeModeCompetitionMatrix,
+                     CreatePumpProfile, FindThresholdModes)
 from .netsalt_task import NetSaltTask, NetSaltWrapperTask
-
-from .passive import CreateQuantumGraph, FindPassiveModes, ScanFrequencies
+from .passive import FindPassiveModes
 
 matplotlib.use("Agg")
 
@@ -45,11 +31,8 @@ class ComputePassiveModes(NetSaltWrapperTask):
     def requires(self):
         """ """
         return [
-            CreateQuantumGraph(rerun=self.rerun),
             PlotQuantumGraph(rerun=self.rerun),
-            ScanFrequencies(rerun=self.rerun),
             PlotScan(rerun=self.rerun),
-            FindPassiveModes(rerun=self.rerun),
             PlotPassiveModes(rerun=self.rerun),
             PlotScanWithModes(rerun=self.rerun),
         ]
@@ -67,18 +50,12 @@ class ComputeLasingModes(NetSaltWrapperTask):
         if self.rerun_all:
             self.rerun = True
 
-        # return ComputePassiveModes(self.rerun_all).requires() +
         return [
-            # CreatePumpProfile(rerun=self.rerun, lasing_modes_id=self.lasing_modes_id),
             PlotPumpProfile(lasing_modes_id=self.lasing_modes_id, rerun=self.rerun),
-            # ComputeModeTrajectories(lasing_modes_id=self.lasing_modes_id, rerun=self.rerun),
             PlotScanWithModeTrajectories(lasing_modes_id=self.lasing_modes_id, rerun=self.rerun),
-            # FindThresholdModes(lasing_modes_id=self.lasing_modes_id, rerun=self.rerun),
             PlotScanWithThresholdModes(lasing_modes_id=self.lasing_modes_id, rerun=self.rerun),
             PlotThresholdModes(lasing_modes_id=self.lasing_modes_id, rerun=self.rerun),
-            # ComputeModeCompetitionMatrix(lasing_modes_id=self.lasing_modes_id, rerun=self.rerun),
             PlotModeCompetitionMatrix(lasing_modes_id=self.lasing_modes_id, rerun=self.rerun),
-            # ComputeModalIntensities(lasing_modes_id=self.lasing_modes_id, rerun=self.rerun),
             PlotLLCurve(lasing_modes_id=self.lasing_modes_id, rerun=self.rerun),
             PlotStemSpectra(lasing_modes_id=self.lasing_modes_id, rerun=self.rerun),
         ]
