@@ -182,6 +182,51 @@ hkn_harary: # or hnm_harary:
         #figure format
         exts: ['.png', '.svg']
         
+grid: #or hexgrid
+        #network params:
+        n_workers: 40
+        n: 6 # number of vertical tilings
+        m: 6 # number of horizontal tilings
+        lead_prob: 0.0 #0.3
+        seed: 100 #20
+        innerL: 1000 #30
+        refraction_params: 
+            method: 'uniform'
+            inner_value: 1.5
+            loss: 0.001
+            outer_value: 1.5
+        open_model: 'open_ends'
+        plot_edgesize: 5. #0.01
+        n_modes_max: False
+        
+        #mode search params
+        k_min: 10.35 #12
+        k_max: 11.00 #19
+        k_n: 5000 #3000
+        alpha_min: 0.006 #0.02
+        alpha_max: 0.008 #0.05
+        alpha_n: 50
+        
+        # params for mode search
+        quality_threshold: 1.e-5
+        search_stepsize: 0.001 
+        max_steps: 10000 
+        max_tries_reduction: 50 
+        reduction_factor: 0.80 
+
+        #pumping parameters
+        D0_max: 0.01
+        D0_steps: 6
+        k_a: 10.68 #15
+        gamma_perp: 0.5 #3.0
+
+        #WIP params
+        pump_edges: 'all' #[8, 9]        
+        open_nodes: []
+
+        #figure format
+        exts: ['.png', '.svg']
+
 coupled_rings:
         #network params
         n_workers: 10
@@ -369,7 +414,7 @@ tree:
         h: 5 #h: 7 for tree and 250 for rtree
         lead_prob: 0 #-1.
         seed: 4
-        innerL: 2500 #2000
+        innerL: 1000 #2000
         refraction_params: 
             method: 'uniform'
             inner_value: 1.5
@@ -382,7 +427,7 @@ tree:
         #mode search params
         k_min: 10.35 #10.60
         k_max: 11.00 #10.76
-        k_n: 8000 #4000 1000
+        k_n: 2000
         alpha_min: 0.006
         alpha_max: 0.012
         alpha_n: 200
