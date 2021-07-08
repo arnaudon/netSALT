@@ -3,13 +3,19 @@ import luigi
 import numpy as np
 import yaml
 
-from netsalt.io import (load_graph, load_qualities, save_graph, save_modes,
-                        save_qualities)
+from netsalt.io import load_graph, load_qualities, save_graph, save_modes, save_qualities
 from netsalt.modes import find_modes, scan_frequencies
-from netsalt.physics import (dispersion_relation_pump, set_dielectric_constant,
-                             set_dispersion_relation)
-from netsalt.quantum_graph import (create_quantum_graph, oversample_graph,
-                                   set_total_length, update_parameters)
+from netsalt.physics import (
+    dispersion_relation_pump,
+    set_dielectric_constant,
+    set_dispersion_relation,
+)
+from netsalt.quantum_graph import (
+    create_quantum_graph,
+    oversample_graph,
+    set_total_length,
+    update_parameters,
+)
 
 from .config import ModeSearchConfig
 from .netsalt_task import NetSaltTask

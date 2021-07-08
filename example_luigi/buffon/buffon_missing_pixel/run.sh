@@ -6,6 +6,5 @@ mkdir -p out
 mkdir -p figures
 
 python create_pump.py
-
-luigi --module netsalt.tasks ComputeLasingModes --local-scheduler --log-level INFO # --rerun #--rerun-all
+luigi --module netsalt.tasks.workflow ComputeLasingModes --local-scheduler --log-level INFO # --rerun #--rerun-all
 

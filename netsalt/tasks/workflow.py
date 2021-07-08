@@ -9,14 +9,26 @@ import seaborn as sns
 
 from netsalt.io import load_modes
 
-from .analysis import (PlotLLCurve, PlotModeCompetitionMatrix,
-                       PlotOptimizedPump, PlotPassiveModes, PlotPumpProfile,
-                       PlotQuantumGraph, PlotScan, PlotScanWithModes,
-                       PlotScanWithModeTrajectories,
-                       PlotScanWithThresholdModes, PlotStemSpectra,
-                       PlotThresholdModes)
-from .lasing import (ComputeModalIntensities, ComputeModeCompetitionMatrix,
-                     CreatePumpProfile, FindThresholdModes)
+from .analysis import (
+    PlotLLCurve,
+    PlotModeCompetitionMatrix,
+    PlotOptimizedPump,
+    PlotPassiveModes,
+    PlotPumpProfile,
+    PlotQuantumGraph,
+    PlotScan,
+    PlotScanWithModes,
+    PlotScanWithModeTrajectories,
+    PlotScanWithThresholdModes,
+    PlotStemSpectra,
+    PlotThresholdModes,
+)
+from .lasing import (
+    ComputeModalIntensities,
+    ComputeModeCompetitionMatrix,
+    CreatePumpProfile,
+    FindThresholdModes,
+)
 from .netsalt_task import NetSaltTask, NetSaltWrapperTask
 from .passive import FindPassiveModes
 
@@ -41,7 +53,7 @@ class ComputePassiveModes(NetSaltWrapperTask):
 class ComputeLasingModes(NetSaltWrapperTask):
     """Run a workflow to compute passive modes of a graph."""
 
-    lasing_modes_id = luigi.ListParameter()
+    lasing_modes_id = luigi.ListParameter(default=None)
     rerun = luigi.BoolParameter(default=False)
     rerun_all = luigi.BoolParameter(default=False)
 
