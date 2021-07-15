@@ -409,7 +409,7 @@ class PlotPumpProfile(NetSaltTask):
         """ """
         qg = ScanFrequencies().get_graph(self.input()["graph"].path)
         pump = yaml.safe_load(self.input()["pump"].open())
-        plot_pump_profile(qg, pump)
+        plot_pump_profile(qg, pump, node_size=5)
         plt.savefig(self.output().path, bbox_inches="tight")
 
     def output(self):
