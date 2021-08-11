@@ -34,13 +34,14 @@ L = logging.getLogger(__name__)
 class WorkerModes:
     """Worker to find modes."""
 
-    def __init__(self, estimated_modes, graph, D0s=None, search_radii=None):
+    def __init__(self, estimated_modes, graph, D0s=None, search_radii=None, seed=42):
         """Init function of the worker."""
         self.graph = graph
         self.params = graph.graph["params"]
         self.estimated_modes = estimated_modes
         self.D0s = D0s
         self.search_radii = search_radii
+        self.seed = seed
 
     def set_search_radii(self, mode):
         """This fixes a local search region set by search radii."""
@@ -58,7 +59,7 @@ class WorkerModes:
         mode = self.estimated_modes[mode_id]
         if self.search_radii is not None:
             self.set_search_radii(mode)
-        return refine_mode_brownian_ratchet(mode, self.graph, self.params)
+        return refine_mode_brownian_ratchet(mode, self.graph, self.params, seed=self.seed)
 
 
 class WorkerScan:

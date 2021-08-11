@@ -22,8 +22,11 @@ def refine_mode_brownian_ratchet(
     params,
     disp=False,
     save_mode_trajectories=False,
+    seed=42,
 ):
     """Accurately find a mode from an initial guess, using brownian ratchet algorithm."""
+    np.random.seed(seed)
+
     current_mode = initial_mode.copy()
     if save_mode_trajectories:
         mode_trajectories = [current_mode.copy()]
@@ -66,18 +69,22 @@ def refine_mode_brownian_ratchet(
         if tries_counter > params["max_tries_reduction"]:
             search_stepsize *= params["reduction_factor"]
             tries_counter = 0
+
         if search_stepsize < 1e-10:
             disp = True
             L.info("Warning: mode search stepsize under 1e-10 for mode: %s", current_mode)
             L.info("We retry from a larger one, but consider fine tuning search parameters.")
             search_stepsize = 1e-8
         step_counter += 1
+
     if current_quality < params["quality_threshold"]:
         if save_mode_trajectories:
             return np.array(mode_trajectories)
         return current_mode
+
     L.info("Maximum number of tries attained and no mode found, we retry from scratch!")
     params["search_stepsize"] *= 5
+
     return refine_mode_brownian_ratchet(
         initial_mode,
         graph,

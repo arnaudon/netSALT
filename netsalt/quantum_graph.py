@@ -22,16 +22,17 @@ def create_quantum_graph(graph, params, positions=None, lengths=None, seed=42, n
 
 def _verify_lengths(graph, seed=42, noise_level=0.001):
     """Add noise to lenghts if many are equal."""
-    lengths = [graph[u][v]["length"] for u, v in graph.edges]
-    np.random.seed(seed)
-    if np.max(np.unique(np.around(lengths, 5), return_counts=True)) > 0.2 * len(graph.edges):
-        L.info(
-            """You have more than 20% of edges of the same length,
-               so we add some small noise for safety for the numerics."""
-        )
-        for u in graph:
-            graph.nodes[u]["position"][0] += np.random.normal(0, noise_level * np.min(lengths))
-        set_edge_lengths(graph)
+    if noise_level > 0.0:
+        lengths = [graph[u][v]["length"] for u, v in graph.edges]
+        np.random.seed(seed)
+        if np.max(np.unique(np.around(lengths, 5), return_counts=True)) > 0.2 * len(graph.edges):
+            L.info(
+                """You have more than 20% of edges of the same length,
+                so we add some small noise for safety for the numerics."""
+            )
+            for u in graph:
+                graph.nodes[u]["position"][0] += np.random.normal(0, noise_level * np.min(lengths))
+            set_edge_lengths(graph)
 
 
 def _not_equal(data1, data2, force=False):
@@ -282,13 +283,14 @@ def set_edge_lengths(graph, lengths=None):
     graph.graph["lengths"] = np.array([graph[u][v]["length"] for u, v in graph.edges])
 
 
-def laplacian_quality(laplacian, method="eigenvalue"):
+def laplacian_quality(laplacian, method="eigenvalue", seed=42):
     """Return the quality of a mode encoded in the quantum laplacian."""
+    v0 = np.random.random(laplacian.shape[0])
     if method == "eigenvalue":
         try:
             return abs(
                 sc.sparse.linalg.eigs(
-                    laplacian, k=1, sigma=0, return_eigenvectors=False, which="LM"
+                    laplacian, k=1, sigma=0, return_eigenvectors=False, which="LM", v0=v0
                 )
             )[0]
         except sc.sparse.linalg.ArpackNoConvergence:
@@ -303,6 +305,7 @@ def laplacian_quality(laplacian, method="eigenvalue"):
                     sigma=0,
                     return_eigenvectors=False,
                     which="LM",
+                    v0=v0,
                 )
             )[0]
 
@@ -312,6 +315,7 @@ def laplacian_quality(laplacian, method="eigenvalue"):
             k=1,
             which="SM",
             return_singular_vectors=False,
+            v0=v0,
         )[0]
     return 1.0
 

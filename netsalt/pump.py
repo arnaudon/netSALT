@@ -92,7 +92,7 @@ def optimize_pump(  # pylint: disable=too-many-locals
     pump_min_frac=0.5,
     maxiter=500,
     popsize=5,
-    seed=1,
+    seed=42,
     n_seeds=24,
     disp=False,
     use_modes=True,
@@ -114,6 +114,8 @@ def optimize_pump(  # pylint: disable=too-many-locals
     Returns:
         optimal_pump, pump_overlapps, costs: best pump, overlapping matrix, all costs from seeds
     """
+    np.random.seed(seed)
+
     if "pump" not in graph.graph["params"]:
         graph.graph["params"]["pump"] = np.ones(len(graph.edges))
 
@@ -151,8 +153,6 @@ def optimize_pump(  # pylint: disable=too-many-locals
         maxiter=maxiter,
         popsize=popsize,
     )
-
-    np.random.seed(seed)
 
     with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
         results = list(
