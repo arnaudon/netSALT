@@ -119,14 +119,15 @@ class ComputeControllability(NetSaltTask):
 
         spectra_matrix = np.array(spectra_matrix)
         single_mode_matrix, controllability = compute_controllability(spectra_matrix)
-        pickle.dump(
-            {
-                "spectra_matrix": spectra_matrix,
-                "single_mode_matrix": single_mode_matrix,
-                "controllability": controllability,
-            },
-            open(self.output().path, "wb"),
-        )
+        with open(self.output().path, "wb") as pkl:
+            pickle.dump(
+                {
+                    "spectra_matrix": spectra_matrix,
+                    "single_mode_matrix": single_mode_matrix,
+                    "controllability": controllability,
+                },
+                pkl,
+            )
 
     def output(self):
         """ """
@@ -144,7 +145,8 @@ class PlotControllability(NetSaltTask):
 
     def run(self):
         """ """
-        data = pickle.load(open(self.input().path, "rb"))
+        with open(self.input().path, "rb") as pkl:
+            data = pickle.load(pkl)
 
         print(f"Controllability = {data['controllability']}")
 

@@ -51,7 +51,8 @@ class OptimizePump(NetSaltTask):
             "final_cost": final_cost,
             "lasing_modes_id": self.lasing_modes_id,
         }
-        pickle.dump(results, open(self.output().path, "wb"))
+        with open(self.output().path, "wb") as pkl:
+            pickle.dump(results, pkl)
 
     def output(self):
         """ """

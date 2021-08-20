@@ -283,7 +283,7 @@ def set_edge_lengths(graph, lengths=None):
     graph.graph["lengths"] = np.array([graph[u][v]["length"] for u, v in graph.edges])
 
 
-def laplacian_quality(laplacian, method="eigenvalue", seed=42):
+def laplacian_quality(laplacian, method="eigenvalue"):
     """Return the quality of a mode encoded in the quantum laplacian."""
     v0 = np.random.random(laplacian.shape[0])
     if method == "eigenvalue":

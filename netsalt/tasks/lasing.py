@@ -48,15 +48,20 @@ class CreatePumpProfile(NetSaltTask):
                 if qg[u][v]["inner"]:
                     pump[i] = 1
             pump = pump.tolist()
+
         elif self.mode == "optimized":
-            results = pickle.load(open(self.input()["optimize"].path, "rb"))
+            with open(self.input()["optimize"].path, "rb") as pkl:
+                results = pickle.load(pkl)
             pump = results["optimal_pump"].tolist()
+
         elif self.mode == "custom":
-            pump = yaml.load(open(self.custom_pump_path, "r"))
+            with open(self.custom_pump_path, "r") as yml:
+                pump = yaml.load(yml)
         else:
             raise Exception("Mode not understood")
 
-        yaml.dump(pump, open(self.output().path, "w"))
+        with open(self.output().path, "w") as yml:
+            yaml.dump(pump, yml)
 
     def output(self):
         """ """

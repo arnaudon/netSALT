@@ -344,7 +344,8 @@ class PlotOptimizedPump(NetSaltTask):
 
     def run(self):
         """ """
-        results = pickle.load(open(self.input()["pump"].path, "rb"))
+        with open(self.input()["pump"].path, "rb") as pkl:
+            results = pickle.load(pkl)
         qg = load_graph(self.input()["graph"].path)
 
         with PdfPages(self.output().path) as pdf:
