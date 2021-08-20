@@ -13,7 +13,6 @@ from .io import (
 from .modes import (
     compute_modal_intensities,
     compute_mode_competition_matrix,
-    compute_overlapping_single_edges,
     find_modes,
     find_threshold_lasing_modes,
     lasing_threshold_linear,

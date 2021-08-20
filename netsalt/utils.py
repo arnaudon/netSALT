@@ -51,10 +51,7 @@ def order_edges_by(graph, order_by_values):
 
 
 def _intersect(x, y):
-    """Find intersection point between two segments.
-
-    Adapted from https://stackoverflow.com/questions/563198/how-do-you-detect-where-two-line-segments-intersect#565282
-    """
+    """Find intersection point between two segments."""
 
     def cross(a, b):
         return a[0] * b[1] - a[1] * b[0]
@@ -78,9 +75,14 @@ def _in_box(x, box):
     return False
 
 
-def remove_pixel(graph, box):
+def remove_pixel(graph, center, size):
     """Create the pump with missing pixel and add corresponding nodes on the graph."""
-
+    box = [
+        center[0] - 0.5 * size,
+        center[0] + 0.5 * size,
+        center[1] - 0.5 * size,
+        center[1] + 0.5 * size,
+    ]
     box_edges = np.array(
         [
             [[box[0], box[2]], [box[0], box[3]]],

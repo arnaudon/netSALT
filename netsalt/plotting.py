@@ -354,7 +354,7 @@ def plot_quantum_graph(
 
     out_nodes = []
     for e in graph.edges():
-        if 'inner' in graph[e[0]][e[1]] and not graph[e[0]][e[1]]["inner"]:
+        if "inner" in graph[e[0]][e[1]] and not graph[e[0]][e[1]]["inner"]:
             if len(graph[e[0]]) == 1:
                 out_nodes.append(e[0])
             if len(graph[e[1]]) == 1:

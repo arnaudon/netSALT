@@ -818,7 +818,18 @@ def find_threshold_lasing_modes(modes_df, graph):
 
     modes_df["threshold_lasing_modes"] = [to_complex(mode) for mode in threshold_lasing_modes]
     modes_df["lasing_thresholds"] = lasing_thresholds
-    return modes_df
+
+    # we remove duplicated threshold lasing modes (we keep first appearance)
+    prec = graph.graph["params"]["quality_threshold"]
+    modes_df["th"] = prec * (abs(modes_df["threshold_lasing_modes"]) / prec).round(0)
+    val, count = np.unique(modes_df["th"].to_numpy(), return_counts=True)
+    for v in val[count > 1]:
+        mask = modes_df[modes_df["th"] == v].index
+        if len(mask) > 1:
+            modes_df.loc[mask[1:], "threshold_lasing_modes"] = 0.0
+            modes_df.loc[mask[1:], "lasing_thresholds"] = np.inf
+
+    return modes_df.drop(columns=["th"])
 
 
 def lasing_threshold_linear(mode, graph, D0):

@@ -111,7 +111,7 @@ class PlotPassiveModes(NetSaltTask):
     """Plot passive modes.
 
     Args:
-        ext (str): extansion for saving plots
+        ext (str): extension for saving plots
         n_modes (int): number of modes to plot (ordered by Q-values)
     """
 
@@ -229,7 +229,7 @@ class PlotThresholdModes(NetSaltTask):
     """Plot threshold modes.
 
     Args:
-        ext (str): extansion for saving plots
+        ext (str): extension for saving plots
         n_modes (int): number of modes to plot (ordered by Q-values)
     """
 
