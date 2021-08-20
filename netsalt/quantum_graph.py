@@ -3,7 +3,7 @@ import logging
 
 import networkx as nx
 import numpy as np
-import scipy as sc
+from scipy import sparse, linalg
 
 from .physics import update_params_dielectric_constant
 from .utils import to_complex
@@ -15,7 +15,7 @@ def create_quantum_graph(graph, params, positions=None, lengths=None, seed=42, n
     """append a networkx graph with necessary attributes for being a NAQ graph"""
     set_node_positions(graph, positions)
     set_edge_lengths(graph, lengths=lengths)
-    _verify_lengths(graph, seed=seed, noise_level=noise_level)
+    # _verify_lengths(graph, seed=seed, noise_level=noise_level)
     set_inner_edges(graph, params)
     update_parameters(graph, params)
 
@@ -181,12 +181,102 @@ def oversample_graph(graph, params):  # pylint: disable=too-many-locals
     return oversampled_graph
 
 
-def construct_laplacian(freq, graph):
+def construct_laplacian(freq, graph, group="abelian", chis=None):
+    if group == "abelian":
+        return _construct_abelian_laplacian(freq, graph)
+    if group == "SO3":
+        return _construct_so3_laplacian(freq, graph, chis=chis)
+    raise NotImplementedError(f"Group {group} not implemented")
+
+
+def _construct_so3_laplacian(freq, graph, chis=None):
+    set_wavenumber(graph, freq)
+    if chis is None:
+        chis = len(graph.edges) * [np.array([[0, -1.0, 0], [1.0, 0, 0], [0, 0, 0]])]
+    for ei, (u, v) in enumerate(graph.edges):
+        graph[u][v]["chi"] = chis[ei]
+
+    BT, Bout = construct_so3_incidence_matrix(graph)
+    Winv = construct_so3_weight_matrix(graph)
+    return BT.dot(Winv).dot(Bout)
+
+
+def _construct_abelian_laplacian(freq, graph):
     """construct quantum laplacian from a graph"""
     set_wavenumber(graph, freq)
     BT, Bout = construct_incidence_matrix(graph)
     Winv = construct_weight_matrix(graph)
     return BT.dot(Winv).dot(Bout)
+
+
+def hat(xi_vec):
+    """Convert vector Lie algebra to matrix Lie algebra element."""
+    xi = np.zeros((3, 3))
+    xi[1, 2] = -xi_vec[0]
+    xi[2, 1] = xi_vec[0]
+    xi[0, 2] = xi_vec[1]
+    xi[2, 0] = -xi_vec[1]
+    xi[0, 1] = -xi_vec[2]
+    xi[1, 0] = xi_vec[2]
+    return xi
+
+
+def hat_inv(xi):
+    """Convert matrix Lie algebra to vector Lie algebra element."""
+    xi_vec = np.zeros(3)
+    xi_vec[0] = xi[2, 1]
+    xi_vec[1] = xi[0, 2]
+    xi_vec[2] = xi[1, 0]
+    return xi_vec
+
+
+def construct_so3_weight_matrix(graph, with_k=True):
+    dim = 3
+
+    def _ext(i):
+        return slice(dim * i, dim * (i + 1))
+
+    Winv = sparse.lil_matrix(
+        (len(graph.edges) * 2 * dim, len(graph.edges) * 2 * dim), dtype=np.complex128
+    )
+    for ei, (u, v) in enumerate(graph.edges):
+        w = (
+            linalg.expm(2 * graph[u][v]["chi"] * graph.graph["ks"] * graph[u][v]["length"])
+            - np.eye(3)
+            + hat_inv(graph[u][v]["chi"]) * np.exp(2.0j * graph.graph["ks"] * graph[u][v]["length"])
+        )
+        winv = graph.graph["ks"] * graph[u][v]["chi"].dot(linalg.inv(w))
+        Winv[_ext(2 * ei + 1), _ext(2 * ei + 1)] = winv
+    return Winv
+
+
+def construct_so3_incidence_matrix(graph):
+    dim = 3
+
+    def _ext(i):
+        return slice(dim * i, dim * (i + 1))
+
+    B = sparse.lil_matrix((len(graph.edges) * 2 * dim, len(graph) * dim), dtype=np.complex128)
+    BT = sparse.lil_matrix((len(graph) * dim, len(graph.edges) * 2 * dim), dtype=np.complex128)
+    for ei, (u, v) in enumerate(graph.edges):
+        expl = linalg.expm(
+            graph[u][v]["chi"] * graph[u][v]["length"] * graph.graph["ks"]
+        ) + hat_inv(graph[u][v]["chi"]) * np.exp(1.0j * graph[u][v]["length"] * graph.graph["ks"])
+
+        one = np.eye(3)
+        B[_ext(2 * ei), _ext(u)] = -one
+        B[_ext(2 * ei), _ext(u)] = -one
+        B[_ext(2 * ei), _ext(v)] = expl
+        B[_ext(2 * ei + 1), _ext(u)] = expl
+        B[_ext(2 * ei + 1), _ext(v)] = -one
+
+        BT[_ext(u), _ext(2 * ei)] = -one
+        BT[_ext(u), _ext(2 * ei)] = -one
+        BT[_ext(v), _ext(2 * ei)] = expl
+        BT[_ext(u), _ext(2 * ei + 1)] = expl
+        BT[_ext(v), _ext(2 * ei + 1)] = -one
+
+    return BT, B
 
 
 def set_wavenumber(graph, freq):
@@ -213,14 +303,14 @@ def construct_incidence_matrix(graph):
 
     m = len(graph.edges)
     n = len(graph.nodes)
-    BT = sc.sparse.csr_matrix((data, (col, row)), shape=(n, 2 * m), dtype=np.complex128)
-    Bout = sc.sparse.csr_matrix((data_out, (row, col)), shape=(2 * m, n), dtype=np.complex128)
+    BT = sparse.csr_matrix((data, (col, row)), shape=(n, 2 * m), dtype=np.complex128)
+    Bout = sparse.csr_matrix((data_out, (row, col)), shape=(2 * m, n), dtype=np.complex128)
     return BT, Bout
 
 
 def construct_weight_matrix(graph, with_k=True):
     """Construct the matrix W^{-1}
-    with_k: multiplies or not by k (needed for graph laplcian, not for edge flux)"""
+    with_k: multiplies or not by k (needed for graph Laplacian, not for edge flux)"""
     mask = abs(graph.graph["ks"]) > 0
     data_tmp = np.zeros(len(graph.edges), dtype=np.complex128)
     data_tmp[mask] = 1.0 / (
@@ -236,7 +326,7 @@ def construct_weight_matrix(graph, with_k=True):
     data = np.repeat(data_tmp, 2)
 
     m = len(graph.edges)
-    return sc.sparse.csc_matrix((data, (row, row)), shape=(2 * m, 2 * m), dtype=np.complex128)
+    return sparse.csc_matrix((data, (row, row)), shape=(2 * m, 2 * m), dtype=np.complex128)
 
 
 def set_inner_edges(graph, params, outer_edges=None):
@@ -289,18 +379,16 @@ def laplacian_quality(laplacian, method="eigenvalue"):
     if method == "eigenvalue":
         try:
             return abs(
-                sc.sparse.linalg.eigs(
-                    laplacian, k=1, sigma=0, return_eigenvectors=False, which="LM", v0=v0
-                )
+                sparse.linalg.eigs(laplacian, k=1, sigma=0, return_eigenvectors=False, which="LM")
             )[0]
-        except sc.sparse.linalg.ArpackNoConvergence:
+        except sparse.linalg.ArpackNoConvergence:
             # If eigenvalue solver did not converge, set to 1.0,
             return 1.0
         except RuntimeError:
             L.info("Runtime error, we add a small diagonal to laplacian, but things may be bad!")
             return abs(
-                sc.sparse.linalg.eigs(
-                    laplacian + 1e-6 * sc.sparse.eye(laplacian.shape[0]),
+                sparse.linalg.eigs(
+                    laplacian + 1e-6 * sparse.eye(laplacian.shape[0]),
                     k=1,
                     sigma=0,
                     return_eigenvectors=False,
@@ -310,7 +398,7 @@ def laplacian_quality(laplacian, method="eigenvalue"):
             )[0]
 
     if method == "singularvalue":
-        return sc.sparse.linalg.svds(
+        return sparse.linalg.svds(
             laplacian,
             k=1,
             which="SM",
