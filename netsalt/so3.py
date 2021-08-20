@@ -67,7 +67,7 @@ if __name__ == "__main__":
     np.random.seed(42)
     graph = nx.grid_graph([3], periodic=True)
     graph = nx.convert_node_labels_to_integers(graph)
-    netsalt.create_quantum_graph(graph, {"open_model": "closed"}, lengths=[1.0, 1.0, 1.0])
+    netsalt.create_quantum_graph(graph, {"open_model": "closed"}, lengths=[0.8, 1.2, 1.0])
     graph.graph["params"]["c"] = 1
     netsalt.set_dispersion_relation(graph, netsalt.physics.dispersion_relation_linear)
 
@@ -82,7 +82,7 @@ if __name__ == "__main__":
     chi2 = hat_inv(c / np.linalg.norm(c))
     chis = len(graph.edges) * [chi]
     chis[-1] = chi2
-    #chis[-2] = chi1
+    chis[-2] = chi1
     qs1 = []
     qs2 = []
     qs3 = []
@@ -91,6 +91,18 @@ if __name__ == "__main__":
     qs6 = []
     qsa = []
     freqs = np.linspace(1.0, 10.0, 2000)
+
+    laplacian = netsalt.quantum_graph.construct_laplacian(
+        2 * np.pi / 3.0, graph, group="SO3", chis=chis
+    )
+    e, v = sparse.linalg.eigs(
+        laplacian,
+        k=6,
+        sigma=1e-2,
+        which="LM",
+        v0=np.ones(3 * len(graph)),
+    )
+    print(laplacian.dot(v[:, 2]), e)
     for freq in tqdm(freqs):
 
         ab_laplacian = netsalt.quantum_graph.construct_laplacian(freq, graph)
@@ -108,7 +120,7 @@ if __name__ == "__main__":
         laplacian = netsalt.quantum_graph.construct_laplacian(freq, graph, group="SO3", chis=chis)
         eigs = np.sort(
             abs(
-                sparse.linalg.eigsh(
+                sparse.linalg.eigs(
                     laplacian,
                     k=6,
                     sigma=1e-2,
@@ -126,10 +138,10 @@ if __name__ == "__main__":
         qs6.append(eigs[5])
     plt.figure()
 
-    plt.axvline(2*np.pi/3, c='k')
-    plt.axvline(4*np.pi/3, c='k')
-    plt.axvline(6*np.pi/3, c='k')
-    plt.axvline(8*np.pi/3, c='k')
+    plt.axvline(2 * np.pi / 3, c="k")
+    plt.axvline(4 * np.pi / 3, c="k")
+    plt.axvline(6 * np.pi / 3, c="k")
+    plt.axvline(8 * np.pi / 3, c="k")
     plt.semilogy(freqs, qsa, "r-", lw=1.0, label="ab")
     plt.semilogy(freqs, qs1, "-", lw=0.5, label="1")
     plt.semilogy(freqs, qs2, "-", lw=0.5, label="2")

@@ -249,16 +249,17 @@ def construct_so3_weight_matrix(graph, with_k=True):
         (len(graph.edges) * 2 * dim, len(graph.edges) * 2 * dim), dtype=np.complex128
     )
     for ei, (u, v) in enumerate(graph.edges):
+
         w_perp = linalg.expm(
-            2 * graph[u][v]["chi"] * graph.graph["ks"] * graph[u][v]["length"]
-        ) - proj_perp(graph[u][v]["chi"])
+            2.0 * graph[u][v]["chi"] * graph.graph["ks"] * graph[u][v]["length"]
+        ) - np.eye(3)
+
         w_paral = proj_paral(graph[u][v]["chi"]) * (
             np.exp(2.0j * graph.graph["ks"] * graph[u][v]["length"]) - 1
         )
-        w = w_perp + w_paral
-        ww = graph.graph["ks"] * graph[u][v]["chi"].dot(w_perp) + 1.0j * graph.graph["ks"] * w_paral
-        winv = linalg.inv(w)
-        winv = winv.dot(ww).dot(winv)
+        ww = graph.graph["ks"] * (graph[u][v]["chi"].dot(w_perp) + 1.0j * w_paral)
+        _winv = linalg.inv(w_perp + w_paral)
+        winv = _winv.dot(ww).dot(_winv)
         Winv[_ext(2 * ei), _ext(2 * ei)] = winv
         Winv[_ext(2 * ei + 1), _ext(2 * ei + 1)] = winv
     return Winv
@@ -281,12 +282,10 @@ def construct_so3_incidence_matrix(graph):
 
         one = np.eye(3)
         B[_ext(2 * ei), _ext(u)] = -one
-        B[_ext(2 * ei), _ext(u)] = -one
         B[_ext(2 * ei), _ext(v)] = expl
         B[_ext(2 * ei + 1), _ext(u)] = expl
         B[_ext(2 * ei + 1), _ext(v)] = -one
 
-        BT[_ext(u), _ext(2 * ei)] = -one
         BT[_ext(u), _ext(2 * ei)] = -one
         BT[_ext(v), _ext(2 * ei)] = expl
         BT[_ext(u), _ext(2 * ei + 1)] = expl
