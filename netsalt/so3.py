@@ -1,9 +1,12 @@
 import numpy as np
 from tqdm import tqdm
 from scipy.linalg import expm, pinv
+import netsalt
+import networkx as nx
+import matplotlib.pyplot as plt
 
 
-def hat(xi_vec):
+def hat_inv(xi_vec):
     """Convert vector Lie algebra to matrix Lie algebra element."""
     xi = np.zeros((3, 3))
     xi[1, 2] = -xi_vec[0]
@@ -15,7 +18,7 @@ def hat(xi_vec):
     return xi
 
 
-def hat_inv(xi):
+def hat(xi):
     """Convert matrix Lie algebra to vector Lie algebra element."""
     xi_vec = np.zeros(3)
     xi_vec[0] = xi[2, 1]
@@ -48,44 +51,60 @@ def Winv(x, chi):
     return pinv(W(x, chi))
 
 
+def proj_perp(chi):
+    return np.eye(3) - proj_paral(chi)
+
+
+def proj_paral(chi):
+    chi_h = hat(chi)
+    return np.outer(chi_h, chi_h) / np.linalg.norm(chi_h) ** 2
+
+
 if __name__ == "__main__":
-    chi = np.array([[0, -1.0, 0], [1.0, 0, 0], [0, 0, 0]])  # along [0, 0, 1]
-    xi_vec = [1, 1, 1]
-    xi = hat(xi_vec)
+
     x = 2.2
-    print(Winv(x, chi).dot(chi.dot(xi_vec)))
-    print(chi.dot(Winv(x, chi).dot(xi_vec)))
-    import netsalt
-    import networkx as nx
-    import matplotlib.pyplot as plt
 
     np.random.seed(42)
     graph = nx.grid_graph([3], periodic=True)
     graph = nx.convert_node_labels_to_integers(graph)
-    netsalt.create_quantum_graph(graph, {"open_model": "closed"}, lengths=[0.8, 0.7, 1.2])
-    for e in graph.edges:
-        print(graph[e[0]][e[1]])
-    netsalt.set_dispersion_relation(graph, netsalt.physics.dispersion_relation_linear, {"c": 1})
+    netsalt.create_quantum_graph(graph, {"open_model": "closed"}, lengths=[1.0, 1.0, 1.0])
+    graph.graph["params"]["c"] = 1
+    netsalt.set_dispersion_relation(graph, netsalt.physics.dispersion_relation_linear)
+
     freq = 10
     from scipy import sparse
 
-    chi = hat([0.0, 0.0, 1.0])
-    eps = 1.0
+    chi = hat_inv([0, 0, 1.0])
+    eps = 0.2
     c = [0.0, eps, 1.0 - eps]
-    chi1 = hat(c / np.linalg.norm(c))
+    chi1 = hat_inv(c / np.linalg.norm(c))
     c = [eps, 0.0, 1.0 - eps]
-    chi2 = hat(c / np.linalg.norm(c))
+    chi2 = hat_inv(c / np.linalg.norm(c))
     chis = len(graph.edges) * [chi]
     chis[-1] = chi2
-    chis[-2] = chi1
+    #chis[-2] = chi1
     qs1 = []
     qs2 = []
     qs3 = []
     qs4 = []
     qs5 = []
     qs6 = []
-    freqs = np.linspace(1.0, 20., 2000)
+    qsa = []
+    freqs = np.linspace(1.0, 10.0, 2000)
     for freq in tqdm(freqs):
+
+        ab_laplacian = netsalt.quantum_graph.construct_laplacian(freq, graph)
+        eig = abs(
+            sparse.linalg.eigs(
+                ab_laplacian,
+                k=1,
+                sigma=1e-2,
+                return_eigenvectors=False,
+                which="LM",
+                v0=np.ones(len(graph)),
+            )
+        )[0]
+        qsa.append(eig)
         laplacian = netsalt.quantum_graph.construct_laplacian(freq, graph, group="SO3", chis=chis)
         eigs = np.sort(
             abs(
@@ -106,6 +125,12 @@ if __name__ == "__main__":
         qs5.append(eigs[4])
         qs6.append(eigs[5])
     plt.figure()
+
+    plt.axvline(2*np.pi/3, c='k')
+    plt.axvline(4*np.pi/3, c='k')
+    plt.axvline(6*np.pi/3, c='k')
+    plt.axvline(8*np.pi/3, c='k')
+    plt.semilogy(freqs, qsa, "r-", lw=1.0, label="ab")
     plt.semilogy(freqs, qs1, "-", lw=0.5, label="1")
     plt.semilogy(freqs, qs2, "-", lw=0.5, label="2")
     plt.semilogy(freqs, qs3, "-", lw=0.5, label="3")

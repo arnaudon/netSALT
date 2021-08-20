@@ -209,7 +209,7 @@ def _construct_abelian_laplacian(freq, graph):
     return BT.dot(Winv).dot(Bout)
 
 
-def hat(xi_vec):
+def hat_inv(xi_vec):
     """Convert vector Lie algebra to matrix Lie algebra element."""
     xi = np.zeros((3, 3))
     xi[1, 2] = -xi_vec[0]
@@ -221,13 +221,22 @@ def hat(xi_vec):
     return xi
 
 
-def hat_inv(xi):
+def hat(xi):
     """Convert matrix Lie algebra to vector Lie algebra element."""
     xi_vec = np.zeros(3)
     xi_vec[0] = xi[2, 1]
     xi_vec[1] = xi[0, 2]
     xi_vec[2] = xi[1, 0]
     return xi_vec
+
+
+def proj_perp(chi):
+    return np.eye(3) - proj_paral(chi)
+
+
+def proj_paral(chi):
+    chi_h = hat(chi)
+    return np.outer(chi_h, chi_h) / np.linalg.norm(chi_h) ** 2
 
 
 def construct_so3_weight_matrix(graph, with_k=True):
@@ -240,12 +249,17 @@ def construct_so3_weight_matrix(graph, with_k=True):
         (len(graph.edges) * 2 * dim, len(graph.edges) * 2 * dim), dtype=np.complex128
     )
     for ei, (u, v) in enumerate(graph.edges):
-        w = (
-            linalg.expm(2 * graph[u][v]["chi"] * graph.graph["ks"] * graph[u][v]["length"])
-            - np.eye(3)
-            + hat_inv(graph[u][v]["chi"]) * np.exp(2.0j * graph.graph["ks"] * graph[u][v]["length"])
+        w_perp = linalg.expm(
+            2 * graph[u][v]["chi"] * graph.graph["ks"] * graph[u][v]["length"]
+        ) - proj_perp(graph[u][v]["chi"])
+        w_paral = proj_paral(graph[u][v]["chi"]) * (
+            np.exp(2.0j * graph.graph["ks"] * graph[u][v]["length"]) - 1
         )
-        winv = graph.graph["ks"] * graph[u][v]["chi"].dot(linalg.inv(w))
+        w = w_perp + w_paral
+        ww = graph.graph["ks"] * graph[u][v]["chi"].dot(w_perp) + 1.0j * graph.graph["ks"] * w_paral
+        winv = linalg.inv(w)
+        winv = winv.dot(ww).dot(winv)
+        Winv[_ext(2 * ei), _ext(2 * ei)] = winv
         Winv[_ext(2 * ei + 1), _ext(2 * ei + 1)] = winv
     return Winv
 
@@ -259,9 +273,11 @@ def construct_so3_incidence_matrix(graph):
     B = sparse.lil_matrix((len(graph.edges) * 2 * dim, len(graph) * dim), dtype=np.complex128)
     BT = sparse.lil_matrix((len(graph) * dim, len(graph.edges) * 2 * dim), dtype=np.complex128)
     for ei, (u, v) in enumerate(graph.edges):
-        expl = linalg.expm(
-            graph[u][v]["chi"] * graph[u][v]["length"] * graph.graph["ks"]
-        ) + hat_inv(graph[u][v]["chi"]) * np.exp(1.0j * graph[u][v]["length"] * graph.graph["ks"])
+        expl_perp = linalg.expm(graph[u][v]["chi"] * graph[u][v]["length"] * graph.graph["ks"])
+        expl_paral = np.exp(1.0j * graph[u][v]["length"] * graph.graph["ks"])
+        expl = expl_perp.dot(proj_perp(graph[u][v]["chi"])) + expl_paral * proj_paral(
+            graph[u][v]["chi"]
+        )
 
         one = np.eye(3)
         B[_ext(2 * ei), _ext(u)] = -one
