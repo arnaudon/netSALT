@@ -1,5 +1,6 @@
 """All algorithms."""
 import logging
+
 import numpy as np
 from skimage.feature import peak_local_max
 
@@ -11,19 +12,21 @@ L = logging.getLogger(__name__)
 def find_rough_modes_from_scan(ks, alphas, qualities, min_distance=2, threshold_abs=10):
     """Use scipy.ndimage algorithms to detect minima in the scan."""
     data = 1.0 / (1e-10 + qualities)
-    rough_mode_ids = peak_local_max(
-        data, min_distance=min_distance, threshold_abs=threshold_abs
-    )
-    return [
-        [ks[rough_mode_id[0]], alphas[rough_mode_id[1]]]
-        for rough_mode_id in rough_mode_ids
-    ]
+    rough_mode_ids = peak_local_max(data, min_distance=min_distance, threshold_abs=threshold_abs)
+    return [[ks[rough_mode_id[0]], alphas[rough_mode_id[1]]] for rough_mode_id in rough_mode_ids]
 
 
 def refine_mode_brownian_ratchet(
-    initial_mode, graph, params, disp=False, save_mode_trajectories=False,
+    initial_mode,
+    graph,
+    params,
+    disp=False,
+    save_mode_trajectories=False,
+    seed=42,
 ):
     """Accurately find a mode from an initial guess, using brownian ratchet algorithm."""
+    np.random.seed(seed)
+
     current_mode = initial_mode.copy()
     if save_mode_trajectories:
         mode_trajectories = [current_mode.copy()]
@@ -34,16 +37,10 @@ def refine_mode_brownian_ratchet(
     search_stepsize = params["search_stepsize"]
     tries_counter = 0
     step_counter = 0
-    while (
-        current_quality > params["quality_threshold"]
-        and step_counter < params["max_steps"]
-    ):
+    while current_quality > params["quality_threshold"] and step_counter < params["max_steps"]:
         new_mode = (
             current_mode
-            + search_stepsize
-            * current_quality
-            / initial_quality
-            * np.random.uniform(-1, 1, 2)
+            + search_stepsize * current_quality / initial_quality * np.random.uniform(-1, 1, 2)
         )
 
         new_quality = mode_quality(new_mode, graph)
@@ -72,22 +69,22 @@ def refine_mode_brownian_ratchet(
         if tries_counter > params["max_tries_reduction"]:
             search_stepsize *= params["reduction_factor"]
             tries_counter = 0
+
         if search_stepsize < 1e-10:
             disp = True
-            L.info(
-                "Warning: mode search stepsize under 1e-10 for mode: %s", current_mode
-            )
-            L.info(
-                "We retry from a larger one, but consider fine tuning search parameters."
-            )
+            L.info("Warning: mode search stepsize under 1e-10 for mode: %s", current_mode)
+            L.info("We retry from a larger one, but consider fine tuning search parameters.")
             search_stepsize = 1e-8
         step_counter += 1
+
     if current_quality < params["quality_threshold"]:
         if save_mode_trajectories:
             return np.array(mode_trajectories)
         return current_mode
+
     L.info("Maximum number of tries attained and no mode found, we retry from scratch!")
     params["search_stepsize"] *= 5
+
     return refine_mode_brownian_ratchet(
         initial_mode,
         graph,

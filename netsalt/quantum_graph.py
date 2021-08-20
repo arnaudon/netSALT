@@ -1,5 +1,6 @@
 """graph construction methods"""
 import logging
+
 import networkx as nx
 import numpy as np
 import scipy as sc
@@ -10,28 +11,28 @@ from .utils import to_complex
 L = logging.getLogger(__name__)
 
 
-def create_quantum_graph(graph, params, positions=None, lengths=None):
+def create_quantum_graph(graph, params, positions=None, lengths=None, seed=42, noise_level=0.001):
     """append a networkx graph with necessary attributes for being a NAQ graph"""
     set_node_positions(graph, positions)
     set_edge_lengths(graph, lengths=lengths)
-    _verify_lengths(graph)
+    _verify_lengths(graph, seed=seed, noise_level=noise_level)
     set_inner_edges(graph, params)
     update_parameters(graph, params)
 
 
-def _verify_lengths(graph):
+def _verify_lengths(graph, seed=42, noise_level=0.001):
     """Add noise to lenghts if many are equal."""
-    lengths = [graph[u][v]["length"] for u, v in graph.edges]
-    if np.max(np.unique(np.around(lengths, 5), return_counts=True)) > 0.2 * len(
-        graph.edges
-    ):
-        L.info(
-            """You have more than 20% of edges of the same length,
-               so we add some small noise for safety for the numerics."""
-        )
-        for u in graph:
-            graph.nodes[u]["position"][0] += np.random.normal(0, 0.01 * np.min(lengths))
-        set_edge_lengths(graph)
+    if noise_level > 0.0:
+        lengths = [graph[u][v]["length"] for u, v in graph.edges]
+        np.random.seed(seed)
+        if np.max(np.unique(np.around(lengths, 5), return_counts=True)) > 0.2 * len(graph.edges):
+            L.info(
+                """You have more than 20% of edges of the same length,
+                so we add some small noise for safety for the numerics."""
+            )
+            for u in graph:
+                graph.nodes[u]["position"][0] += np.random.normal(0, noise_level * np.min(lengths))
+            set_edge_lengths(graph)
 
 
 def _not_equal(data1, data2, force=False):
@@ -80,19 +81,27 @@ def get_total_length(graph):
 
 def get_total_inner_length(graph):
     """Get the total lenght of the graph."""
-    return sum(
-        [graph[u][v]["length"] for u, v in graph.edges() if graph[u][v]["inner"]]
-    )
+    return sum([graph[u][v]["length"] for u, v in graph.edges() if graph[u][v]["inner"]])
 
 
-def set_total_length(graph, total_length, inner=True, with_position=True):
+def set_total_length(graph, total_length=None, max_extent=None, inner=True, with_position=True):
     """Set the inner total lenghts of the graph to a given value."""
-    if inner:
-        original_total_lenght = get_total_inner_length(graph)
-    else:
-        original_total_lenght = get_total_length(graph)
+    if total_length is not None and max_extent is not None:
+        raise Exception("only one of total_length or max_extent is allowed")
+    length_ratio = 1.0
+    if total_length is not None:
+        if inner:
+            original_total_lenght = get_total_inner_length(graph)
+        else:
+            original_total_lenght = get_total_length(graph)
+        length_ratio = total_length / original_total_lenght
 
-    length_ratio = total_length / original_total_lenght
+    if max_extent is not None:
+        _min_pos = min(np.array([graph.nodes[u]["position"] for u in graph.nodes()]).flatten())
+        _max_pos = max(np.array([graph.nodes[u]["position"] for u in graph.nodes()]).flatten())
+        _extent = _max_pos - _min_pos
+        length_ratio = max_extent / _extent
+
     for u, v in graph.edges:
         graph[u][v]["length"] *= length_ratio
     if with_position:
@@ -131,14 +140,10 @@ def oversample_graph(graph, params):  # pylint: disable=too-many-locals
                 oversampled_graph.remove_edge(u, v)
 
                 for node_index in range(n_nodes - 1):
-                    node_position_x = graph.nodes[u]["position"][0] + (
-                        node_index + 1
-                    ) / n_nodes * (
+                    node_position_x = graph.nodes[u]["position"][0] + (node_index + 1) / n_nodes * (
                         graph.nodes[v]["position"][0] - graph.nodes[u]["position"][0]
                     )
-                    node_position_y = graph.nodes[u]["position"][1] + (
-                        node_index + 1
-                    ) / n_nodes * (
+                    node_position_y = graph.nodes[u]["position"][1] + (node_index + 1) / n_nodes * (
                         graph.nodes[v]["position"][1] - graph.nodes[u]["position"][1]
                     )
                     node_position = np.array([node_position_x, node_position_y])
@@ -169,9 +174,7 @@ def oversample_graph(graph, params):  # pylint: disable=too-many-locals
 
     oversampled_graph = nx.convert_node_labels_to_integers(oversampled_graph)
     set_edge_lengths(oversampled_graph)
-    params["inner"] = [
-        oversampled_graph[u][v]["inner"] for u, v in oversampled_graph.edges
-    ]
+    params["inner"] = [oversampled_graph[u][v]["inner"] for u, v in oversampled_graph.edges]
     update_params_dielectric_constant(oversampled_graph, params)
     _set_pump_on_params(oversampled_graph, params)
     update_parameters(oversampled_graph, params, force=True)
@@ -188,7 +191,7 @@ def construct_laplacian(freq, graph):
 
 def set_wavenumber(graph, freq):
     """set edge wavenumbers from frequency and dispersion relation"""
-    graph.graph["ks"] = graph.graph["dispersion_relation"](freq)
+    graph.graph["ks"] = graph.graph["dispersion_relation"](freq, params=graph.graph["params"])
 
 
 def construct_incidence_matrix(graph):
@@ -211,9 +214,7 @@ def construct_incidence_matrix(graph):
     m = len(graph.edges)
     n = len(graph.nodes)
     BT = sc.sparse.csr_matrix((data, (col, row)), shape=(n, 2 * m), dtype=np.complex128)
-    Bout = sc.sparse.csr_matrix(
-        (data_out, (row, col)), shape=(2 * m, n), dtype=np.complex128
-    )
+    Bout = sc.sparse.csr_matrix((data_out, (row, col)), shape=(2 * m, n), dtype=np.complex128)
     return BT, Bout
 
 
@@ -235,23 +236,17 @@ def construct_weight_matrix(graph, with_k=True):
     data = np.repeat(data_tmp, 2)
 
     m = len(graph.edges)
-    return sc.sparse.csc_matrix(
-        (data, (row, row)), shape=(2 * m, 2 * m), dtype=np.complex128
-    )
+    return sc.sparse.csc_matrix((data, (row, row)), shape=(2 * m, 2 * m), dtype=np.complex128)
 
 
 def set_inner_edges(graph, params, outer_edges=None):
     """set the inner edges to True, according to a model"""
-    if params["open_model"] not in ["open_ends", "closed", "custom"]:
-        raise Exception(
-            "open_model value not understood:{}".format(params["open_model"])
-        )
+    if params["open_model"] not in ["open", "closed", "custom"]:
+        raise Exception("open_model value not understood:{}".format(params["open_model"]))
 
     params["inner"] = []
     for ei, (u, v) in enumerate(graph.edges()):
-        if params["open_model"] == "open_ends" and (
-            len(graph[u]) == 1 or len(graph[v]) == 1
-        ):
+        if params["open_model"] == "open" and (len(graph[u]) == 1 or len(graph[v]) == 1):
             graph[u][v]["inner"] = False
             params["inner"].append(False)
         elif params["open_model"] == "custom" and (u, v) in outer_edges:
@@ -261,18 +256,14 @@ def set_inner_edges(graph, params, outer_edges=None):
             graph[u][v]["inner"] = True
             params["inner"].append(True)
         graph[u][v]["edgelabel"] = ei
-    graph.graph["edgelabel"] = np.array(
-        [graph[u][v]["edgelabel"] for u, v in graph.edges]
-    )
+    graph.graph["edgelabel"] = np.array([graph[u][v]["edgelabel"] for u, v in graph.edges])
 
 
 def set_node_positions(graph, positions=None):
     """set the position to the networkx graph"""
     if positions is None:
         positions = nx.spring_layout(graph)
-        Warning(
-            "No node positions given, plots will have random positions from spring_layout"
-        )
+        Warning("No node positions given, plots will have random positions from spring_layout")
 
     for u in graph.nodes():
         graph.nodes[u]["position"] = positions[u]
@@ -294,20 +285,19 @@ def set_edge_lengths(graph, lengths=None):
 
 def laplacian_quality(laplacian, method="eigenvalue"):
     """Return the quality of a mode encoded in the quantum laplacian."""
+    v0 = np.random.random(laplacian.shape[0])
     if method == "eigenvalue":
         try:
             return abs(
                 sc.sparse.linalg.eigs(
-                    laplacian, k=1, sigma=0, return_eigenvectors=False, which="LM"
+                    laplacian, k=1, sigma=0, return_eigenvectors=False, which="LM", v0=v0
                 )
             )[0]
         except sc.sparse.linalg.ArpackNoConvergence:
             # If eigenvalue solver did not converge, set to 1.0,
             return 1.0
         except RuntimeError:
-            L.info(
-                "Runtime error, we add a small diagonal to laplacian, but things may be bad!"
-            )
+            L.info("Runtime error, we add a small diagonal to laplacian, but things may be bad!")
             return abs(
                 sc.sparse.linalg.eigs(
                     laplacian + 1e-6 * sc.sparse.eye(laplacian.shape[0]),
@@ -315,12 +305,17 @@ def laplacian_quality(laplacian, method="eigenvalue"):
                     sigma=0,
                     return_eigenvectors=False,
                     which="LM",
+                    v0=v0,
                 )
             )[0]
 
     if method == "singularvalue":
         return sc.sparse.linalg.svds(
-            laplacian, k=1, which="SM", return_singular_vectors=False,
+            laplacian,
+            k=1,
+            which="SM",
+            return_singular_vectors=False,
+            v0=v0,
         )[0]
     return 1.0
 

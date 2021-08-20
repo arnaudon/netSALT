@@ -26,6 +26,9 @@ setup(
         "tqdm",
         "h5py",
         "numpy",
+        "luigi",
+        "pyyaml",
+        "seaborn",
     ],
     packages=find_packages(),
 )

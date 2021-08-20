@@ -10,7 +10,6 @@ import yaml
 import netsalt
 from netsalt import plotting
 
-
 if len(sys.argv) > 1:
     graph_tpe = sys.argv[-1]
 else:

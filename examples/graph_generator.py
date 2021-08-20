@@ -2,9 +2,10 @@ import math
 
 import networkx as nx
 import numpy as np
+from networkx.generators.harary_graph import hkn_harary_graph, hnm_harary_graph
 
 import netsalt
-from networkx.generators.harary_graph import hnm_harary_graph, hkn_harary_graph
+
 
 def generate_pump(tpe, graph, params):
     if tpe == "line_PRA":

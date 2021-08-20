@@ -3,10 +3,9 @@ import sys
 
 import matplotlib.pyplot as plt
 import numpy as np
-import yaml
-
 import pandas as pd
 import seaborn as sns
+import yaml
 
 import netsalt
 

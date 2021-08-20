@@ -16,7 +16,7 @@ SM_small:
             inner_value: 1.5
             loss: 0.005
             outer_value: 1.
-        open_model: 'open_ends'
+        open_model: 'open'
         plot_edgesize: 1. #0.01
         n_modes_max: False
         
@@ -60,7 +60,7 @@ line_PRA:
             inner_value: 2.25
             loss: .0
             outer_value: 1.
-        open_model: 'open_ends'
+        open_model: 'open'
         plot_edgesize: 0.001 #0.01 :see also oversample fn
         n_modes_max: False
 
@@ -104,7 +104,7 @@ line_semi:
             inner_value: 9 #2.25
             loss: 0.0
             outer_value: 1.
-        open_model: 'open_ends'
+        open_model: 'opens'
         plot_edgesize: 0.001 #0.01 :see also oversample fn
         n_modes_max: False
 
@@ -150,7 +150,7 @@ hkn_harary: # or hnm_harary:
             inner_value: 1.5
             loss: 0.005
             outer_value: 1.
-        open_model: 'open_ends'
+        open_model: 'open'
         plot_edgesize: 2. #0.01
         n_modes_max: False
         
@@ -241,7 +241,7 @@ coupled_rings:
             outer_value: 1.
             coupling: 0.7 #0.1
             detuning: 1. #1.1
-        open_model: 'open_ends'
+        open_model: 'open'
         plot_edgesize: 0.01
         n_modes_max: False
         
@@ -287,7 +287,7 @@ knot:
             outer_value: 1.
             coupling: 1. #0.01
             detuning: 1. #1.0005
-        open_model: 'open_ends'
+        open_model: 'open'
         plot_edgesize: 0.1
         n_modes_max: False
         
@@ -330,7 +330,7 @@ buffon:
             inner_value: 1.5
             loss: 0.001
             outer_value: 1.5
-        open_model: 'open_ends'
+        open_model: 'open'
         plot_edgesize: 10.
         n_modes_max: False
         
@@ -375,7 +375,7 @@ buffon_grid:
             inner_value: 1.5
             loss: 0.001
             outer_value: 1.5
-        open_model: 'open_ends'
+        open_model: 'open'
         plot_edgesize: 20.0 #2.5
         n_modes_max: False
         
@@ -420,8 +420,8 @@ tree:
             inner_value: 1.5
             loss: 0.001
             outer_value: 1.5
-        open_model: 'open_ends'
-        plot_edgesize: 100.
+        open_model: 'open'
+        plot_edgesize: 10.
         n_modes_max: False
         
         #mode search params

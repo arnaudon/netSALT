@@ -1,5 +1,6 @@
 """input/output functions"""
 import pickle
+from pathlib import Path
 
 import h5py
 import pandas as pd
@@ -17,10 +18,10 @@ def load_graph(filename="graph.pkl"):
         return pickle.load(pickle_file)
 
 
-def save_modes(modes_df, filename="results"):
-    """Save modes dataframe into h5."""
-    modes_df.to_hdf(filename + ".h5", key="modes")
-    modes_df.to_csv(filename + ".csv")
+def save_modes(modes_df, filename="results.h5"):
+    """Save modes dataframe into hdf5."""
+    modes_df.to_hdf(filename, key="modes")
+    modes_df.to_csv(Path(filename).with_suffix(".csv"))
 
 
 def load_modes(filename="results.h5"):
@@ -47,9 +48,7 @@ def save_mode_competition_matrix(mode_competition_matrix, filename="results.h5")
     with h5py.File(filename, "a") as all_results:
         if "mode_competition_matrix" in all_results:
             del all_results["mode_competition_matrix"]
-        all_results.create_dataset(
-            "mode_competition_matrix", data=mode_competition_matrix
-        )
+        all_results.create_dataset("mode_competition_matrix", data=mode_competition_matrix)
 
 
 def load_mode_competition_matrix(filename="results.h5"):
