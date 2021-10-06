@@ -34,7 +34,7 @@ if __name__ == "__main__":
     custom_index = generate_index(graph_tpe, graph, params)
     netsalt.set_dielectric_constant(graph, params, custom_values=custom_index)
 
-    netsalt.set_dispersion_relation(graph, netsalt.physics.dispersion_relation_pump, params)
+    netsalt.set_dispersion_relation(graph, netsalt.physics.dispersion_relation_pump)
 
     #graph = netsalt.oversample_graph(graph, params)
     netsalt.update_parameters(graph, params)
