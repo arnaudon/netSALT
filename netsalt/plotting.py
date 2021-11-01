@@ -396,12 +396,20 @@ def plot_pump_traj(modes_df, with_scatter=True, with_approx=True, ax=None):
 
 def plot_single_mode(graph, modes_df, index, df_entry="passive", colorbar=True, ax=None):
     """Plot single mode on the graph."""
-    positions = [graph.nodes[u]["position"] for u in graph]
     mode = modes_df[df_entry][index]
-
     if df_entry == "threshold_lasing_modes":
         graph.graph["params"]["D0"] = modes_df["lasing_thresholds"][index]
+    ax = _plot_single_mode(graph, mode, ax=ax, colorbar=colorbar)
+    ax.set_title(
+        "mode "
+        + str(index)
+        + ", k = "
+        + str(np.around(np.real(mode), 3) - 1j * np.around(np.imag(mode), 3))
+    )
 
+
+def _plot_single_mode(graph, mode, ax=None, colorbar=True):
+    positions = [graph.nodes[u]["position"] for u in graph]
     node_solution = mode_on_nodes(mode, graph)
     edge_solution = mean_mode_on_edges(mode, graph)
 
@@ -428,13 +436,7 @@ def plot_single_mode(graph, modes_df, index, df_entry="passive", colorbar=True, 
         edge_cmap=plt.get_cmap("PuRd"),  # Blues
         ax=ax,
     )
-
-    ax.set_title(
-        "mode "
-        + str(index)
-        + ", k = "
-        + str(np.around(np.real(mode), 3) - 1j * np.around(np.imag(mode), 3))
-    )
+    return ax
 
 
 def plot_modes(graph, modes_df, df_entry="passive", folder="modes", ext=".png"):
@@ -448,6 +450,18 @@ def plot_modes(graph, modes_df, df_entry="passive", folder="modes", ext=".png"):
             if graph.graph["name"] == "line_PRA" or graph.graph["name"] == "line_semi":
                 plot_line_mode(graph, modes_df, index, df_entry)
                 plt.savefig(folder + "/profile_mode_" + str(index) + ext)
+
+
+def plot_mode_evolution(graph, modes_df, index, folder="mode_evolution", ext=".png"):
+    """Plot mode evolution as a function of pump power."""
+    modes = modes_df.loc[index, "mode_trajectories"]
+    Path(folder).mkdir(parents=True, exist_ok=True)
+    for i, d0 in enumerate(modes.index):
+        graph.graph["params"]["D0"] = d0
+        _plot_single_mode(graph, modes.loc[d0])
+        plt.suptitle(f"D0={np.around(d0, 3)}")
+        plt.savefig(f"{folder}/mode_{index}_D0_{i:03d}{ext}")
+        plt.close()
 
 
 def plot_line_mode(graph, modes_df, index, df_entry="passive", ax=None):
