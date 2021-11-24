@@ -73,6 +73,7 @@ class ComputeModeTrajectories(NetSaltTask):
 
     lasing_modes_id = luigi.ListParameter()
     modes_trajectories_path = luigi.Parameter(default="out/mode_trajectories.h5")
+    skip = luigi.BoolParameter(default=False)
 
     def requires(self):
         """ """
@@ -87,8 +88,8 @@ class ComputeModeTrajectories(NetSaltTask):
         """ """
         modes_df = load_modes(self.input()["modes"].path)
         qg = self.get_graph_with_pump(self.input()["graph"].path)
-
-        modes_df = pump_trajectories(modes_df, qg, return_approx=True)
+        if not self.skip:
+            modes_df = pump_trajectories(modes_df, qg, return_approx=True)
         save_modes(modes_df, filename=self.output().path)
 
     def output(self):

@@ -28,6 +28,7 @@ from .lasing import (
     ComputeModeCompetitionMatrix,
     CreatePumpProfile,
     FindThresholdModes,
+    ComputeModeTrajectories,
 )
 from .netsalt_task import NetSaltTask, NetSaltWrapperTask
 from .passive import FindPassiveModes
@@ -104,6 +105,7 @@ class ComputeControllability(NetSaltTask):
         for mode_id in lasing_modes_id:
             yield CreatePumpProfile(lasing_modes_id=[mode_id])
             yield PlotOptimizedPump(lasing_modes_id=[mode_id])
+            yield ComputeModeTrajectories(lasing_modes_id=[mode_id], skip=True)
             yield FindThresholdModes(lasing_modes_id=[mode_id])
             yield ComputeModeCompetitionMatrix(lasing_modes_id=[mode_id])
             intensities_task = yield ComputeModalIntensities(lasing_modes_id=[mode_id])
