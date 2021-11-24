@@ -283,16 +283,12 @@ def mean_mode_on_edges(mode, graph):
 
     mean_edge_solution = np.zeros(len(graph.edges))
     for ei in range(len(graph.edges)):
-        k = graph.graph["ks"][ei]
+        k = 1.0j * graph.graph["ks"][ei]
         length = graph.graph["lengths"][ei]
         z = np.zeros([2, 2], dtype=np.complex)
 
-        z[0, 0] = (np.exp(1.0j * length * (k - np.conj(k))) - 1.0) / (
-            1.0j * length * (k - np.conj(k))
-        )
-        z[0, 1] = (np.exp(1.0j * length * k) - np.exp(-1.0j * length * np.conj(k))) / (
-            1.0j * length * (k + np.conj(k))
-        )
+        z[0, 0] = (np.exp(length * (k + np.conj(k))) - 1.0) / (length * (k + np.conj(k)))
+        z[0, 1] = (np.exp(length * k) - np.exp(length * np.conj(k))) / (length * (k - np.conj(k)))
 
         z[1, 0] = z[0, 1]
         z[1, 1] = z[0, 0]

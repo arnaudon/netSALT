@@ -15,6 +15,7 @@ from netsalt.quantum_graph import (
     oversample_graph,
     set_total_length,
     update_parameters,
+    simplify_graph,
 )
 
 from .config import ModeSearchConfig
@@ -60,6 +61,7 @@ class CreateQuantumGraph(NetSaltTask):
         }
 
         quantum_graph = load_graph(self.graph_path)
+        quantum_graph = simplify_graph(quantum_graph)
         positions = np.array([quantum_graph.nodes[u]["position"] for u in quantum_graph.nodes])
         create_quantum_graph(
             quantum_graph, params, positions=positions, noise_level=self.noise_level

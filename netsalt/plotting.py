@@ -18,7 +18,7 @@ from .utils import get_scan_grid, linewidth, lorentzian, order_edges_by
 
 L = logging.getLogger(__name__)
 logging.getLogger("matplotlib").setLevel(logging.INFO)
-matplotlib.use("Agg")
+# matplotlib.use("Agg")
 
 
 def _savefig(graph, fig, folder, filename):
@@ -52,6 +52,8 @@ def plot_spectra(
     folder="plots",
     filename="spectra",
     save_option=False,
+    with_lorenz=False,
+    plot_kwargs=None,
 ):
     """Plot spectra with linewidths."""
 
@@ -61,12 +63,13 @@ def plot_spectra(
     else:
         fig = None
     ks, spectra = get_spectra(graph, modes_df, pump_index=pump_index, width=width)
-    ax.plot(ks, spectra)
+    ax.plot(ks, spectra, **plot_kwargs)
 
-    ax2 = ax.twinx()
-    ax2.plot(ks, lorentzian(ks, graph), "r--")
-    ax2.set_xlabel(r"$\lambda$")
-    ax2.set_ylabel("Gain spectrum (a.u.)")
+    if with_lorenz:
+        ax2 = ax.twinx()
+        ax2.plot(ks, lorentzian(ks, graph), "r--")
+        ax2.set_xlabel(r"$\lambda$")
+        ax2.set_ylabel("Gain spectrum (a.u.)")
 
     if save_option:
         _savefig(graph, fig, folder, filename)
@@ -417,25 +420,23 @@ def _plot_single_mode(graph, mode, ax=None, colorbar=True):
         plt.figure(figsize=(5, 4))  # 14,3
         ax = plt.gca()
 
-    nodes = nx.draw_networkx_nodes(
-        graph,
-        pos=positions,
-        node_color=abs(node_solution) ** 2,
-        node_size=0,
-        cmap=plt.get_cmap("PuRd"),  # Blues
-        ax=ax,
-    )
+    nx.draw(graph, pos=positions, node_size=0, width=0, ax=ax)
 
-    if colorbar:
-        plt.colorbar(nodes, label=r"$|E|^2$ (a.u)")
-    nx.draw_networkx_edges(
+    cmap = plt.get_cmap("PuRd")
+    edges = nx.draw_networkx_edges(
         graph,
         pos=positions,
         edge_color=edge_solution,
         width=2,  # 5
-        edge_cmap=plt.get_cmap("PuRd"),  # Blues
+        edge_cmap=cmap,
         ax=ax,
     )
+    if colorbar:
+        sm = plt.cm.ScalarMappable(
+            cmap=cmap, norm=plt.Normalize(vmin=min(edge_solution), vmax=max(edge_solution))
+        )
+        sm.set_array([])
+        plt.colorbar(sm, label=r"$|E|^2$ (a.u)", shrink=0.5)
     return ax
 
 

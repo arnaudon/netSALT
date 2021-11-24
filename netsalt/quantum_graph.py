@@ -126,6 +126,20 @@ def _set_pump_on_params(graph, params):
         params["pump"][ei] = graph[e[0]][e[1]]["pump"]
 
 
+def simplify_graph(graph):
+    """Remove degree 2 nodes."""
+    nodes_to_remove = []
+    edges_to_add = []
+    for u in graph.nodes:
+        if len(graph[u]) == 2:
+            neighs = list(graph[u].keys())
+            edges_to_add.append((neighs[0], neighs[1]))
+            nodes_to_remove.append(u)
+    graph.add_edges_from(edges_to_add)
+    graph.remove_nodes_from(nodes_to_remove)
+    return nx.convert_node_labels_to_integers(graph)
+
+
 def oversample_graph(graph, params):  # pylint: disable=too-many-locals
     """oversample a graph by adding points on edges"""
     _set_pump_on_graph(graph)
