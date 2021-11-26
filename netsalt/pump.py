@@ -35,7 +35,6 @@ def pump_cost(
     pump = np.round(pump, 0)
     if pump.sum() < pump_min_size:
         return 1e10
-
     pump_with_opt_modes = pump_overlapps[modes_to_optimise][:, pump == 1].sum(axis=1)
     pump_without_opt_modes = sorted(
         pump_overlapps[~modes_to_optimise][:, pump == 1].sum(axis=1), reverse=True
@@ -95,7 +94,7 @@ def optimize_pump(  # pylint: disable=too-many-locals
     seed=42,
     n_seeds=24,
     disp=False,
-    use_modes=True,
+    use_modes=False,
 ):
     """Optimise the pump for lasing a set of modes.
 
@@ -109,7 +108,7 @@ def optimize_pump(  # pylint: disable=too-many-locals
         seed (int): seed for random number generator
         n_seeds (int): number of run with different seends in parallel
         disp (bool): if True, display the optimisation iterations
-        use_modes (bool): if True, use passiive mode profiles to design pump
+        use_modes (bool): if True, use passive mode profiles to design pump
 
     Returns:
         optimal_pump, pump_overlapps, costs: best pump, overlapping matrix, all costs from seeds
@@ -145,10 +144,16 @@ def optimize_pump(  # pylint: disable=too-many-locals
         pump_mapper=_map,
     )
 
+    bounds = len(mean_edge_modes) * [(-10, 10)] if use_modes else len(graph.edges) * [(0, 1)]
+    # we don't pump the outer edges by restricting the bounds
+    for i in range(len(bounds)):
+        if graph.graph["params"]["inner"][i] == 0:
+            bounds[i] = (0.0, 0.0)
+
     _optimizer = partial(
         _optimise_diff_evolution,
         costf=_costf,
-        bounds=len(mean_edge_modes) * [(-10, 10)] if use_modes else len(graph.edges) * [(0, 1)],
+        bounds=bounds,
         disp=disp,
         maxiter=maxiter,
         popsize=popsize,

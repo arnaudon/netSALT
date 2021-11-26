@@ -768,7 +768,17 @@ def find_threshold_lasing_modes(modes_df, graph):
     lasing_thresholds = np.inf * np.ones(len(modes_df))
     D0s = np.zeros(len(modes_df))
     current_modes = np.arange(len(modes_df))
+    stuck_modes_count = 0
+    max_modes = len(current_modes)
+    prev_n_modes = 0
     while len(current_modes) > 0:
+        if len(current_modes) == prev_n_modes:
+            stuck_modes_count +=1
+        prev_n_modes = len(current_modes)
+        if stuck_modes_count > 100 and stuck_modes_count < max_modes:
+            warnings.warn('We stop here, some modes got stuck.')
+            current_modes = []
+            continue
         L.info("%s modes left to find", len(current_modes))
 
         new_D0s = np.zeros(len(modes_df))
