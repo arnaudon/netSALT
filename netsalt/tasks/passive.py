@@ -73,7 +73,7 @@ class CreateQuantumGraph(NetSaltTask):
         custom_index = None
         if self.method == "custom":
             with open(self.custom_index, "r") as yml:
-                custom_index = yaml.load(yml)
+                custom_index = yaml.safe_load(yml)
 
         set_dielectric_constant(quantum_graph, params, custom_values=custom_index)
         set_dispersion_relation(quantum_graph, dispersion_relation_pump)

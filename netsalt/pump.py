@@ -134,19 +134,20 @@ def optimize_pump(  # pylint: disable=too-many-locals
 
         mean_edge_modes = np.array(mean_edge_modes)
 
-    _map = partial(pump_mapping, mean_edge_modes=mean_edge_modes) if use_modes else None
+    if use_modes:
+        _map = partial(pump_mapping, mean_edge_modes=mean_edge_modes)
 
     _costf = partial(
         pump_cost,
         modes_to_optimise=mode_mask,
         pump_min_size=pump_min_size,
         pump_overlapps=pump_overlapps,
-        pump_mapper=_map,
+        pump_mapper=_map if use_modes else None,
     )
 
     bounds = len(mean_edge_modes) * [(-10, 10)] if use_modes else len(graph.edges) * [(0, 1)]
     # we don't pump the outer edges by restricting the bounds
-    for i in range(len(bounds)):
+    for i, _ in enumerate(bounds):
         if graph.graph["params"]["inner"][i] == 0:
             bounds[i] = (0.0, 0.0)
 

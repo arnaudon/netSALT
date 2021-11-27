@@ -4,7 +4,6 @@ import os
 from itertools import cycle
 from pathlib import Path
 
-import matplotlib
 import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
@@ -18,7 +17,6 @@ from .utils import get_scan_grid, linewidth, lorentzian, order_edges_by
 
 L = logging.getLogger(__name__)
 logging.getLogger("matplotlib").setLevel(logging.INFO)
-# matplotlib.use("Agg")
 
 
 def _savefig(graph, fig, folder, filename):
@@ -140,7 +138,7 @@ def plot_ll_curve(
     save_option=False,
 ):
     """Plot LL curves."""
-    colors = cycle(["C{}".format(i) for i in range(10)])
+    colors = cycle([f"C{i}" for i in range(10)])
     pump_intensities = modes_df["modal_intensities"].columns.values
     modes_df = modes_df.sort_values(
         by=[("modal_intensities", pump_intensities[-1])],
@@ -377,7 +375,7 @@ def plot_pump_traj(modes_df, with_scatter=True, with_approx=True, ax=None):
     if ax is None:
         ax = plt.gca()
 
-    colors = cycle(["C{}".format(i) for i in range(10)])
+    colors = cycle([f"C{i}" for i in range(10)])
 
     pumped_modes = modes_df["mode_trajectories"].to_numpy()
     for pumped_mode in pumped_modes:
@@ -413,7 +411,6 @@ def plot_single_mode(graph, modes_df, index, df_entry="passive", colorbar=True, 
 
 def _plot_single_mode(graph, mode, ax=None, colorbar=True):
     positions = [graph.nodes[u]["position"] for u in graph]
-    node_solution = mode_on_nodes(mode, graph)
     edge_solution = mean_mode_on_edges(mode, graph)
 
     if ax is None:
@@ -423,7 +420,7 @@ def _plot_single_mode(graph, mode, ax=None, colorbar=True):
     nx.draw(graph, pos=positions, node_size=0, width=0, ax=ax)
 
     cmap = plt.get_cmap("PuRd")
-    edges = nx.draw_networkx_edges(
+    nx.draw_networkx_edges(
         graph,
         pos=positions,
         edge_color=edge_solution,

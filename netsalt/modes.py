@@ -758,7 +758,7 @@ def _get_new_D0(arg, graph=None, D0_steps=0.1):
     return mode_id, new_D0, new_modes_approx
 
 
-def find_threshold_lasing_modes(modes_df, graph):
+def find_threshold_lasing_modes(modes_df, graph):  # pylint:disable=too-many-statements
     """Find the threshold lasing modes and associated lasing thresholds."""
     stepsize = graph.graph["params"]["search_stepsize"]
     D0_steps = graph.graph["params"]["D0_max"] / graph.graph["params"]["D0_steps"]
@@ -775,7 +775,7 @@ def find_threshold_lasing_modes(modes_df, graph):
         if len(current_modes) == prev_n_modes:
             stuck_modes_count += 1
         prev_n_modes = len(current_modes)
-        if stuck_modes_count > 100 and stuck_modes_count < max_modes:
+        if max_modes > stuck_modes_count > 100:
             warnings.warn("We stop here, some modes got stuck.")
             current_modes = []
             continue
