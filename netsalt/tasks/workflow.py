@@ -64,6 +64,7 @@ class ComputeLasingModes(NetSaltWrapperTask):
             self.rerun = True
 
         tasks = [
+            CreatePumpProfile(lasing_modes_id=self.lasing_modes_id, rerun=self.rerun),
             PlotPumpProfile(lasing_modes_id=self.lasing_modes_id, rerun=self.rerun),
             PlotScanWithModeTrajectories(lasing_modes_id=self.lasing_modes_id, rerun=self.rerun),
             PlotScanWithThresholdModes(lasing_modes_id=self.lasing_modes_id, rerun=self.rerun),
@@ -72,7 +73,10 @@ class ComputeLasingModes(NetSaltWrapperTask):
             PlotLLCurve(lasing_modes_id=self.lasing_modes_id, rerun=self.rerun),
             PlotStemSpectra(lasing_modes_id=self.lasing_modes_id, rerun=self.rerun),
         ]
-        if CreatePumpProfile().mode == "optimized":
+        if (
+            CreatePumpProfile(lasing_modes_id=self.lasing_modes_id, rerun=self.rerun).mode
+            == "optimized"
+        ):
             tasks.append(PlotOptimizedPump(lasing_modes_id=self.lasing_modes_id))
         return tasks
 
