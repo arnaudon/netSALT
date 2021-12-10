@@ -395,12 +395,23 @@ def plot_pump_traj(modes_df, with_scatter=True, with_approx=True, ax=None):
             )
 
 
-def plot_single_mode(graph, modes_df, index, df_entry="passive", colorbar=True, ax=None):
+def plot_single_mode(
+    graph,
+    modes_df,
+    index,
+    df_entry="passive",
+    colorbar=True,
+    ax=None,
+    edge_vmin=None,
+    edge_vmax=None,
+):
     """Plot single mode on the graph."""
     mode = modes_df[df_entry][index]
     if df_entry == "threshold_lasing_modes":
         graph.graph["params"]["D0"] = modes_df["lasing_thresholds"][index]
-    ax = _plot_single_mode(graph, mode, ax=ax, colorbar=colorbar)
+    ax = _plot_single_mode(
+        graph, mode, ax=ax, colorbar=colorbar, edge_vmin=edge_vmin, edge_vmax=edge_vmax
+    )
     ax.set_title(
         "mode "
         + str(index)
@@ -409,7 +420,7 @@ def plot_single_mode(graph, modes_df, index, df_entry="passive", colorbar=True, 
     )
 
 
-def _plot_single_mode(graph, mode, ax=None, colorbar=True):
+def _plot_single_mode(graph, mode, ax=None, colorbar=True, edge_vmin=None, edge_vmax=None):
     positions = [graph.nodes[u]["position"] for u in graph]
     edge_solution = mean_mode_on_edges(mode, graph)
 
@@ -420,17 +431,23 @@ def _plot_single_mode(graph, mode, ax=None, colorbar=True):
     nx.draw(graph, pos=positions, node_size=0, width=0, ax=ax)
 
     cmap = plt.get_cmap("PuRd")
+    if edge_vmax is None:
+       edge_vmax = max(edge_solution)
+    if edge_vmin is None:
+       edge_vmin = min(edge_solution)
     nx.draw_networkx_edges(
         graph,
         pos=positions,
         edge_color=edge_solution,
         width=2,  # 5
         edge_cmap=cmap,
+        edge_vmin=edge_vmin,
+        edge_vmax=edge_vmax,
         ax=ax,
     )
     if colorbar:
         sm = plt.cm.ScalarMappable(
-            cmap=cmap, norm=plt.Normalize(vmin=min(edge_solution), vmax=max(edge_solution))
+            cmap=cmap, norm=plt.Normalize(vmin=edge_vmin, vmax=edge_vmax)
         )
         sm.set_array([])
         plt.colorbar(sm, label=r"$|E|^2$ (a.u)", shrink=0.5)
