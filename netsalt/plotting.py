@@ -432,9 +432,9 @@ def _plot_single_mode(graph, mode, ax=None, colorbar=True, edge_vmin=None, edge_
 
     cmap = plt.get_cmap("PuRd")
     if edge_vmax is None:
-       edge_vmax = max(edge_solution)
+        edge_vmax = max(edge_solution)
     if edge_vmin is None:
-       edge_vmin = min(edge_solution)
+        edge_vmin = min(edge_solution)
     nx.draw_networkx_edges(
         graph,
         pos=positions,
@@ -446,9 +446,7 @@ def _plot_single_mode(graph, mode, ax=None, colorbar=True, edge_vmin=None, edge_
         ax=ax,
     )
     if colorbar:
-        sm = plt.cm.ScalarMappable(
-            cmap=cmap, norm=plt.Normalize(vmin=edge_vmin, vmax=edge_vmax)
-        )
+        sm = plt.cm.ScalarMappable(cmap=cmap, norm=plt.Normalize(vmin=edge_vmin, vmax=edge_vmax))
         sm.set_array([])
         plt.colorbar(sm, label=r"$|E|^2$ (a.u)", shrink=0.5)
     return ax

@@ -17,7 +17,7 @@ from netsalt.modes import (
     find_threshold_lasing_modes,
     pump_trajectories,
 )
-
+from netsalt.pump import make_threshold_pump
 from .netsalt_task import NetSaltTask
 from .passive import CreateQuantumGraph, FindPassiveModes
 from .pump import OptimizePump
@@ -27,9 +27,12 @@ class CreatePumpProfile(NetSaltTask):
     """Create a pump profile."""
 
     lasing_modes_id = luigi.ListParameter()
-    mode = luigi.ChoiceParameter(default="uniform", choices=["uniform", "optimized", "custom"])
+    mode = luigi.ChoiceParameter(
+        default="uniform", choices=["uniform", "optimized", "threshold", "custom"]
+    )
     custom_pump_path = luigi.Parameter(default="pump_profile.yaml")
     pump_profile_path = luigi.Parameter(default="out/pump_profile.yaml")
+    threshold_target = luigi.FloatParameter(default=0.3)
 
     def requires(self):
         """ """
@@ -37,6 +40,8 @@ class CreatePumpProfile(NetSaltTask):
             return {"graph": CreateQuantumGraph()}
         if self.mode == "optimized":
             return {"optimize": OptimizePump(lasing_modes_id=self.lasing_modes_id)}
+        if self.mode == "threshold":
+            return {"modes": FindPassiveModes(), "graph": CreateQuantumGraph()}
         return None
 
     def run(self):
@@ -53,6 +58,13 @@ class CreatePumpProfile(NetSaltTask):
             with open(self.input()["optimize"].path, "rb") as pkl:
                 results = pickle.load(pkl)
             pump = results["optimal_pump"].tolist()
+
+        elif self.mode == "threshold":
+            qg = self.get_graph(self.input()["graph"].path)
+            modes_df = load_modes(self.input()["modes"].path)
+            # pylint: disable=unsubscriptable-object
+            mode = modes_df["passive"][self.lasing_modes_id[0]]
+            pump = make_threshold_pump(qg, mode, self.threshold_target)
 
         elif self.mode == "custom":
             with open(self.custom_pump_path, "r") as yml:

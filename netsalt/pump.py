@@ -7,6 +7,8 @@ import numpy as np
 from scipy import optimize
 from tqdm import tqdm
 
+from netsalt.quantum_graph import get_total_inner_length
+from netsalt.quantum_graph import set_edge_lengths
 from .modes import compute_overlapping_single_edges, mean_mode_on_edges
 from .physics import gamma, q_value
 from .utils import to_complex
@@ -45,7 +47,7 @@ def pump_cost(
     if mode == "diff2":
         return np.max(pump_without_opt_modes) - np.min(pump_with_opt_modes)
     if mode == "ratio":
-        #return np.mean(pump_without_opt_modes[:n_modes]) / np.min(pump_with_opt_modes)
+        # return np.mean(pump_without_opt_modes[:n_modes]) / np.min(pump_with_opt_modes)
         return np.max(pump_without_opt_modes) / np.min(pump_with_opt_modes)
     raise Exception("Optimisation mode not understood")
 
@@ -183,3 +185,29 @@ def optimize_pump(  # pylint: disable=too-many-locals
         L.info("This pump may not provide single lasing!")
 
     return optimal_pump, pump_overlapps, costs, final_cost
+
+
+def make_threshold_pump(graph, mode, target=0.3):
+    """Create a pump profile using edges with most electric field on a mode.
+
+    Args:
+        target (float): target surface area to cover with the pump
+    """
+    set_edge_lengths(graph)
+    edge_solution = mean_mode_on_edges(mode, graph)
+    inner = np.array([graph[edge[0]][edge[1]]["inner"] for edge in graph.edges], dtype=int)
+    tot_L = get_total_inner_length(graph)
+
+    def surf(frac):
+        pump_edges = np.where(edge_solution < frac * max(edge_solution), 0, 1)
+        pump = inner * pump_edges
+        return abs(
+            sum(graph[u][v]["length"] for i, (u, v) in enumerate(graph.edges) if pump[u] == 1)
+            / tot_L
+            - target
+        )
+
+    frac = optimize.minimize(surf, 0.1, bounds=[(0, 1)], method="Powell").x[0]
+
+    pump_edges = np.where(edge_solution < frac * max(edge_solution), 0, 1)
+    return (inner * pump_edges).tolist()
