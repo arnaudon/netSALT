@@ -8,7 +8,7 @@ from scipy import optimize
 from tqdm import tqdm
 
 from netsalt.quantum_graph import get_total_inner_length
-from netsalt.quantum_graph import set_edge_lengths
+from netsalt.quantum_graph import create_quantum_graph
 from .modes import compute_overlapping_single_edges, mean_mode_on_edges
 from .physics import gamma, q_value
 from .utils import to_complex
@@ -193,7 +193,7 @@ def make_threshold_pump(graph, mode, target=0.3):
     Args:
         target (float): target surface area to cover with the pump
     """
-    set_edge_lengths(graph)
+    create_quantum_graph(graph)
     edge_solution = mean_mode_on_edges(mode, graph)
     inner = np.array([graph[edge[0]][edge[1]]["inner"] for edge in graph.edges], dtype=int)
     tot_L = get_total_inner_length(graph)

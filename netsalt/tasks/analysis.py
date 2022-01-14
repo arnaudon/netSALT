@@ -129,7 +129,7 @@ class PlotPassiveModes(NetSaltTask):
         qg = FindPassiveModes().get_graph(self.input()["graph"].path)
         qg.graph["params"]["plot_edgesize"] = self.edge_size
 
-        qg = oversample_graph(qg, qg.graph["params"])
+        qg = oversample_graph(qg, qg.graph["params"]["plot_edgesize"])
         modes_df = load_modes(self.input()["modes"].path).head(self.n_modes)
 
         if not Path(self.output().path).exists():
@@ -252,7 +252,7 @@ class PlotThresholdModes(NetSaltTask):
         """ """
         qg = self.get_graph_with_pump(self.input()["graph"].path)
         qg.graph["params"]["plot_edgesize"] = self.edge_size
-        qg = oversample_graph(qg, qg.graph["params"])
+        qg = oversample_graph(qg, qg.graph["params"]["plot_edgesize"])
 
         if self.mode_ids:
             modes_df = load_modes(self.input()["modes"].path).loc[list(self.mode_ids)]
