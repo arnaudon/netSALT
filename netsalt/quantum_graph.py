@@ -175,8 +175,6 @@ def simplify_graph(graph):
     Args:
         graph (graph): quantum graph
     """
-    print(graph.graph['params'])
-
     nodes_to_remove = []
     edges_to_add = []
     for u in graph.nodes:
