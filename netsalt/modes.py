@@ -67,6 +67,7 @@ class WorkerScan:
 
     def __init__(self, graph):
         self.graph = graph
+        np.random.seed(42)
 
     def __call__(self, freq):
         return mode_quality(to_complex(freq), self.graph)
@@ -744,6 +745,7 @@ def pump_trajectories(modes_df, graph, return_approx=False):
 
 def _get_new_D0(arg, graph=None, D0_steps=0.1):
     """Internal function for multiprocessing."""
+    np.random.seed(42)
     mode_id, new_mode, D0 = arg
     increment = lasing_threshold_linear(new_mode, graph, D0)
     if increment > -D0_steps:

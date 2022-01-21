@@ -439,7 +439,7 @@ def _plot_single_mode(graph, mode, ax=None, colorbar=True, edge_vmin=None, edge_
         graph,
         pos=positions,
         edge_color=edge_solution,
-        width=2,  # 5
+        width=2,
         edge_cmap=cmap,
         edge_vmin=edge_vmin,
         edge_vmax=edge_vmax,
