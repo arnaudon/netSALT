@@ -4,16 +4,21 @@ import os
 from pathlib import Path
 import pytest
 import luigi
-from dir_content_diff import assert_equal_trees
+import networkx as nx
+import numpy as np
+import yaml
 
+from dir_content_diff import assert_equal_trees
+import dir_content_diff.pandas
+
+import netsalt
 from netsalt.tasks.workflow import ComputeLasingModes
 
 TEST_ROOT = Path(__file__).parent
 DATA = TEST_ROOT / "data"
-
-
-import dir_content_diff.pandas
 dir_content_diff.pandas.register()
+
+
 @pytest.fixture(scope="function")
 def tmp_working_dir(tmp_path):
     """Change working directory before a test and change it back when the test is finished."""
@@ -21,12 +26,6 @@ def tmp_working_dir(tmp_path):
     os.chdir(tmp_path)
     yield tmp_path
     os.chdir(cwd)
-
-
-import networkx as nx
-import numpy as np
-import yaml
-import netsalt
 
 
 def create_graph():
@@ -65,15 +64,6 @@ def working_directory(tmp_working_dir):
     shutil.copyfile(DATA / "run_simple" / "logging.conf", tmp_working_dir / "logging.conf")
     os.mkdir(tmp_working_dir / "out")
     os.mkdir(tmp_working_dir / "figures")
-    print("lkjlkjlkj", tmp_working_dir)
-    # shutil.copyfile(DATA / "logging.conf", tmp_working_dir / "logging.conf")
-
-    # Setup config
-    # params = vacuum_params
-    # set_param_paths(params, tmp_working_dir)
-
-    # Export config
-    # export_config(params, "luigi.cfg")
 
     # Set current config in luigi
     luigi_config = luigi.configuration.get_config()
