@@ -28,11 +28,11 @@ def create_quantum_graph(
         seed (int): seed for rng
         noise_level (float): adds some noise if too manuy edges of equal lengths are found
     """
-    if params is None:
-        params = {}
     _set_node_positions(graph, positions)
     _set_edge_lengths(graph, lengths=lengths)
     _verify_lengths(graph, seed=seed, noise_level=noise_level)
+    if params is None:
+        params = graph.graph['params']
     set_inner_edges(graph, params)
     update_parameters(graph, params)
 
@@ -157,14 +157,14 @@ def set_total_length(graph, total_length=None, max_extent=None, inner=True, with
 def _set_pump_on_graph(graph):
     """Set the pump values on the graph from params."""
     if "pump" not in graph.graph["params"]:
-        graph.graph["params"]["pump"] = np.zeros(len(graph.edges))
+        graph.graph["params"]["pump"] = np.ones(len(graph.edges))
     for ei, e in enumerate(graph.edges):
         graph[e[0]][e[1]]["pump"] = graph.graph["params"]["pump"][ei]
 
 
 def _set_pump_on_params(graph, params):
     """Set the pump values on the graph from params."""
-    params["pump"] = np.zeros(len(graph.edges))
+    params["pump"] = np.ones(len(graph.edges))
     for ei, e in enumerate(graph.edges):
         params["pump"][ei] = graph[e[0]][e[1]]["pump"]
 
@@ -175,6 +175,8 @@ def simplify_graph(graph):
     Args:
         graph (graph): quantum graph
     """
+    print(graph.graph['params'])
+
     nodes_to_remove = []
     edges_to_add = []
     for u in graph.nodes:
@@ -327,7 +329,7 @@ def construct_weight_matrix(graph, with_k=True):
     return sc.sparse.csc_matrix((data, (row, row)), shape=(2 * m, 2 * m), dtype=np.complex128)
 
 
-def set_inner_edges(graph, params, outer_edges=None):
+def set_inner_edges(graph, params=None, outer_edges=None):
     """Set the inner edges to True, according to a given model in params['open_model'].
 
     WARNING: this modifies params, which has to be set to graph with update_parameters

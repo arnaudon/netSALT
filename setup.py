@@ -29,6 +29,7 @@ setup(
         "luigi",
         "pyyaml",
         "seaborn",
+        "dir-content-diff",
     ],
     packages=find_packages(),
 )
