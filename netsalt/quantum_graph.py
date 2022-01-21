@@ -32,7 +32,7 @@ def create_quantum_graph(
     _set_edge_lengths(graph, lengths=lengths)
     _verify_lengths(graph, seed=seed, noise_level=noise_level)
     if params is None:
-        params = graph.graph['params']
+        params = graph.graph["params"]
     set_inner_edges(graph, params)
     update_parameters(graph, params)
 

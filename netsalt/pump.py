@@ -205,7 +205,7 @@ def make_threshold_pump(graph, mode, target=0.3):
             - target
         )
 
-    frac = optimize.minimize(surf, 0.1, bounds=[(0, 1)], method="Powell").x[0]
-
+    x = np.linspace(0, 1, 100)
+    frac = x[np.argmin([surf(_x, target) for _x in x])]
     pump_edges = np.where(edge_solution < frac * max(edge_solution), 0, 1)
     return (inner * pump_edges).tolist()

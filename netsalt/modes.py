@@ -150,7 +150,7 @@ def find_modes(graph, qualities):
 
 def _convert_edges(vector):
     """Convert single edge values to double edges."""
-    edge_vector = np.zeros(2 * len(vector), dtype=np.complex)
+    edge_vector = np.zeros(2 * len(vector), dtype=np.complex128)
     edge_vector[::2] = vector
     edge_vector[1::2] = vector
     return edge_vector
@@ -208,7 +208,7 @@ def compute_overlapping_single_edges(passive_mode, graph):
 
     inner_norm = _graph_norm(BT, Bout, Winv, z_matrix, node_solution, inner_dielectric_constants)
 
-    pump_norm = np.zeros(len(graph.edges), dtype=np.complex)
+    pump_norm = np.zeros(len(graph.edges), dtype=np.complex128)
     for pump_edge, inner in enumerate(graph.graph["params"]["inner"]):
         if inner:
             mask = np.zeros(len(graph.edges))
@@ -286,7 +286,7 @@ def mean_mode_on_edges(mode, graph):
     for ei in range(len(graph.edges)):
         k = 1.0j * graph.graph["ks"][ei]
         length = graph.graph["lengths"][ei]
-        z = np.zeros([2, 2], dtype=np.complex)
+        z = np.zeros([2, 2], dtype=np.complex128)
 
         z[0, 0] = (np.exp(length * (k + np.conj(k))) - 1.0) / (length * (k + np.conj(k)))
         z[0, 1] = (np.exp(length * k) - np.exp(length * np.conj(k))) / (length * (k - np.conj(k)))
@@ -309,7 +309,7 @@ def mean_mode_E4_on_edges(mode, graph):
     for ei in range(len(graph.edges)):
         k = graph.graph["ks"][ei]
         length = graph.graph["lengths"][ei]
-        z = np.zeros([4, 4], dtype=np.complex)
+        z = np.zeros([4, 4], dtype=np.complex128)
 
         z[0, 0] = (np.exp(2.0j * length * (k - np.conj(k))) - 1.0) / (
             2.0j * length * (k - np.conj(k))
