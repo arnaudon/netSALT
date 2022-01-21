@@ -1,3 +1,4 @@
+"""Tasks related to lasing."""
 import pickle
 import pandas as pd
 import luigi
