@@ -685,9 +685,10 @@ def compute_modal_intensities(modes_df, max_pump_intensity, mode_competition_mat
         del modes_df["modal_intensities"]
 
     for pump_intensity in modal_intensities:
-        modes_df["modal_intensities", pump_intensity] = np.around(
-            modal_intensities[pump_intensity], 5
-        )
+        # we force to be of given precision for stability
+        modes_df["modal_intensities", np.around(pump_intensity, 5)] = modal_intensities[
+            pump_intensity
+        ]
     L.info(
         "%s lasing modes out of %s",
         len(np.where(modal_intensities.to_numpy()[:, -1] > 0)[0]),
