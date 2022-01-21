@@ -14,7 +14,7 @@ from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.cm import get_cmap
 from matplotlib.colors import ListedColormap
 
-from netsalt.io import load_graph, load_mode_competition_matrix, load_modes, load_qualities
+from netsalt.io import load_graph, load_modes, load_qualities
 from netsalt.plotting import (
     plot_ll_curve,
     plot_modes,
@@ -378,7 +378,7 @@ class PlotModeCompetitionMatrix(NetSaltTask):
 
     def run(self):
         """ """
-        competition_matrix = load_mode_competition_matrix(filename=self.input().path)
+        competition_matrix = pd.read_hdf(self.input().path, "mode_competition_matrix").to_numpy()
         plt.figure(figsize=0.5 * np.array(np.shape(competition_matrix)))
         sns.heatmap(competition_matrix, ax=plt.gca(), square=True)
         plt.savefig(self.output().path)

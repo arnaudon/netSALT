@@ -2,7 +2,6 @@
 import pickle
 from pathlib import Path
 
-import h5py
 import pandas as pd
 
 
@@ -31,27 +30,9 @@ def load_modes(filename="results.h5"):
 
 def save_qualities(qualities, filename="results.h5"):
     """Save qualities in the results hdf5 file."""
-    with h5py.File(filename, "a") as all_results:
-        if "scan_qualities" in all_results:
-            del all_results["scan_qualities"]
-        all_results.create_dataset("scan_qualities", data=qualities)
+    pd.DataFrame(data=qualities, index=None, columns=None).to_hdf(filename, key="qualities")
 
 
 def load_qualities(filename="results.h5"):
     """Load qualities from the results hdf5 file."""
-    with h5py.File(filename, "r") as all_results:
-        return all_results["scan_qualities"][:]
-
-
-def save_mode_competition_matrix(mode_competition_matrix, filename="results.h5"):
-    """Save mode competitian matrix in the results hdf5 file."""
-    with h5py.File(filename, "a") as all_results:
-        if "mode_competition_matrix" in all_results:
-            del all_results["mode_competition_matrix"]
-        all_results.create_dataset("mode_competition_matrix", data=mode_competition_matrix)
-
-
-def load_mode_competition_matrix(filename="results.h5"):
-    """Load mode competitiaon matrixfrom the results hdf5 file."""
-    with h5py.File(filename, "r") as all_results:
-        return all_results["mode_competition_matrix"][:]
+    return pd.read_hdf(filename, "qualities").to_numpy()

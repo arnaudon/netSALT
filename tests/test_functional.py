@@ -12,6 +12,8 @@ TEST_ROOT = Path(__file__).parent
 DATA = TEST_ROOT / "data"
 
 
+import dir_content_diff.pandas
+dir_content_diff.pandas.register()
 @pytest.fixture(scope="function")
 def tmp_working_dir(tmp_path):
     """Change working directory before a test and change it back when the test is finished."""

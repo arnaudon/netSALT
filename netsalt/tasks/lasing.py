@@ -1,16 +1,10 @@
-"""Tasks for lasing modes."""
 import pickle
-
+import pandas as pd
 import luigi
 import numpy as np
 import yaml
 
-from netsalt.io import (
-    load_mode_competition_matrix,
-    load_modes,
-    save_mode_competition_matrix,
-    save_modes,
-)
+from netsalt.io import load_modes, save_modes
 from netsalt.modes import (
     compute_modal_intensities,
     compute_mode_competition_matrix,
@@ -154,7 +148,9 @@ class ComputeModeCompetitionMatrix(NetSaltTask):
         qg = self.get_graph_with_pump(self.input()["graph"].path)
         modes_df = load_modes(self.input()["modes"].path)
         mode_competition_matrix = compute_mode_competition_matrix(qg, modes_df)
-        save_mode_competition_matrix(mode_competition_matrix, filename=self.output().path)
+        pd.DataFrame(data=mode_competition_matrix, index=None, columns=None).to_hdf(
+            self.output().path, key="mode_competition_matrix"
+        )
 
     def output(self):
         """ """
@@ -180,9 +176,9 @@ class ComputeModalIntensities(NetSaltTask):
     def run(self):
         """ """
         modes_df = load_modes(self.input()["modes"].path)
-        mode_competition_matrix = load_mode_competition_matrix(
-            self.input()["competition_matrix"].path
-        )
+        mode_competition_matrix = pd.read_hdf(
+            self.input()["competition_matrix"].path, "mode_competition_matrix"
+        ).to_numpy()
         modes_df = compute_modal_intensities(modes_df, self.D0_max, mode_competition_matrix)
 
         save_modes(modes_df, filename=self.output().path)

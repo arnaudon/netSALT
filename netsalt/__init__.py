@@ -2,11 +2,9 @@
 
 from .io import (
     load_graph,
-    load_mode_competition_matrix,
     load_modes,
     load_qualities,
     save_graph,
-    save_mode_competition_matrix,
     save_modes,
     save_qualities,
 )
