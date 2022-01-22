@@ -177,6 +177,8 @@ def simplify_graph(graph):
     """
     nodes_to_remove = []
     edges_to_add = []
+    if all(len(graph[u]) == 2 for u in graph.nodes):
+        return graph
     for u in graph.nodes:
         if len(graph[u]) == 2:
             neighs = list(graph[u].keys())

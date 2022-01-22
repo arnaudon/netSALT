@@ -21,13 +21,7 @@ def pump_mapping(pump_thresholds, mean_edge_modes):
 
 
 def pump_cost(
-    pump,
-    modes_to_optimise,
-    pump_overlapps,
-    pump_min_size,
-    mode="ratio",
-    n_modes=20,
-    pump_mapper=None,
+    pump, modes_to_optimise, pump_overlapps, pump_min_size, mode="ratio", pump_mapper=None
 ):
     """Cost function to minimize."""
     if pump_mapper is not None:
@@ -42,11 +36,8 @@ def pump_cost(
     )
 
     if mode == "diff":
-        return np.mean(pump_without_opt_modes[:n_modes]) - np.min(pump_with_opt_modes)
-    if mode == "diff2":
         return np.max(pump_without_opt_modes) - np.min(pump_with_opt_modes)
     if mode == "ratio":
-        # return np.mean(pump_without_opt_modes[:n_modes]) / np.min(pump_with_opt_modes)
         return np.max(pump_without_opt_modes) / np.min(pump_with_opt_modes)
     raise Exception("Optimisation mode not understood")
 
@@ -78,10 +69,12 @@ def _overlap_matrix_element(graph, mode):
 
 def compute_pump_overlapping_matrix(graph, modes_df):
     """Compute the matrix of pump overlapp with each edge."""
+    pump_overlapps = np.empty([len(modes_df["passive"]), len(graph.edges)])
     with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
-        overlapp_iter = pool.imap(partial(_overlap_matrix_element, graph), modes_df["passive"])
-        pump_overlapps = np.empty([len(modes_df["passive"]), len(graph.edges)])
-        for mode_id, overlapp in tqdm(enumerate(overlapp_iter), total=len(pump_overlapps)):
+        for mode_id, overlapp in tqdm(
+            enumerate(pool.imap(partial(_overlap_matrix_element, graph), modes_df["passive"])),
+            total=len(pump_overlapps),
+        ):
             pump_overlapps[mode_id] = overlapp
     return pump_overlapps
 
@@ -110,7 +103,7 @@ def optimize_pump(  # pylint: disable=too-many-locals
         seed (int): seed for random number generator
         n_seeds (int): number of run with different seends in parallel
         disp (bool): if True, display the optimisation iterations
-        use_modes (bool): if True, use passive mode profiles to design pump
+        use_modes (bool): if True, use passive mode profiles to design pump (experimental)
 
     Returns:
         optimal_pump, pump_overlapps, costs: best pump, overlapping matrix, all costs from seeds
@@ -174,10 +167,7 @@ def optimize_pump(  # pylint: disable=too-many-locals
     optimal_pump = results[np.argmin(costs)].x
     final_cost = _costf(optimal_pump)
 
-    if use_modes:
-        optimal_pump = _map(optimal_pump)
-    else:
-        optimal_pump = np.round(optimal_pump, 0)
+    optimal_pump = _map(optimal_pump) if use_modes else np.round(optimal_pump, 0)
 
     L.info("Final cost is: %s", final_cost)
     if final_cost > 0:
