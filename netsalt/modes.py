@@ -611,6 +611,7 @@ def _find_next_lasing_mode(
     next_lasing_threshold = interacting_lasing_thresholds[next_lasing_mode_id]
     return next_lasing_mode_id, next_lasing_threshold
 
+
 # pylint: disable=too-many-statements
 def compute_modal_intensities(modes_df, max_pump_intensity, mode_competition_matrix):
     """Compute the modal intensities of the modes up to D0, with D0_steps."""
