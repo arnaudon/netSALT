@@ -663,11 +663,11 @@ def compute_modal_intensities(modes_df, max_pump_intensity, mode_competition_mat
         # 3) deal with vanishing modes before next lasing mode
         vanishing_mode_id = None
         if any(slopes < -1e-10):
-            vanishing_intensities = shifts / slopes
-            vanishing_intensities[slopes > -1e-10] = np.inf
+            vanishing_pump_intensities = shifts / slopes
+            vanishing_pump_intensities[slopes > -1e-10] = np.inf
 
-            if np.min(vanishing_intensities) < next_lasing_threshold:
-                vanishing_mode_id = lasing_mode_ids[np.argmin(vanishing_intensities)]
+            if np.min(vanishing_pump_intensities) < next_lasing_threshold:
+                vanishing_mode_id = lasing_mode_ids[np.argmin(vanishing_pump_intensities)]
 
         # 4) prepare for the next step
         if vanishing_mode_id is None:
@@ -680,12 +680,13 @@ def compute_modal_intensities(modes_df, max_pump_intensity, mode_competition_mat
             else:
                 pump_intensity = max_pump_intensity
 
-        elif np.min(vanishing_intensities) + 1e-10 > 0:
+        elif np.min(vanishing_pump_intensities) + 1e-10 > 0:
             L.debug("Vanishing mode id: %s", vanishing_mode_id)
 
             mode_id = np.where(np.array(lasing_mode_ids) == vanishing_mode_id)[0][0]
-            pump_intensity = np.min(vanishing_intensities) + 1e-10
-            # if it vanishes after max pump, we compute the modal amp and that pump
+            pump_intensity = np.min(vanishing_pump_intensities) + 1e-10
+
+            # if it vanishes after max pump, we compute the modal amp at that pump
             if pump_intensity > max_pump_intensity:
                 pump_intensity = max_pump_intensity
                 modal_intensities.loc[vanishing_mode_id, max_pump_intensity] = (
@@ -702,7 +703,7 @@ def compute_modal_intensities(modes_df, max_pump_intensity, mode_competition_mat
 
     for pump_intensity in modal_intensities:
         # we force to be of given precision for stability
-        modes_df["modal_intensities", np.around(pump_intensity, 5)] = modal_intensities[
+        modes_df["modal_intensities", np.around(pump_intensity, 8)] = modal_intensities[
             pump_intensity
         ]
     L.info(
