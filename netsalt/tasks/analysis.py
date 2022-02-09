@@ -39,7 +39,7 @@ matplotlib.use("Agg")
 
 
 class PlotQuantumGraph(NetSaltTask):
-    """Plot a quantum graph and print some informations."""
+    """Plot a quantum graph and print some information."""
 
     plot_path = luigi.Parameter(default="figures/quantum_graph.pdf")
 

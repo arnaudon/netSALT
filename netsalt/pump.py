@@ -59,7 +59,7 @@ def _optimise_diff_evolution(seed, costf=None, bounds=None, disp=False, maxiter=
 
 
 def _overlap_matrix_element(graph, mode):
-    """Compute the overlapp between a mode and each inner edges of the graph."""
+    """Compute the overlap between a mode and each inner edges of the graph."""
     return list(
         -q_value(mode)
         * compute_overlapping_single_edges(mode, graph)
@@ -68,14 +68,14 @@ def _overlap_matrix_element(graph, mode):
 
 
 def compute_pump_overlapping_matrix(graph, modes_df):
-    """Compute the matrix of pump overlapp with each edge."""
+    """Compute the matrix of pump overlap with each edge."""
     pump_overlapps = np.empty([len(modes_df["passive"]), len(graph.edges)])
     with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
-        for mode_id, overlapp in tqdm(
+        for mode_id, overlap in tqdm(
             enumerate(pool.imap(partial(_overlap_matrix_element, graph), modes_df["passive"])),
             total=len(pump_overlapps),
         ):
-            pump_overlapps[mode_id] = overlapp
+            pump_overlapps[mode_id] = overlap
     return pump_overlapps
 
 

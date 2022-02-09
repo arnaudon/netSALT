@@ -160,7 +160,7 @@ class ComputeModeCompetitionMatrix(NetSaltTask):
 
 
 class ComputeModalIntensities(NetSaltTask):
-    """Compute modal intensities as a function of pump strenght."""
+    """Compute modal intensities as a function of pump strength."""
 
     lasing_modes_id = luigi.ListParameter()
     D0_max = luigi.FloatParameter(default=0.1)

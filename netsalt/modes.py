@@ -400,7 +400,7 @@ def compute_gamma_q_values(graph, modes_df, df_entry="passive"):
 
 
 def _precomputations_mode_competition(graph, pump_mask, mode_threshold):
-    """precompute some quantities for a mode for mode competitiion matrix"""
+    """precompute some quantities for a mode for mode competition matrix"""
     mode, threshold = mode_threshold
 
     graph.graph["params"]["D0"] = threshold

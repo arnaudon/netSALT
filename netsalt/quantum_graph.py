@@ -24,7 +24,7 @@ def create_quantum_graph(
         graph (networkx graph): pure networkx graph to consider as a quantum graph
         params (dict): specific parameters to setup the quantum graph (depends on use cases)
         positions (list): node positions, if Non networkx.spring_layout is used
-        lengths (list) node lengths, if not None, it will override the lenghts from positions
+        lengths (list) node lengths, if not None, it will override the lengths from positions
         seed (int): seed for rng
         noise_level (float): adds some noise if too manuy edges of equal lengths are found
     """
@@ -38,7 +38,7 @@ def create_quantum_graph(
 
 
 def _verify_lengths(graph, seed=42, noise_level=0.001):
-    """Add noise to lenghts if many edges have equal."""
+    """Add noise to lengths if many edges have equal."""
     if noise_level > 0.0:
         lengths = [graph[u][v]["length"] for u, v in graph.edges]
         np.random.seed(seed)
@@ -109,7 +109,7 @@ def get_total_length(graph):
 
 
 def get_total_inner_length(graph):
-    """Get the total inner lenght of the graph (considering inner edges only).
+    """Get the total inner length of the graph (considering inner edges only).
 
     Inner edges are defined as edges without degree one nodes.
 
@@ -134,10 +134,10 @@ def set_total_length(graph, total_length=None, max_extent=None, inner=True, with
     length_ratio = 1.0
     if total_length is not None:
         if inner:
-            original_total_lenght = get_total_inner_length(graph)
+            original_total_length = get_total_inner_length(graph)
         else:
-            original_total_lenght = get_total_length(graph)
-        length_ratio = total_length / original_total_lenght
+            original_total_length = get_total_length(graph)
+        length_ratio = total_length / original_total_length
 
     if max_extent is not None:
         _min_pos = min(np.array([graph.nodes[u]["position"] for u in graph.nodes()]).flatten())
