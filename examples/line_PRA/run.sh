@@ -5,6 +5,6 @@ export NUMEXPR_MAX_THREADS=1
 mkdir -p out
 mkdir -p figures
 
-python create_graph.py
+python3.9 create_graph.py
 luigi --module netsalt.tasks.workflow ComputeLasingModes --local-scheduler --log-level INFO
 
