@@ -59,7 +59,8 @@ class CreatePumpProfile(NetSaltTask):
             modes_df = load_modes(self.input()["modes"].path)
             # pylint: disable=unsubscriptable-object
             pump = make_threshold_pump(
-                qg, modes_df["passive"][self.lasing_modes_id[0]], self.threshold_target
+                #qg, modes_df["passive"][self.lasing_modes_id[0]], self.threshold_target
+                qg, self.lasing_modes_id, modes_df, self.threshold_target
             )
 
         elif self.mode == "custom":

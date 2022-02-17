@@ -117,6 +117,7 @@ class PlotPassiveModes(NetSaltTask):
     ext = luigi.Parameter(default=".pdf")
     n_modes = luigi.IntParameter(default=10)
     edge_size = luigi.FloatParameter(default=1.0)
+    mode_ids = luigi.ListParameter(default=[])
     plot_path = luigi.Parameter(default="figures/passive_modes")
 
     def requires(self):
@@ -127,7 +128,11 @@ class PlotPassiveModes(NetSaltTask):
         """ """
         qg = self.get_graph(self.input()["graph"].path)
         qg = oversample_graph(qg, self.edge_size)
-        modes_df = load_modes(self.input()["modes"].path).head(self.n_modes)
+
+        if self.mode_ids:
+            modes_df = load_modes(self.input()["modes"].path).loc[list(self.mode_ids)]
+        else:
+            modes_df = load_modes(self.input()["modes"].path).head(self.n_modes)
 
         if not Path(self.output().path).exists():
             Path(self.output().path).mkdir()

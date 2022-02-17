@@ -14,7 +14,7 @@ class OptimizePump(NetSaltTask):
     """Optimise a pump profile to lase specific modes."""
 
     lasing_modes_id = luigi.ListParameter()
-    pump_min_frac = luigi.FloatParameter(default=0.1)
+    pump_min_frac = luigi.FloatParameter(default=1.0)
     maxiter = luigi.IntParameter(default=1000)
     popsize = luigi.IntParameter(default=5)
     seed = luigi.IntParameter(default=42)

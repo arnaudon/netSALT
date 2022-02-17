@@ -39,6 +39,7 @@ class CreateQuantumGraph(NetSaltTask):
     edge_size = luigi.FloatParameter(default=0.1)
     k_a = luigi.FloatParameter(default=15.0)
     gamma_perp = luigi.FloatParameter(default=3.0)
+    keep_degree_two = luigi.BoolParameter(default=False)
 
     noise_level = luigi.FloatParameter(default=0.001)
 
@@ -61,7 +62,7 @@ class CreateQuantumGraph(NetSaltTask):
         }
 
         quantum_graph = load_graph(self.graph_path)
-        if self.method != "custom":
+        if self.method != "custom" and not self.keep_degree_two:
             quantum_graph = simplify_graph(quantum_graph)
         positions = np.array([quantum_graph.nodes[u]["position"] for u in quantum_graph.nodes])
         create_quantum_graph(
