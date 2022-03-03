@@ -39,7 +39,7 @@ class CreateQuantumGraph(NetSaltTask):
     edge_size = luigi.FloatParameter(default=0.1)
     k_a = luigi.FloatParameter(default=15.0)
     gamma_perp = luigi.FloatParameter(default=3.0)
-    keep_degree_two = luigi.BoolParameter(default=False)
+    keep_degree_two = luigi.BoolParameter(default=True)
 
     noise_level = luigi.FloatParameter(default=0.001)
 

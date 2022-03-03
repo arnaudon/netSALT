@@ -253,13 +253,13 @@ def mode_on_nodes(mode, graph):
     min_eigenvalue, node_solution = sc.sparse.linalg.eigs(
         laplacian, k=1, sigma=0, v0=np.ones(len(graph)), which="LM"
     )
-
-    if abs(min_eigenvalue[0]) > graph.graph["params"]["quality_threshold"]:
+    quality_thresh = graph.graph["params"].get("quality_threshold", 1e-4)
+    if abs(min_eigenvalue[0]) > quality_thresh:
         raise Exception(
             "Not a mode, as quality is too high: "
             + str(abs(min_eigenvalue[0]))
             + " > "
-            + str(graph.graph["params"]["quality_threshold"])
+            + str(quality_thresh)
             + ", mode: "
             + str(mode)
         )

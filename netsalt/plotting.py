@@ -262,7 +262,7 @@ def plot_scan(
     return ax
 
 
-def plot_pump_profile(graph, pump, figsize=(5, 4), ax=None, node_size=1.0):
+def plot_pump_profile(graph, pump, figsize=(5, 4), ax=None, node_size=1.0, c='0.8'):
     """Plot the pump profile on top of the graph structure."""
     if ax is None:
         plt.figure(figsize=figsize)
@@ -274,7 +274,7 @@ def plot_pump_profile(graph, pump, figsize=(5, 4), ax=None, node_size=1.0):
         graph,
         pos=positions,
         edgelist=pumped_edges,
-        edge_color="0.8",
+        edge_color=c,
         width=10,
     )
     plot_quantum_graph(graph, ax=ax, node_size=node_size)
