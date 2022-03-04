@@ -30,6 +30,7 @@ setup(
         "pyyaml",
         "seaborn",
         "dir-content-diff",
+        "pulp",
     ],
     packages=find_packages(),
 )
