@@ -1,0 +1,246 @@
+
+<!DOCTYPE html>
+
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>netsalt.algorithm &#8212; netSALT  documentation</title>
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/alabaster.css" type="text/css" />
+    <script id="documentation_options" data-url_root="../../" src="../../_static/documentation_options.js"></script>
+    <script src="../../_static/jquery.js"></script>
+    <script src="../../_static/underscore.js"></script>
+    <script src="../../_static/doctools.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+   
+  <link rel="stylesheet" href="../../_static/custom.css" type="text/css" />
+  
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9" />
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <h1>Source code for netsalt.algorithm</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;Search algorighms for mode detections.&quot;&quot;&quot;</span>
+<span class="kn">import</span> <span class="nn">logging</span>
+
+<span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
+<span class="kn">from</span> <span class="nn">skimage.feature</span> <span class="kn">import</span> <span class="n">peak_local_max</span>
+
+<span class="kn">from</span> <span class="nn">.quantum_graph</span> <span class="kn">import</span> <span class="n">mode_quality</span>
+
+<span class="n">L</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="find_rough_modes_from_scan"><a class="viewcode-back" href="../../algorithm.html#netsalt.algorithm.find_rough_modes_from_scan">[docs]</a><span class="k">def</span> <span class="nf">find_rough_modes_from_scan</span><span class="p">(</span><span class="n">ks</span><span class="p">,</span> <span class="n">alphas</span><span class="p">,</span> <span class="n">qualities</span><span class="p">,</span> <span class="n">min_distance</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">threshold_abs</span><span class="o">=</span><span class="mi">10</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Use scipy.ndimage algorithms to detect minima in the scan.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        ks (list): list of real part of wavenumbers from the scan</span>
+<span class="sd">        alphas (list): list of imaginary part of wavenumbers from the scan</span>
+<span class="sd">        qualities (array): matrix with mode qualities for each pair of k/alpha</span>
+<span class="sd">        min_distance (int): smallest distance between peaks (for skimage.feature.peak_local_max)</span>
+<span class="sd">        threshold_abs (float): minimal intensity between peaks (for skimage.feature.peak_local_max)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">data</span> <span class="o">=</span> <span class="mf">1.0</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1e-10</span> <span class="o">+</span> <span class="n">qualities</span><span class="p">)</span>
+    <span class="n">rough_mode_ids</span> <span class="o">=</span> <span class="n">peak_local_max</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">min_distance</span><span class="o">=</span><span class="n">min_distance</span><span class="p">,</span> <span class="n">threshold_abs</span><span class="o">=</span><span class="n">threshold_abs</span><span class="p">)</span>
+    <span class="k">return</span> <span class="p">[[</span><span class="n">ks</span><span class="p">[</span><span class="n">rough_mode_id</span><span class="p">[</span><span class="mi">0</span><span class="p">]],</span> <span class="n">alphas</span><span class="p">[</span><span class="n">rough_mode_id</span><span class="p">[</span><span class="mi">1</span><span class="p">]]]</span> <span class="k">for</span> <span class="n">rough_mode_id</span> <span class="ow">in</span> <span class="n">rough_mode_ids</span><span class="p">]</span></div>
+
+
+<div class="viewcode-block" id="refine_mode_brownian_ratchet"><a class="viewcode-back" href="../../algorithm.html#netsalt.algorithm.refine_mode_brownian_ratchet">[docs]</a><span class="k">def</span> <span class="nf">refine_mode_brownian_ratchet</span><span class="p">(</span>
+    <span class="n">initial_mode</span><span class="p">,</span>
+    <span class="n">graph</span><span class="p">,</span>
+    <span class="n">params</span><span class="p">,</span>
+    <span class="n">disp</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+    <span class="n">save_mode_trajectories</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+    <span class="n">seed</span><span class="o">=</span><span class="mi">42</span><span class="p">,</span>
+<span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Accurately find a mode from an initial guess, using brownian ratchet algorithm.</span>
+
+<span class="sd">    This algorithm is quite complex, but generally randomly propose a move to a new mode location,</span>
+<span class="sd">    and accept if the quality decreases.</span>
+
+<span class="sd">    TODO: get rid of params, or better handling of them, and complete the doc on the small details</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        initial_mode (complex): initial gues for a mode</span>
+<span class="sd">        graph (graph): quantum graph</span>
+<span class="sd">        params (dict): includes search_stepsize, max_steps, quality_threhsold, max_tries_reduction</span>
+<span class="sd">            reduction_factor</span>
+<span class="sd">        disp (bool): to print some state of the search for debuing</span>
+<span class="sd">        save_mode_trajectories (bool): true to save intermediate modes</span>
+<span class="sd">        seed (int): seed for rng</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">seed</span><span class="p">(</span><span class="n">seed</span><span class="p">)</span>
+
+    <span class="n">current_mode</span> <span class="o">=</span> <span class="n">initial_mode</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+    <span class="k">if</span> <span class="n">save_mode_trajectories</span><span class="p">:</span>
+        <span class="n">mode_trajectories</span> <span class="o">=</span> <span class="p">[</span><span class="n">current_mode</span><span class="o">.</span><span class="n">copy</span><span class="p">()]</span>
+
+    <span class="n">initial_quality</span> <span class="o">=</span> <span class="n">mode_quality</span><span class="p">(</span><span class="n">current_mode</span><span class="p">,</span> <span class="n">graph</span><span class="p">)</span>
+    <span class="n">current_quality</span> <span class="o">=</span> <span class="n">initial_quality</span>
+
+    <span class="n">search_stepsize</span> <span class="o">=</span> <span class="n">params</span><span class="p">[</span><span class="s2">&quot;search_stepsize&quot;</span><span class="p">]</span>
+    <span class="n">tries_counter</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">step_counter</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="k">while</span> <span class="n">current_quality</span> <span class="o">&gt;</span> <span class="n">params</span><span class="p">[</span><span class="s2">&quot;quality_threshold&quot;</span><span class="p">]</span> <span class="ow">and</span> <span class="n">step_counter</span> <span class="o">&lt;</span> <span class="n">params</span><span class="p">[</span><span class="s2">&quot;max_steps&quot;</span><span class="p">]:</span>
+        <span class="n">new_mode</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="n">current_mode</span>
+            <span class="o">+</span> <span class="n">search_stepsize</span> <span class="o">*</span> <span class="n">current_quality</span> <span class="o">/</span> <span class="n">initial_quality</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">uniform</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+        <span class="p">)</span>
+
+        <span class="n">new_quality</span> <span class="o">=</span> <span class="n">mode_quality</span><span class="p">(</span><span class="n">new_mode</span><span class="p">,</span> <span class="n">graph</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">disp</span><span class="p">:</span>
+            <span class="n">L</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span>
+                <span class="s2">&quot;New quality: </span><span class="si">%s</span><span class="s2">, Step size: </span><span class="si">%s</span><span class="s2">, Current mode: </span><span class="si">%s</span><span class="s2">, New mode: </span><span class="si">%s</span><span class="s2">, step </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span>
+                <span class="n">new_quality</span><span class="p">,</span>
+                <span class="n">search_stepsize</span><span class="p">,</span>
+                <span class="n">current_mode</span><span class="p">,</span>
+                <span class="n">new_mode</span><span class="p">,</span>
+                <span class="n">step_counter</span><span class="p">,</span>
+            <span class="p">)</span>
+
+        <span class="c1"># if the quality improves, update the mode</span>
+        <span class="k">if</span> <span class="n">new_quality</span> <span class="o">&lt;</span> <span class="n">current_quality</span><span class="p">:</span>
+            <span class="n">current_quality</span> <span class="o">=</span> <span class="n">new_quality</span>
+            <span class="n">current_mode</span> <span class="o">=</span> <span class="n">new_mode</span>
+            <span class="n">tries_counter</span> <span class="o">=</span> <span class="mi">0</span>
+            <span class="k">if</span> <span class="n">save_mode_trajectories</span><span class="p">:</span>
+                <span class="n">mode_trajectories</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">current_mode</span><span class="o">.</span><span class="n">copy</span><span class="p">())</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">tries_counter</span> <span class="o">+=</span> <span class="mi">1</span>
+
+        <span class="c1"># if no improvements after some iterations, multiply the steps by reduction factor</span>
+        <span class="k">if</span> <span class="n">tries_counter</span> <span class="o">&gt;</span> <span class="n">params</span><span class="p">[</span><span class="s2">&quot;max_tries_reduction&quot;</span><span class="p">]:</span>
+            <span class="n">search_stepsize</span> <span class="o">*=</span> <span class="n">params</span><span class="p">[</span><span class="s2">&quot;reduction_factor&quot;</span><span class="p">]</span>
+            <span class="n">tries_counter</span> <span class="o">=</span> <span class="mi">0</span>
+
+        <span class="k">if</span> <span class="n">search_stepsize</span> <span class="o">&lt;</span> <span class="mf">1e-10</span><span class="p">:</span>
+            <span class="n">disp</span> <span class="o">=</span> <span class="kc">True</span>
+            <span class="n">L</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Warning: mode search stepsize under 1e-10 for mode: </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">current_mode</span><span class="p">)</span>
+            <span class="n">L</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;We retry from a larger one, but consider fine tuning search parameters.&quot;</span><span class="p">)</span>
+            <span class="n">search_stepsize</span> <span class="o">=</span> <span class="mf">1e-8</span>
+        <span class="n">step_counter</span> <span class="o">+=</span> <span class="mi">1</span>
+
+    <span class="k">if</span> <span class="n">current_quality</span> <span class="o">&lt;</span> <span class="n">params</span><span class="p">[</span><span class="s2">&quot;quality_threshold&quot;</span><span class="p">]:</span>
+        <span class="k">if</span> <span class="n">save_mode_trajectories</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">mode_trajectories</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">current_mode</span>
+
+    <span class="n">L</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Maximum number of tries attained and no mode found, we retry from scratch!&quot;</span><span class="p">)</span>
+    <span class="n">params</span><span class="p">[</span><span class="s2">&quot;search_stepsize&quot;</span><span class="p">]</span> <span class="o">*=</span> <span class="mi">5</span>
+
+    <span class="k">return</span> <span class="n">refine_mode_brownian_ratchet</span><span class="p">(</span>
+        <span class="n">initial_mode</span><span class="p">,</span>
+        <span class="n">graph</span><span class="p">,</span>
+        <span class="n">params</span><span class="p">,</span>
+        <span class="n">disp</span><span class="o">=</span><span class="n">disp</span><span class="p">,</span>
+        <span class="n">save_mode_trajectories</span><span class="o">=</span><span class="n">save_mode_trajectories</span><span class="p">,</span>
+    <span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="clean_duplicate_modes"><a class="viewcode-back" href="../../algorithm.html#netsalt.algorithm.clean_duplicate_modes">[docs]</a><span class="k">def</span> <span class="nf">clean_duplicate_modes</span><span class="p">(</span><span class="n">all_modes</span><span class="p">,</span> <span class="n">k_size</span><span class="p">,</span> <span class="n">alpha_size</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Remave duplicate modes from a list of modes with a threshold in real/imag(k).</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        all_modes (list): list of modes</span>
+<span class="sd">        k_size (float): minimal distance in real(k)</span>
+<span class="sd">        alpha_size (float): minimal distance in imag(k)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">duplicate_mode_ids</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">mode_id_0</span><span class="p">,</span> <span class="n">mode_0</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">all_modes</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">mode_id_1</span><span class="p">,</span> <span class="n">mode_1</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">all_modes</span><span class="p">[</span><span class="n">mode_id_0</span> <span class="o">+</span> <span class="mi">1</span> <span class="p">:]):</span>
+            <span class="k">if</span> <span class="p">(</span>
+                <span class="n">mode_id_1</span> <span class="o">+</span> <span class="n">mode_id_0</span> <span class="o">+</span> <span class="mi">1</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">duplicate_mode_ids</span>
+                <span class="ow">and</span> <span class="nb">abs</span><span class="p">(</span><span class="n">mode_0</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">-</span> <span class="n">mode_1</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span> <span class="o">&lt;</span> <span class="n">k_size</span>
+                <span class="ow">and</span> <span class="nb">abs</span><span class="p">(</span><span class="n">mode_0</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">-</span> <span class="n">mode_1</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span> <span class="o">&lt;</span> <span class="n">alpha_size</span>
+            <span class="p">):</span>
+                <span class="n">duplicate_mode_ids</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">mode_id_0</span><span class="p">)</span>
+                <span class="k">break</span>
+
+    <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">delete</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">all_modes</span><span class="p">),</span> <span class="n">duplicate_mode_ids</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span></div>
+</pre></div>
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="../../index.html">netSALT</a></h1>
+
+
+
+
+
+
+
+
+<h3>Navigation</h3>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../modes.html">The modes module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../physics.html">The physics module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../quantum_graph.html">The quantum graph module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../algorithm.html">The algorithm module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../pump.html">The pump module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../plotting.html">The plotting module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../io.html">The io module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../utils.html">The utils module</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../../index.html">Documentation overview</a><ul>
+  <li><a href="../index.html">Module code</a><ul>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
+<div id="searchbox" style="display: none" role="search">
+  <h3 id="searchlabel">Quick search</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" />
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</div>
+<script>$('#searchbox').show(0);</script>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2020, Alexis Arnaudon.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 3.5.4</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.12</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

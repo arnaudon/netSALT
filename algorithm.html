@@ -1,0 +1,169 @@
+
+<!DOCTYPE html>
+
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>The algorithm module &#8212; netSALT  documentation</title>
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    <link rel="stylesheet" href="_static/alabaster.css" type="text/css" />
+    <script id="documentation_options" data-url_root="./" src="_static/documentation_options.js"></script>
+    <script src="_static/jquery.js"></script>
+    <script src="_static/underscore.js"></script>
+    <script src="_static/doctools.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="The pump module" href="pump.html" />
+    <link rel="prev" title="The quantum graph module" href="quantum_graph.html" />
+   
+  <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+  
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9" />
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <div class="section" id="module-netsalt.algorithm">
+<span id="the-algorithm-module"></span><h1>The algorithm module<a class="headerlink" href="#module-netsalt.algorithm" title="Permalink to this headline">¶</a></h1>
+<p>Search algorighms for mode detections.</p>
+<dl class="py function">
+<dt id="netsalt.algorithm.clean_duplicate_modes">
+<code class="sig-prename descclassname"><span class="pre">netsalt.algorithm.</span></code><code class="sig-name descname"><span class="pre">clean_duplicate_modes</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">all_modes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">k_size</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">alpha_size</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/netsalt/algorithm.html#clean_duplicate_modes"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#netsalt.algorithm.clean_duplicate_modes" title="Permalink to this definition">¶</a></dt>
+<dd><p>Remave duplicate modes from a list of modes with a threshold in real/imag(k).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>all_modes</strong> (<em>list</em>) – list of modes</p></li>
+<li><p><strong>k_size</strong> (<em>float</em>) – minimal distance in real(k)</p></li>
+<li><p><strong>alpha_size</strong> (<em>float</em>) – minimal distance in imag(k)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt id="netsalt.algorithm.find_rough_modes_from_scan">
+<code class="sig-prename descclassname"><span class="pre">netsalt.algorithm.</span></code><code class="sig-name descname"><span class="pre">find_rough_modes_from_scan</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ks</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">alphas</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">qualities</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">min_distance</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">threshold_abs</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">10</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/netsalt/algorithm.html#find_rough_modes_from_scan"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#netsalt.algorithm.find_rough_modes_from_scan" title="Permalink to this definition">¶</a></dt>
+<dd><p>Use scipy.ndimage algorithms to detect minima in the scan.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>ks</strong> (<em>list</em>) – list of real part of wavenumbers from the scan</p></li>
+<li><p><strong>alphas</strong> (<em>list</em>) – list of imaginary part of wavenumbers from the scan</p></li>
+<li><p><strong>qualities</strong> (<em>array</em>) – matrix with mode qualities for each pair of k/alpha</p></li>
+<li><p><strong>min_distance</strong> (<em>int</em>) – smallest distance between peaks (for skimage.feature.peak_local_max)</p></li>
+<li><p><strong>threshold_abs</strong> (<em>float</em>) – minimal intensity between peaks (for skimage.feature.peak_local_max)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt id="netsalt.algorithm.refine_mode_brownian_ratchet">
+<code class="sig-prename descclassname"><span class="pre">netsalt.algorithm.</span></code><code class="sig-name descname"><span class="pre">refine_mode_brownian_ratchet</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">initial_mode</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">graph</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">params</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">disp</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">save_mode_trajectories</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">seed</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">42</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/netsalt/algorithm.html#refine_mode_brownian_ratchet"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#netsalt.algorithm.refine_mode_brownian_ratchet" title="Permalink to this definition">¶</a></dt>
+<dd><p>Accurately find a mode from an initial guess, using brownian ratchet algorithm.</p>
+<p>This algorithm is quite complex, but generally randomly propose a move to a new mode location,
+and accept if the quality decreases.</p>
+<p>TODO: get rid of params, or better handling of them, and complete the doc on the small details</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>initial_mode</strong> (<em>complex</em>) – initial gues for a mode</p></li>
+<li><p><strong>graph</strong> (<em>graph</em>) – quantum graph</p></li>
+<li><p><strong>params</strong> (<em>dict</em>) – includes search_stepsize, max_steps, quality_threhsold, max_tries_reduction
+reduction_factor</p></li>
+<li><p><strong>disp</strong> (<em>bool</em>) – to print some state of the search for debuing</p></li>
+<li><p><strong>save_mode_trajectories</strong> (<em>bool</em>) – true to save intermediate modes</p></li>
+<li><p><strong>seed</strong> (<em>int</em>) – seed for rng</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+</div>
+
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="index.html">netSALT</a></h1>
+
+
+
+
+
+
+
+
+<h3>Navigation</h3>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="modes.html">The modes module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="physics.html">The physics module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quantum_graph.html">The quantum graph module</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">The algorithm module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="pump.html">The pump module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="plotting.html">The plotting module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="io.html">The io module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="utils.html">The utils module</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="index.html">Documentation overview</a><ul>
+      <li>Previous: <a href="quantum_graph.html" title="previous chapter">The quantum graph module</a></li>
+      <li>Next: <a href="pump.html" title="next chapter">The pump module</a></li>
+  </ul></li>
+</ul>
+</div>
+<div id="searchbox" style="display: none" role="search">
+  <h3 id="searchlabel">Quick search</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" />
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</div>
+<script>$('#searchbox').show(0);</script>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2020, Alexis Arnaudon.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 3.5.4</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.12</a>
+      
+      |
+      <a href="_sources/algorithm.rst.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>

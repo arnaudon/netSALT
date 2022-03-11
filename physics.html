@@ -1,0 +1,244 @@
+
+<!DOCTYPE html>
+
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>The physics module &#8212; netSALT  documentation</title>
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    <link rel="stylesheet" href="_static/alabaster.css" type="text/css" />
+    <script id="documentation_options" data-url_root="./" src="_static/documentation_options.js"></script>
+    <script src="_static/jquery.js"></script>
+    <script src="_static/underscore.js"></script>
+    <script src="_static/doctools.js"></script>
+    <script async="async" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.7/latest.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="The quantum graph module" href="quantum_graph.html" />
+    <link rel="prev" title="The modes module" href="modes.html" />
+   
+  <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+  
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9" />
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <div class="section" id="module-netsalt.physics">
+<span id="the-physics-module"></span><h1>The physics module<a class="headerlink" href="#module-netsalt.physics" title="Permalink to this headline">¶</a></h1>
+<p>All physics-related functions.</p>
+<dl class="py function">
+<dt id="netsalt.physics.dispersion_relation_dielectric">
+<code class="sig-prename descclassname"><span class="pre">netsalt.physics.</span></code><code class="sig-name descname"><span class="pre">dispersion_relation_dielectric</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">freq</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">params</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/netsalt/physics.html#dispersion_relation_dielectric"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#netsalt.physics.dispersion_relation_dielectric" title="Permalink to this definition">¶</a></dt>
+<dd><p>Linear dispersion relation with dielectric constant.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>freq</strong> (<em>float</em>) – frequency</p></li>
+<li><p><strong>params</strong> (<em>dict</em>) – parameters, must include ‘gamma_perp’ and ‘k_a’</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt id="netsalt.physics.dispersion_relation_linear">
+<code class="sig-prename descclassname"><span class="pre">netsalt.physics.</span></code><code class="sig-name descname"><span class="pre">dispersion_relation_linear</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">freq</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">params</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/netsalt/physics.html#dispersion_relation_linear"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#netsalt.physics.dispersion_relation_linear" title="Permalink to this definition">¶</a></dt>
+<dd><p>Linear dispersion relation with wavespeed.</p>
+<p>The dispersion relation is</p>
+<div class="math notranslate nohighlight">
+\[\omega(k) = \frac{k}{c}\]</div>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>freq</strong> (<em>float</em>) – frequency</p></li>
+<li><p><strong>params</strong> (<em>dict</em>) – parameters, must include wavespeed ‘c’</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt id="netsalt.physics.dispersion_relation_pump">
+<code class="sig-prename descclassname"><span class="pre">netsalt.physics.</span></code><code class="sig-name descname"><span class="pre">dispersion_relation_pump</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">freq</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">params</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/netsalt/physics.html#dispersion_relation_pump"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#netsalt.physics.dispersion_relation_pump" title="Permalink to this definition">¶</a></dt>
+<dd><p>Dispersion relation with dielectric constant and pump.</p>
+<p>If a pump is given in params</p>
+<div class="math notranslate nohighlight">
+\[\omega(k) = k \sqrt{\epsilon + \gamma(k) D_0 \delta_\mathrm{pump}}\]</div>
+<p>otherwise</p>
+<div class="math notranslate nohighlight">
+\[\omega(k) = k \sqrt{\epsilon}\]</div>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>freq</strong> (<em>float</em>) – frequency</p></li>
+<li><p><strong>params</strong> (<em>dict</em>) – parameters, must include the dielectric_constant in params,
+if pump is in params, it must include D0 and necessary parameter
+for the computation of <span class="math notranslate nohighlight">\(gamma\)</span></p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt id="netsalt.physics.gamma">
+<code class="sig-prename descclassname"><span class="pre">netsalt.physics.</span></code><code class="sig-name descname"><span class="pre">gamma</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">freq</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">params</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/netsalt/physics.html#gamma"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#netsalt.physics.gamma" title="Permalink to this definition">¶</a></dt>
+<dd><p>Gamma function.</p>
+<p>The gamma function is</p>
+<div class="math notranslate nohighlight">
+\[\gamma(k) = \frac{\gamma_\perp}{ \mathrm{real}(k) - k_a + j\gamma_\perp}\]</div>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>freq</strong> (<em>float</em>) – frequency</p></li>
+<li><p><strong>params</strong> (<em>dict</em>) – parameters, must include ‘gamma_perp’ and ‘k_a’</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt id="netsalt.physics.q_value">
+<code class="sig-prename descclassname"><span class="pre">netsalt.physics.</span></code><code class="sig-name descname"><span class="pre">q_value</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mode</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/netsalt/physics.html#q_value"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#netsalt.physics.q_value" title="Permalink to this definition">¶</a></dt>
+<dd><p>Compute the <span class="math notranslate nohighlight">\(\mathcal Q\)</span> value of a mode.</p>
+<p>It is defined as</p>
+<div class="math notranslate nohighlight">
+\[\mathcal Q = \frac{\mathrm{Real} k}{2 \mathrm{Im}(k)}\]</div>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>mode</strong> (<em>complex</em>) – complex values mode</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt id="netsalt.physics.set_dielectric_constant">
+<code class="sig-prename descclassname"><span class="pre">netsalt.physics.</span></code><code class="sig-name descname"><span class="pre">set_dielectric_constant</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">graph</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">params</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">custom_values</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/netsalt/physics.html#set_dielectric_constant"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#netsalt.physics.set_dielectric_constant" title="Permalink to this definition">¶</a></dt>
+<dd><p>Set dielectric constant in params, from dielectric constant or refraction index.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>graph</strong> (<em>networkx graph</em>) – current graph</p></li>
+<li><p><strong>params</strong> (<em>dict</em>) – parameters</p></li>
+<li><p><strong>custom_values</strong> (<em>list</em>) – custum edge values for dielectric constant</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt id="netsalt.physics.set_dispersion_relation">
+<code class="sig-prename descclassname"><span class="pre">netsalt.physics.</span></code><code class="sig-name descname"><span class="pre">set_dispersion_relation</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">graph</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dispersion_relation</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/netsalt/physics.html#set_dispersion_relation"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#netsalt.physics.set_dispersion_relation" title="Permalink to this definition">¶</a></dt>
+<dd><p>Set the dispersion relation on the graph.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>graph</strong> (<em>networkx graph</em>) – current graph</p></li>
+<li><p><strong>dispersion_relation</strong> (<em>function</em>) – dispersion relation function</p></li>
+<li><p><strong>params</strong> (<em>dict</em>) – parameters</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt id="netsalt.physics.update_params_dielectric_constant">
+<code class="sig-prename descclassname"><span class="pre">netsalt.physics.</span></code><code class="sig-name descname"><span class="pre">update_params_dielectric_constant</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">graph</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">params</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/netsalt/physics.html#update_params_dielectric_constant"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#netsalt.physics.update_params_dielectric_constant" title="Permalink to this definition">¶</a></dt>
+<dd><p>Update the dielectric constant values in the params dictionary.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>graph</strong> (<em>networkx graph</em>) – current graph</p></li>
+<li><p><strong>params</strong> (<em>dict</em>) – parameters, must include ‘gamma_perp’ and ‘k_a’</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+</div>
+
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="index.html">netSALT</a></h1>
+
+
+
+
+
+
+
+
+<h3>Navigation</h3>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="modes.html">The modes module</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">The physics module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quantum_graph.html">The quantum graph module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="algorithm.html">The algorithm module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="pump.html">The pump module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="plotting.html">The plotting module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="io.html">The io module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="utils.html">The utils module</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="index.html">Documentation overview</a><ul>
+      <li>Previous: <a href="modes.html" title="previous chapter">The modes module</a></li>
+      <li>Next: <a href="quantum_graph.html" title="next chapter">The quantum graph module</a></li>
+  </ul></li>
+</ul>
+</div>
+<div id="searchbox" style="display: none" role="search">
+  <h3 id="searchlabel">Quick search</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" />
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</div>
+<script>$('#searchbox').show(0);</script>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2020, Alexis Arnaudon.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 3.5.4</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.12</a>
+      
+      |
+      <a href="_sources/physics.rst.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>

@@ -1,0 +1,248 @@
+
+<!DOCTYPE html>
+
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>The modes module &#8212; netSALT  documentation</title>
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    <link rel="stylesheet" href="_static/alabaster.css" type="text/css" />
+    <script id="documentation_options" data-url_root="./" src="_static/documentation_options.js"></script>
+    <script src="_static/jquery.js"></script>
+    <script src="_static/underscore.js"></script>
+    <script src="_static/doctools.js"></script>
+    <script async="async" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.7/latest.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="The physics module" href="physics.html" />
+    <link rel="prev" title="netSALT: simulating lasing networks" href="index.html" />
+   
+  <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+  
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9" />
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <div class="section" id="module-netsalt.modes">
+<span id="the-modes-module"></span><h1>The modes module<a class="headerlink" href="#module-netsalt.modes" title="Permalink to this headline">¶</a></h1>
+<p>Functions related to modes.</p>
+<dl class="py class">
+<dt id="netsalt.modes.WorkerModes">
+<em class="property"><span class="pre">class</span> </em><code class="sig-prename descclassname"><span class="pre">netsalt.modes.</span></code><code class="sig-name descname"><span class="pre">WorkerModes</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">estimated_modes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">graph</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">D0s</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">search_radii</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">seed</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">42</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/netsalt/modes.html#WorkerModes"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#netsalt.modes.WorkerModes" title="Permalink to this definition">¶</a></dt>
+<dd><p>Worker to find modes.</p>
+<dl class="py method">
+<dt id="netsalt.modes.WorkerModes.set_search_radii">
+<code class="sig-name descname"><span class="pre">set_search_radii</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mode</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/netsalt/modes.html#WorkerModes.set_search_radii"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#netsalt.modes.WorkerModes.set_search_radii" title="Permalink to this definition">¶</a></dt>
+<dd><p>This fixes a local search region set by search radii.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt id="netsalt.modes.WorkerScan">
+<em class="property"><span class="pre">class</span> </em><code class="sig-prename descclassname"><span class="pre">netsalt.modes.</span></code><code class="sig-name descname"><span class="pre">WorkerScan</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">graph</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/netsalt/modes.html#WorkerScan"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#netsalt.modes.WorkerScan" title="Permalink to this definition">¶</a></dt>
+<dd><p>Worker to scan complex frequency.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt id="netsalt.modes.compute_IPRs">
+<code class="sig-prename descclassname"><span class="pre">netsalt.modes.</span></code><code class="sig-name descname"><span class="pre">compute_IPRs</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">graph</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">modes_df</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">df_entry</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'passive'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/netsalt/modes.html#compute_IPRs"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#netsalt.modes.compute_IPRs" title="Permalink to this definition">¶</a></dt>
+<dd><p>Compute IPR of all modes on the graph.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt id="netsalt.modes.compute_gamma_q_values">
+<code class="sig-prename descclassname"><span class="pre">netsalt.modes.</span></code><code class="sig-name descname"><span class="pre">compute_gamma_q_values</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">graph</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">modes_df</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">df_entry</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'passive'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/netsalt/modes.html#compute_gamma_q_values"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#netsalt.modes.compute_gamma_q_values" title="Permalink to this definition">¶</a></dt>
+<dd><p>Compute gamma * Q factor for all modes on the graph.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt id="netsalt.modes.compute_modal_intensities">
+<code class="sig-prename descclassname"><span class="pre">netsalt.modes.</span></code><code class="sig-name descname"><span class="pre">compute_modal_intensities</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">modes_df</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_pump_intensity</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mode_competition_matrix</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/netsalt/modes.html#compute_modal_intensities"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#netsalt.modes.compute_modal_intensities" title="Permalink to this definition">¶</a></dt>
+<dd><p>Compute the modal intensities of the modes up to D0, with D0_steps.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt id="netsalt.modes.compute_mode_IPR">
+<code class="sig-prename descclassname"><span class="pre">netsalt.modes.</span></code><code class="sig-name descname"><span class="pre">compute_mode_IPR</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">graph</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">modes_df</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">index</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">df_entry</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'passive'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/netsalt/modes.html#compute_mode_IPR"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#netsalt.modes.compute_mode_IPR" title="Permalink to this definition">¶</a></dt>
+<dd><p>Compute the IPR of a mode</p>
+</dd></dl>
+
+<dl class="py function">
+<dt id="netsalt.modes.compute_mode_competition_matrix">
+<code class="sig-prename descclassname"><span class="pre">netsalt.modes.</span></code><code class="sig-name descname"><span class="pre">compute_mode_competition_matrix</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">graph</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">modes_df</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">with_gamma</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/netsalt/modes.html#compute_mode_competition_matrix"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#netsalt.modes.compute_mode_competition_matrix" title="Permalink to this definition">¶</a></dt>
+<dd><p>Compute the mode competition matrix, or T matrix.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt id="netsalt.modes.compute_overlapping_factor">
+<code class="sig-prename descclassname"><span class="pre">netsalt.modes.</span></code><code class="sig-name descname"><span class="pre">compute_overlapping_factor</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">passive_mode</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">graph</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/netsalt/modes.html#compute_overlapping_factor"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#netsalt.modes.compute_overlapping_factor" title="Permalink to this definition">¶</a></dt>
+<dd><p>Compute the overlapping factor of a mode with the pump.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt id="netsalt.modes.compute_overlapping_single_edges">
+<code class="sig-prename descclassname"><span class="pre">netsalt.modes.</span></code><code class="sig-name descname"><span class="pre">compute_overlapping_single_edges</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">passive_mode</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">graph</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/netsalt/modes.html#compute_overlapping_single_edges"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#netsalt.modes.compute_overlapping_single_edges" title="Permalink to this definition">¶</a></dt>
+<dd><p>Compute the overlappin factor of a mode with the pump.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt id="netsalt.modes.compute_z_matrix">
+<code class="sig-prename descclassname"><span class="pre">netsalt.modes.</span></code><code class="sig-name descname"><span class="pre">compute_z_matrix</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">graph</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/netsalt/modes.html#compute_z_matrix"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#netsalt.modes.compute_z_matrix" title="Permalink to this definition">¶</a></dt>
+<dd><p>Construct the matrix Z used for computing the pump overlapping factor.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt id="netsalt.modes.find_modes">
+<code class="sig-prename descclassname"><span class="pre">netsalt.modes.</span></code><code class="sig-name descname"><span class="pre">find_modes</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">graph</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">qualities</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/netsalt/modes.html#find_modes"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#netsalt.modes.find_modes" title="Permalink to this definition">¶</a></dt>
+<dd><p>Find the modes from a scan.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt id="netsalt.modes.find_threshold_lasing_modes">
+<code class="sig-prename descclassname"><span class="pre">netsalt.modes.</span></code><code class="sig-name descname"><span class="pre">find_threshold_lasing_modes</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">modes_df</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">graph</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/netsalt/modes.html#find_threshold_lasing_modes"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#netsalt.modes.find_threshold_lasing_modes" title="Permalink to this definition">¶</a></dt>
+<dd><p>Find the threshold lasing modes and associated lasing thresholds.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt id="netsalt.modes.flux_on_edges">
+<code class="sig-prename descclassname"><span class="pre">netsalt.modes.</span></code><code class="sig-name descname"><span class="pre">flux_on_edges</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mode</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">graph</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/netsalt/modes.html#flux_on_edges"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#netsalt.modes.flux_on_edges" title="Permalink to this definition">¶</a></dt>
+<dd><p>Compute the flux on each edge (in both directions).</p>
+</dd></dl>
+
+<dl class="py function">
+<dt id="netsalt.modes.gamma_q_value">
+<code class="sig-prename descclassname"><span class="pre">netsalt.modes.</span></code><code class="sig-name descname"><span class="pre">gamma_q_value</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">graph</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">modes_df</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">index</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">df_entry</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'passive'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/netsalt/modes.html#gamma_q_value"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#netsalt.modes.gamma_q_value" title="Permalink to this definition">¶</a></dt>
+<dd><p>Compute gamma * Q factor for a given mode.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt id="netsalt.modes.lasing_threshold_linear">
+<code class="sig-prename descclassname"><span class="pre">netsalt.modes.</span></code><code class="sig-name descname"><span class="pre">lasing_threshold_linear</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mode</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">graph</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">D0</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/netsalt/modes.html#lasing_threshold_linear"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#netsalt.modes.lasing_threshold_linear" title="Permalink to this definition">¶</a></dt>
+<dd><p>Find the linear approximation of the new wavenumber.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt id="netsalt.modes.mean_mode_E4_on_edges">
+<code class="sig-prename descclassname"><span class="pre">netsalt.modes.</span></code><code class="sig-name descname"><span class="pre">mean_mode_E4_on_edges</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mode</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">graph</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/netsalt/modes.html#mean_mode_E4_on_edges"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#netsalt.modes.mean_mode_E4_on_edges" title="Permalink to this definition">¶</a></dt>
+<dd><p>Compute the average <span class="math notranslate nohighlight">\(|E|^4\)</span> on each edge.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt id="netsalt.modes.mean_mode_on_edges">
+<code class="sig-prename descclassname"><span class="pre">netsalt.modes.</span></code><code class="sig-name descname"><span class="pre">mean_mode_on_edges</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mode</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">graph</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/netsalt/modes.html#mean_mode_on_edges"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#netsalt.modes.mean_mode_on_edges" title="Permalink to this definition">¶</a></dt>
+<dd><p>Compute the average <span class="math notranslate nohighlight">\(|E|^2\)</span> on each edge.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt id="netsalt.modes.mode_on_nodes">
+<code class="sig-prename descclassname"><span class="pre">netsalt.modes.</span></code><code class="sig-name descname"><span class="pre">mode_on_nodes</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mode</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">graph</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/netsalt/modes.html#mode_on_nodes"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#netsalt.modes.mode_on_nodes" title="Permalink to this definition">¶</a></dt>
+<dd><p>Compute the mode solution on the nodes of the graph.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt id="netsalt.modes.pump_linear">
+<code class="sig-prename descclassname"><span class="pre">netsalt.modes.</span></code><code class="sig-name descname"><span class="pre">pump_linear</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mode_0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">graph</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">D0_0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">D0_1</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/netsalt/modes.html#pump_linear"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#netsalt.modes.pump_linear" title="Permalink to this definition">¶</a></dt>
+<dd><p>Find the linear approximation of the new wavenumber.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt id="netsalt.modes.pump_trajectories">
+<code class="sig-prename descclassname"><span class="pre">netsalt.modes.</span></code><code class="sig-name descname"><span class="pre">pump_trajectories</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">modes_df</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">graph</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">return_approx</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/netsalt/modes.html#pump_trajectories"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#netsalt.modes.pump_trajectories" title="Permalink to this definition">¶</a></dt>
+<dd><p>For a sequence of D0s, find the mode positions of the modes modes.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt id="netsalt.modes.scan_frequencies">
+<code class="sig-prename descclassname"><span class="pre">netsalt.modes.</span></code><code class="sig-name descname"><span class="pre">scan_frequencies</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">graph</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/netsalt/modes.html#scan_frequencies"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#netsalt.modes.scan_frequencies" title="Permalink to this definition">¶</a></dt>
+<dd><p>Scan a range of complex frequencies and return mode qualities.</p>
+</dd></dl>
+
+</div>
+
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="index.html">netSALT</a></h1>
+
+
+
+
+
+
+
+
+<h3>Navigation</h3>
+<ul class="current">
+<li class="toctree-l1 current"><a class="current reference internal" href="#">The modes module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="physics.html">The physics module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quantum_graph.html">The quantum graph module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="algorithm.html">The algorithm module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="pump.html">The pump module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="plotting.html">The plotting module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="io.html">The io module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="utils.html">The utils module</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="index.html">Documentation overview</a><ul>
+      <li>Previous: <a href="index.html" title="previous chapter"><em>netSALT</em>: simulating lasing networks</a></li>
+      <li>Next: <a href="physics.html" title="next chapter">The physics module</a></li>
+  </ul></li>
+</ul>
+</div>
+<div id="searchbox" style="display: none" role="search">
+  <h3 id="searchlabel">Quick search</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" />
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</div>
+<script>$('#searchbox').show(0);</script>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2020, Alexis Arnaudon.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 3.5.4</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.12</a>
+      
+      |
+      <a href="_sources/modes.rst.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>

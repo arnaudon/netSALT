@@ -1,0 +1,612 @@
+
+<!DOCTYPE html>
+
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>netsalt.plotting &#8212; netSALT  documentation</title>
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/alabaster.css" type="text/css" />
+    <script id="documentation_options" data-url_root="../../" src="../../_static/documentation_options.js"></script>
+    <script src="../../_static/jquery.js"></script>
+    <script src="../../_static/underscore.js"></script>
+    <script src="../../_static/doctools.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+   
+  <link rel="stylesheet" href="../../_static/custom.css" type="text/css" />
+  
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9" />
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <h1>Source code for netsalt.plotting</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;plotting function&quot;&quot;&quot;</span>
+<span class="kn">import</span> <span class="nn">logging</span>
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">from</span> <span class="nn">itertools</span> <span class="kn">import</span> <span class="n">cycle</span>
+<span class="kn">from</span> <span class="nn">pathlib</span> <span class="kn">import</span> <span class="n">Path</span>
+
+<span class="kn">import</span> <span class="nn">matplotlib.pyplot</span> <span class="k">as</span> <span class="nn">plt</span>
+<span class="kn">import</span> <span class="nn">networkx</span> <span class="k">as</span> <span class="nn">nx</span>
+<span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
+<span class="kn">from</span> <span class="nn">mpl_toolkits.axes_grid1.inset_locator</span> <span class="kn">import</span> <span class="n">inset_axes</span>
+<span class="kn">from</span> <span class="nn">tqdm</span> <span class="kn">import</span> <span class="n">tqdm</span>
+
+<span class="kn">from</span> <span class="nn">.modes</span> <span class="kn">import</span> <span class="n">mean_mode_on_edges</span><span class="p">,</span> <span class="n">mode_on_nodes</span>
+<span class="kn">from</span> <span class="nn">.utils</span> <span class="kn">import</span> <span class="n">get_scan_grid</span><span class="p">,</span> <span class="n">linewidth</span><span class="p">,</span> <span class="n">lorentzian</span><span class="p">,</span> <span class="n">order_edges_by</span>
+
+<span class="c1"># pylint: disable=too-many-locals,too-many-arguments</span>
+
+<span class="n">L</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
+<span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="s2">&quot;matplotlib&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">setLevel</span><span class="p">(</span><span class="n">logging</span><span class="o">.</span><span class="n">INFO</span><span class="p">)</span>
+
+
+<span class="k">def</span> <span class="nf">_savefig</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">fig</span><span class="p">,</span> <span class="n">folder</span><span class="p">,</span> <span class="n">filename</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Save figures in subfolders and with different extensions.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">fig</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">ext</span> <span class="ow">in</span> <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">][</span><span class="s2">&quot;exts&quot;</span><span class="p">]:</span>
+            <span class="n">folder_ext</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">folder</span> <span class="o">+</span> <span class="s2">&quot;_&quot;</span> <span class="o">+</span> <span class="n">ext</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;.&quot;</span><span class="p">)[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">folder_ext</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+                <span class="n">os</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">folder_ext</span><span class="p">)</span>
+            <span class="n">fig</span><span class="o">.</span><span class="n">savefig</span><span class="p">((</span><span class="n">folder_ext</span> <span class="o">/</span> <span class="n">filename</span><span class="p">)</span><span class="o">.</span><span class="n">with_suffix</span><span class="p">(</span><span class="n">ext</span><span class="p">),</span> <span class="n">bbox_inches</span><span class="o">=</span><span class="s2">&quot;tight&quot;</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="get_spectra"><a class="viewcode-back" href="../../plotting.html#netsalt.plotting.get_spectra">[docs]</a><span class="k">def</span> <span class="nf">get_spectra</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">modes_df</span><span class="p">,</span> <span class="n">pump_index</span><span class="o">=-</span><span class="mi">1</span><span class="p">,</span> <span class="n">width</span><span class="o">=</span><span class="mf">0.0005</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Compute spectra.&quot;&quot;&quot;</span>
+    <span class="n">threshold_modes</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">real</span><span class="p">(</span><span class="n">modes_df</span><span class="p">[</span><span class="s2">&quot;threshold_lasing_modes&quot;</span><span class="p">])</span>
+    <span class="n">modal_amplitudes</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">real</span><span class="p">(</span><span class="n">modes_df</span><span class="p">[</span><span class="s2">&quot;modal_intensities&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">iloc</span><span class="p">[:,</span> <span class="n">pump_index</span><span class="p">])</span>
+    <span class="n">ks</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">][</span><span class="s2">&quot;k_min&quot;</span><span class="p">],</span> <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">][</span><span class="s2">&quot;k_max&quot;</span><span class="p">],</span> <span class="mi">10000</span><span class="p">)</span>
+    <span class="n">spectra</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">ks</span><span class="p">))</span>
+    <span class="k">for</span> <span class="n">mode</span><span class="p">,</span> <span class="n">amplitude</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">threshold_modes</span><span class="p">,</span> <span class="n">modal_amplitudes</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">amplitude</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">spectra</span> <span class="o">+=</span> <span class="n">amplitude</span> <span class="o">*</span> <span class="n">linewidth</span><span class="p">(</span><span class="n">ks</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">real</span><span class="p">(</span><span class="n">mode</span><span class="p">),</span> <span class="n">width</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">ks</span><span class="p">,</span> <span class="n">spectra</span></div>
+
+
+<div class="viewcode-block" id="plot_spectra"><a class="viewcode-back" href="../../plotting.html#netsalt.plotting.plot_spectra">[docs]</a><span class="k">def</span> <span class="nf">plot_spectra</span><span class="p">(</span>
+    <span class="n">graph</span><span class="p">,</span>
+    <span class="n">modes_df</span><span class="p">,</span>
+    <span class="n">pump_index</span><span class="o">=-</span><span class="mi">1</span><span class="p">,</span>
+    <span class="n">width</span><span class="o">=</span><span class="mf">0.0005</span><span class="p">,</span>
+    <span class="n">ax</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">folder</span><span class="o">=</span><span class="s2">&quot;plots&quot;</span><span class="p">,</span>
+    <span class="n">filename</span><span class="o">=</span><span class="s2">&quot;spectra&quot;</span><span class="p">,</span>
+    <span class="n">save_option</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+    <span class="n">with_lorenz</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+    <span class="n">plot_kwargs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Plot spectra with linewidths.&quot;&quot;&quot;</span>
+
+    <span class="k">if</span> <span class="n">ax</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">fig</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">figure</span><span class="p">(</span><span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">5</span><span class="p">,</span> <span class="mi">2</span><span class="p">))</span>
+        <span class="n">ax</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">gca</span><span class="p">()</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">fig</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">ks</span><span class="p">,</span> <span class="n">spectra</span> <span class="o">=</span> <span class="n">get_spectra</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">modes_df</span><span class="p">,</span> <span class="n">pump_index</span><span class="o">=</span><span class="n">pump_index</span><span class="p">,</span> <span class="n">width</span><span class="o">=</span><span class="n">width</span><span class="p">)</span>
+    <span class="n">ax</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">ks</span><span class="p">,</span> <span class="n">spectra</span><span class="p">,</span> <span class="o">**</span><span class="n">plot_kwargs</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">with_lorenz</span><span class="p">:</span>
+        <span class="n">ax2</span> <span class="o">=</span> <span class="n">ax</span><span class="o">.</span><span class="n">twinx</span><span class="p">()</span>
+        <span class="n">ax2</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">ks</span><span class="p">,</span> <span class="n">lorentzian</span><span class="p">(</span><span class="n">ks</span><span class="p">,</span> <span class="n">graph</span><span class="p">),</span> <span class="s2">&quot;r--&quot;</span><span class="p">)</span>
+        <span class="n">ax2</span><span class="o">.</span><span class="n">set_xlabel</span><span class="p">(</span><span class="sa">r</span><span class="s2">&quot;$\lambda$&quot;</span><span class="p">)</span>
+        <span class="n">ax2</span><span class="o">.</span><span class="n">set_ylabel</span><span class="p">(</span><span class="s2">&quot;Gain spectrum (a.u.)&quot;</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">save_option</span><span class="p">:</span>
+        <span class="n">_savefig</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">fig</span><span class="p">,</span> <span class="n">folder</span><span class="p">,</span> <span class="n">filename</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="plot_stem_spectra"><a class="viewcode-back" href="../../plotting.html#netsalt.plotting.plot_stem_spectra">[docs]</a><span class="k">def</span> <span class="nf">plot_stem_spectra</span><span class="p">(</span>
+    <span class="n">graph</span><span class="p">,</span>
+    <span class="n">modes_df</span><span class="p">,</span>
+    <span class="n">pump_index</span><span class="o">=-</span><span class="mi">1</span><span class="p">,</span>
+    <span class="n">ax</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">folder</span><span class="o">=</span><span class="s2">&quot;plots&quot;</span><span class="p">,</span>
+    <span class="n">filename</span><span class="o">=</span><span class="s2">&quot;stem_spectra&quot;</span><span class="p">,</span>
+    <span class="n">save_option</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Plot spectra with stem plots.&quot;&quot;&quot;</span>
+    <span class="n">threshold_modes</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">real</span><span class="p">(</span><span class="n">modes_df</span><span class="p">[</span><span class="s2">&quot;threshold_lasing_modes&quot;</span><span class="p">])</span>
+    <span class="n">modal_amplitudes</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">real</span><span class="p">(</span><span class="n">modes_df</span><span class="p">[</span><span class="s2">&quot;modal_intensities&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">iloc</span><span class="p">[:,</span> <span class="n">pump_index</span><span class="p">])</span>
+    <span class="n">L</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;</span><span class="si">%s</span><span class="s2"> lasing modes in spectrum&quot;</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">threshold_modes</span><span class="p">[</span><span class="n">modal_amplitudes</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">]))</span>
+
+    <span class="n">ks</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">get_scan_grid</span><span class="p">(</span><span class="n">graph</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">ax</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">fig</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">figure</span><span class="p">(</span><span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">5</span><span class="p">,</span> <span class="mi">3</span><span class="p">))</span>
+        <span class="n">ax</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">gca</span><span class="p">()</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">fig</span> <span class="o">=</span> <span class="kc">None</span>
+
+    <span class="n">markerline</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">baseline</span> <span class="o">=</span> <span class="n">ax</span><span class="o">.</span><span class="n">stem</span><span class="p">(</span>
+        <span class="n">threshold_modes</span><span class="p">,</span> <span class="n">modal_amplitudes</span><span class="p">,</span> <span class="s2">&quot;-&quot;</span><span class="p">,</span> <span class="n">linefmt</span><span class="o">=</span><span class="s2">&quot;grey&quot;</span><span class="p">,</span> <span class="n">markerfmt</span><span class="o">=</span><span class="s2">&quot; &quot;</span>
+    <span class="p">)</span>
+
+    <span class="c1"># colors = cycle([&quot;C{}&quot;.format(i) for i in range(10)])</span>
+    <span class="n">markerline</span><span class="o">.</span><span class="n">set_markerfacecolor</span><span class="p">(</span><span class="s2">&quot;white&quot;</span><span class="p">)</span>
+    <span class="c1"># plt.setp(stemlines, &quot;alpha&quot;, 0.5, &quot;linewidth&quot;, 2)</span>
+    <span class="n">plt</span><span class="o">.</span><span class="n">setp</span><span class="p">(</span><span class="n">baseline</span><span class="p">,</span> <span class="s2">&quot;color&quot;</span><span class="p">,</span> <span class="s2">&quot;grey&quot;</span><span class="p">,</span> <span class="s2">&quot;linewidth&quot;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+    <span class="n">ax</span><span class="o">.</span><span class="n">set_xlabel</span><span class="p">(</span><span class="sa">r</span><span class="s2">&quot;$k$&quot;</span><span class="p">)</span>
+    <span class="n">ax</span><span class="o">.</span><span class="n">set_ylabel</span><span class="p">(</span><span class="s2">&quot;Intensity (a.u.)&quot;</span><span class="p">)</span>
+
+    <span class="n">ax</span><span class="o">.</span><span class="n">set_xlim</span><span class="p">(</span><span class="n">ks</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">ks</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
+    <span class="n">ax</span><span class="o">.</span><span class="n">set_ylim</span><span class="p">(</span>
+        <span class="o">-</span><span class="mf">0.05</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">modal_amplitudes</span><span class="p">[</span><span class="o">~</span><span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="n">modal_amplitudes</span><span class="p">)]),</span>
+        <span class="n">np</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">modal_amplitudes</span><span class="p">[</span><span class="o">~</span><span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="n">modal_amplitudes</span><span class="p">)])</span> <span class="o">*</span> <span class="mf">1.3</span><span class="p">,</span>
+    <span class="p">)</span>
+
+    <span class="n">ax2</span> <span class="o">=</span> <span class="n">ax</span><span class="o">.</span><span class="n">twinx</span><span class="p">()</span>
+    <span class="n">ks</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">][</span><span class="s2">&quot;k_min&quot;</span><span class="p">],</span> <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">][</span><span class="s2">&quot;k_max&quot;</span><span class="p">],</span> <span class="mi">1000</span><span class="p">)</span>
+    <span class="n">ax2</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">ks</span><span class="p">,</span> <span class="n">lorentzian</span><span class="p">(</span><span class="n">ks</span><span class="p">,</span> <span class="n">graph</span><span class="p">),</span> <span class="s2">&quot;r--&quot;</span><span class="p">)</span>
+    <span class="n">ax2</span><span class="o">.</span><span class="n">set_xlabel</span><span class="p">(</span><span class="sa">r</span><span class="s2">&quot;$\lambda$&quot;</span><span class="p">)</span>
+    <span class="n">ax2</span><span class="o">.</span><span class="n">set_ylabel</span><span class="p">(</span><span class="s2">&quot;Gain spectrum (a.u.)&quot;</span><span class="p">)</span>
+
+    <span class="n">ax3</span> <span class="o">=</span> <span class="n">ax</span><span class="o">.</span><span class="n">twiny</span><span class="p">()</span>
+    <span class="n">lams</span> <span class="o">=</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">pi</span> <span class="o">/</span> <span class="n">ks</span>
+    <span class="n">ax3</span><span class="o">.</span><span class="n">set_xlim</span><span class="p">(</span><span class="n">lams</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">lams</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
+
+    <span class="k">if</span> <span class="n">save_option</span><span class="p">:</span>
+        <span class="n">_savefig</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">fig</span><span class="p">,</span> <span class="n">folder</span><span class="p">,</span> <span class="n">filename</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="plot_ll_curve"><a class="viewcode-back" href="../../plotting.html#netsalt.plotting.plot_ll_curve">[docs]</a><span class="k">def</span> <span class="nf">plot_ll_curve</span><span class="p">(</span>
+    <span class="n">graph</span><span class="p">,</span>
+    <span class="n">modes_df</span><span class="p">,</span>
+    <span class="n">with_legend</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">ax</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">with_colors</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">with_thresholds</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+    <span class="n">folder</span><span class="o">=</span><span class="s2">&quot;plots&quot;</span><span class="p">,</span>
+    <span class="n">filename</span><span class="o">=</span><span class="s2">&quot;ll_curve&quot;</span><span class="p">,</span>
+    <span class="n">save_option</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Plot LL curves.&quot;&quot;&quot;</span>
+    <span class="n">colors</span> <span class="o">=</span> <span class="n">cycle</span><span class="p">([</span><span class="sa">f</span><span class="s2">&quot;C</span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">10</span><span class="p">)])</span>
+    <span class="n">pump_intensities</span> <span class="o">=</span> <span class="n">modes_df</span><span class="p">[</span><span class="s2">&quot;modal_intensities&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">columns</span><span class="o">.</span><span class="n">values</span>
+    <span class="n">modes_df</span> <span class="o">=</span> <span class="n">modes_df</span><span class="o">.</span><span class="n">sort_values</span><span class="p">(</span>
+        <span class="n">by</span><span class="o">=</span><span class="p">[(</span><span class="s2">&quot;modal_intensities&quot;</span><span class="p">,</span> <span class="n">pump_intensities</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])],</span>
+        <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+        <span class="n">na_position</span><span class="o">=</span><span class="s2">&quot;last&quot;</span><span class="p">,</span>
+        <span class="n">ascending</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="k">if</span> <span class="n">ax</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">fig</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">figure</span><span class="p">(</span><span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">5</span><span class="p">,</span> <span class="mi">3</span><span class="p">))</span>
+        <span class="n">ax</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">gca</span><span class="p">()</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">fig</span> <span class="o">=</span> <span class="kc">None</span>
+
+    <span class="k">for</span> <span class="n">index</span><span class="p">,</span> <span class="n">mode</span> <span class="ow">in</span> <span class="n">modes_df</span><span class="o">.</span><span class="n">iterrows</span><span class="p">():</span>
+        <span class="n">intens</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">real</span><span class="p">(</span><span class="n">mode</span><span class="p">[</span><span class="s2">&quot;modal_intensities&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">())</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">any</span><span class="p">(</span><span class="o">~</span><span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="n">intens</span><span class="p">)):</span>
+            <span class="c1"># do not plot non-lasing modes</span>
+            <span class="k">continue</span>
+
+        <span class="k">if</span> <span class="n">with_colors</span><span class="p">:</span>
+            <span class="n">color</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="n">colors</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">color</span> <span class="o">=</span> <span class="s2">&quot;grey&quot;</span>
+        <span class="n">ax</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">pump_intensities</span><span class="p">,</span> <span class="n">intens</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">&quot;mode &quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">index</span><span class="p">),</span> <span class="n">c</span><span class="o">=</span><span class="n">color</span><span class="p">,</span> <span class="n">lw</span><span class="o">=</span><span class="mf">0.5</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">with_thresholds</span><span class="p">:</span>
+            <span class="n">ax</span><span class="o">.</span><span class="n">axvline</span><span class="p">(</span>
+                <span class="n">modes_df</span><span class="p">[</span><span class="s2">&quot;lasing_thresholds&quot;</span><span class="p">][</span><span class="n">index</span><span class="p">],</span>
+                <span class="n">c</span><span class="o">=</span><span class="n">color</span><span class="p">,</span>
+                <span class="n">ls</span><span class="o">=</span><span class="s2">&quot;dotted&quot;</span><span class="p">,</span>
+                <span class="n">ymin</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+                <span class="n">ymax</span><span class="o">=</span><span class="mf">0.2</span><span class="p">,</span>
+            <span class="p">)</span>
+    <span class="n">ax</span><span class="o">.</span><span class="n">axhline</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">lw</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span> <span class="n">c</span><span class="o">=</span><span class="s2">&quot;k&quot;</span><span class="p">,</span> <span class="n">ls</span><span class="o">=</span><span class="s2">&quot;--&quot;</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">with_legend</span><span class="p">:</span>
+        <span class="n">ax</span><span class="o">.</span><span class="n">legend</span><span class="p">()</span>
+
+    <span class="n">top</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">nan_to_num</span><span class="p">(</span><span class="n">modes_df</span><span class="p">[</span><span class="s2">&quot;modal_intensities&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">()))</span>
+    <span class="k">if</span> <span class="n">pump_intensities</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">&lt;</span> <span class="n">np</span><span class="o">.</span><span class="n">inf</span><span class="p">:</span>
+        <span class="n">ax</span><span class="o">.</span><span class="n">axis</span><span class="p">([</span><span class="mi">0</span><span class="p">,</span> <span class="n">pump_intensities</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">],</span> <span class="o">-</span><span class="mf">0.02</span> <span class="o">*</span> <span class="n">top</span><span class="p">,</span> <span class="n">top</span><span class="p">])</span>
+    <span class="n">ax</span><span class="o">.</span><span class="n">set_xlabel</span><span class="p">(</span><span class="sa">r</span><span class="s2">&quot;$D_0$&quot;</span><span class="p">)</span>
+    <span class="n">ax</span><span class="o">.</span><span class="n">set_ylabel</span><span class="p">(</span><span class="s2">&quot;Intensity (a.u)&quot;</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">save_option</span><span class="p">:</span>
+        <span class="n">_savefig</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">fig</span><span class="p">,</span> <span class="n">folder</span><span class="p">,</span> <span class="n">filename</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="plot_scan"><a class="viewcode-back" href="../../plotting.html#netsalt.plotting.plot_scan">[docs]</a><span class="k">def</span> <span class="nf">plot_scan</span><span class="p">(</span>
+    <span class="n">graph</span><span class="p">,</span>
+    <span class="n">qualities</span><span class="p">,</span>
+    <span class="n">modes_df</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">figsize</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">ax</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">with_trajectories</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">with_scatter</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">with_approx</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">folder</span><span class="o">=</span><span class="s2">&quot;plots&quot;</span><span class="p">,</span>
+    <span class="n">filename</span><span class="o">=</span><span class="s2">&quot;scan&quot;</span><span class="p">,</span>
+    <span class="n">relax_upper</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+    <span class="n">save_option</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;plot the scan with the mode found&quot;&quot;&quot;</span>
+    <span class="n">ks</span><span class="p">,</span> <span class="n">alphas</span> <span class="o">=</span> <span class="n">get_scan_grid</span><span class="p">(</span><span class="n">graph</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">figsize</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">figsize</span> <span class="o">=</span> <span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">ks</span><span class="p">)</span> <span class="o">/</span> <span class="nb">len</span><span class="p">(</span><span class="n">alphas</span><span class="p">)</span> <span class="o">*</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">5</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">ax</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">fig</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">figure</span><span class="p">(</span><span class="n">figsize</span><span class="o">=</span><span class="n">figsize</span><span class="p">)</span>
+        <span class="n">ax</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">gca</span><span class="p">()</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">fig</span> <span class="o">=</span> <span class="kc">None</span>
+
+    <span class="n">im</span> <span class="o">=</span> <span class="n">ax</span><span class="o">.</span><span class="n">imshow</span><span class="p">(</span>
+        <span class="n">np</span><span class="o">.</span><span class="n">log10</span><span class="p">(</span><span class="n">qualities</span><span class="o">.</span><span class="n">T</span><span class="p">),</span>
+        <span class="n">extent</span><span class="o">=</span><span class="p">(</span><span class="n">ks</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">ks</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">],</span> <span class="n">alphas</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">alphas</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]),</span>
+        <span class="n">aspect</span><span class="o">=</span><span class="s2">&quot;auto&quot;</span><span class="p">,</span>
+        <span class="n">origin</span><span class="o">=</span><span class="s2">&quot;lower&quot;</span><span class="p">,</span>
+        <span class="n">cmap</span><span class="o">=</span><span class="n">plt</span><span class="o">.</span><span class="n">get_cmap</span><span class="p">(</span><span class="s2">&quot;Blues_r&quot;</span><span class="p">),</span>
+    <span class="p">)</span>
+    <span class="n">plt</span><span class="o">.</span><span class="n">axhline</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">c</span><span class="o">=</span><span class="s2">&quot;k&quot;</span><span class="p">)</span>
+    <span class="n">cbaxes</span> <span class="o">=</span> <span class="n">inset_axes</span><span class="p">(</span><span class="n">ax</span><span class="p">,</span> <span class="n">width</span><span class="o">=</span><span class="s2">&quot;2%&quot;</span><span class="p">,</span> <span class="n">height</span><span class="o">=</span><span class="s2">&quot;40%&quot;</span><span class="p">,</span> <span class="n">loc</span><span class="o">=</span><span class="s2">&quot;lower center&quot;</span><span class="p">)</span>
+    <span class="n">cbar</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">colorbar</span><span class="p">(</span><span class="n">im</span><span class="p">,</span> <span class="n">cax</span><span class="o">=</span><span class="n">cbaxes</span><span class="p">)</span>
+    <span class="n">cbar</span><span class="o">.</span><span class="n">set_label</span><span class="p">(</span><span class="sa">r</span><span class="s2">&quot;$log_</span><span class="si">{10}</span><span class="s2">(quality)$&quot;</span><span class="p">,</span> <span class="n">fontsize</span><span class="o">=</span><span class="mi">8</span><span class="p">)</span>
+
+    <span class="n">ax</span><span class="o">.</span><span class="n">set_xlabel</span><span class="p">(</span><span class="sa">r</span><span class="s2">&quot;$Real(k)$&quot;</span><span class="p">)</span>
+    <span class="n">ax</span><span class="o">.</span><span class="n">set_ylabel</span><span class="p">(</span><span class="sa">r</span><span class="s2">&quot;$\alpha = -Im(k)$&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">modes_df</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">index</span><span class="p">,</span> <span class="n">modes</span> <span class="ow">in</span> <span class="n">modes_df</span><span class="o">.</span><span class="n">iterrows</span><span class="p">():</span>
+            <span class="n">k</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">real</span><span class="p">(</span><span class="n">modes</span><span class="p">[</span><span class="s2">&quot;passive&quot;</span><span class="p">][</span><span class="mi">0</span><span class="p">])</span>
+            <span class="n">alpha</span> <span class="o">=</span> <span class="o">-</span><span class="n">np</span><span class="o">.</span><span class="n">imag</span><span class="p">(</span><span class="n">modes</span><span class="p">[</span><span class="s2">&quot;passive&quot;</span><span class="p">][</span><span class="mi">0</span><span class="p">])</span>
+            <span class="n">ax</span><span class="o">.</span><span class="n">scatter</span><span class="p">(</span>
+                <span class="n">k</span><span class="p">,</span>
+                <span class="n">alpha</span><span class="p">,</span>
+                <span class="n">marker</span><span class="o">=</span><span class="s2">&quot;o&quot;</span><span class="p">,</span>
+                <span class="n">color</span><span class="o">=</span><span class="s2">&quot;r&quot;</span><span class="p">,</span>
+                <span class="n">s</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">real</span><span class="p">(</span><span class="n">modes</span><span class="p">[</span><span class="s2">&quot;q_factor&quot;</span><span class="p">])</span> <span class="o">/</span> <span class="n">np</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">modes_df</span><span class="p">[</span><span class="s2">&quot;q_factor&quot;</span><span class="p">])</span> <span class="o">*</span> <span class="mi">20</span><span class="p">,</span>
+            <span class="p">)</span>
+            <span class="n">ax</span><span class="o">.</span><span class="n">annotate</span><span class="p">(</span><span class="n">index</span><span class="p">,</span> <span class="p">(</span><span class="n">k</span><span class="p">,</span> <span class="n">alpha</span><span class="p">),</span> <span class="n">size</span><span class="o">=</span><span class="s2">&quot;x-small&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="s2">&quot;threshold_lasing_modes&quot;</span> <span class="ow">in</span> <span class="n">modes_df</span><span class="p">:</span>
+            <span class="n">ax</span><span class="o">.</span><span class="n">scatter</span><span class="p">(</span>
+                <span class="n">np</span><span class="o">.</span><span class="n">real</span><span class="p">(</span><span class="n">modes_df</span><span class="p">[</span><span class="s2">&quot;threshold_lasing_modes&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">()),</span>
+                <span class="o">-</span><span class="n">np</span><span class="o">.</span><span class="n">imag</span><span class="p">(</span><span class="n">modes_df</span><span class="p">[</span><span class="s2">&quot;threshold_lasing_modes&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">()),</span>
+                <span class="n">c</span><span class="o">=</span><span class="s2">&quot;m&quot;</span><span class="p">,</span>
+            <span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">with_trajectories</span> <span class="ow">and</span> <span class="s2">&quot;mode_trajectories&quot;</span> <span class="ow">in</span> <span class="n">modes_df</span><span class="p">:</span>
+            <span class="n">plot_pump_traj</span><span class="p">(</span><span class="n">modes_df</span><span class="p">,</span> <span class="n">with_scatter</span><span class="o">=</span><span class="n">with_scatter</span><span class="p">,</span> <span class="n">with_approx</span><span class="o">=</span><span class="n">with_approx</span><span class="p">,</span> <span class="n">ax</span><span class="o">=</span><span class="n">ax</span><span class="p">)</span>
+
+    <span class="n">ax</span><span class="o">.</span><span class="n">axis</span><span class="p">([</span><span class="n">ks</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">ks</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">],</span> <span class="n">alphas</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">],</span> <span class="n">alphas</span><span class="p">[</span><span class="mi">0</span><span class="p">]])</span>
+
+    <span class="k">if</span> <span class="n">relax_upper</span><span class="p">:</span>
+        <span class="n">ax</span><span class="o">.</span><span class="n">set_ylim</span><span class="p">(</span>
+            <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">][</span><span class="s2">&quot;alpha_max&quot;</span><span class="p">],</span>
+            <span class="o">-</span><span class="n">np</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">imag</span><span class="p">(</span><span class="n">modes_df</span><span class="p">[</span><span class="s2">&quot;mode_trajectories&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">())),</span>
+        <span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">save_option</span><span class="p">:</span>
+        <span class="n">_savefig</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">fig</span><span class="p">,</span> <span class="n">folder</span><span class="p">,</span> <span class="n">filename</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">ax</span></div>
+
+
+<div class="viewcode-block" id="plot_pump_profile"><a class="viewcode-back" href="../../plotting.html#netsalt.plotting.plot_pump_profile">[docs]</a><span class="k">def</span> <span class="nf">plot_pump_profile</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">pump</span><span class="p">,</span> <span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">5</span><span class="p">,</span> <span class="mi">4</span><span class="p">),</span> <span class="n">ax</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">node_size</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">c</span><span class="o">=</span><span class="s2">&quot;0.8&quot;</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Plot the pump profile on top of the graph structure.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">ax</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">plt</span><span class="o">.</span><span class="n">figure</span><span class="p">(</span><span class="n">figsize</span><span class="o">=</span><span class="n">figsize</span><span class="p">)</span>
+        <span class="n">ax</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">gca</span><span class="p">()</span>
+
+    <span class="n">positions</span> <span class="o">=</span> <span class="p">[</span><span class="n">graph</span><span class="o">.</span><span class="n">nodes</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="s2">&quot;position&quot;</span><span class="p">]</span> <span class="k">for</span> <span class="n">u</span> <span class="ow">in</span> <span class="n">graph</span><span class="p">]</span>
+    <span class="n">pumped_edges</span> <span class="o">=</span> <span class="p">[</span><span class="n">e</span> <span class="k">for</span> <span class="n">e</span><span class="p">,</span> <span class="n">pump</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">graph</span><span class="o">.</span><span class="n">edges</span><span class="p">,</span> <span class="n">pump</span><span class="p">)</span> <span class="k">if</span> <span class="n">pump</span> <span class="o">&gt;</span> <span class="mf">0.0</span><span class="p">]</span>
+    <span class="n">nx</span><span class="o">.</span><span class="n">draw_networkx_edges</span><span class="p">(</span>
+        <span class="n">graph</span><span class="p">,</span>
+        <span class="n">pos</span><span class="o">=</span><span class="n">positions</span><span class="p">,</span>
+        <span class="n">edgelist</span><span class="o">=</span><span class="n">pumped_edges</span><span class="p">,</span>
+        <span class="n">edge_color</span><span class="o">=</span><span class="n">c</span><span class="p">,</span>
+        <span class="n">width</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="n">plot_quantum_graph</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">ax</span><span class="o">=</span><span class="n">ax</span><span class="p">,</span> <span class="n">node_size</span><span class="o">=</span><span class="n">node_size</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="plot_quantum_graph"><a class="viewcode-back" href="../../plotting.html#netsalt.plotting.plot_quantum_graph">[docs]</a><span class="k">def</span> <span class="nf">plot_quantum_graph</span><span class="p">(</span>
+    <span class="n">graph</span><span class="p">,</span>
+    <span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">5</span><span class="p">,</span> <span class="mi">4</span><span class="p">),</span>
+    <span class="n">ax</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">edge_colors</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">node_colors</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">node_size</span><span class="o">=</span><span class="mf">0.1</span><span class="p">,</span>
+    <span class="n">color_map</span><span class="o">=</span><span class="s2">&quot;Accent_r&quot;</span><span class="p">,</span>  <span class="c1"># coolwarm plasma</span>
+    <span class="n">cbar_min</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+    <span class="n">cbar_max</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+    <span class="n">folder</span><span class="o">=</span><span class="s2">&quot;plots&quot;</span><span class="p">,</span>
+    <span class="n">filename</span><span class="o">=</span><span class="s2">&quot;original_graph&quot;</span><span class="p">,</span>
+    <span class="n">save_option</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;plot the graph&quot;&quot;&quot;</span>
+    <span class="n">positions</span> <span class="o">=</span> <span class="p">[</span><span class="n">graph</span><span class="o">.</span><span class="n">nodes</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="s2">&quot;position&quot;</span><span class="p">]</span> <span class="k">for</span> <span class="n">u</span> <span class="ow">in</span> <span class="n">graph</span><span class="p">]</span>
+
+    <span class="k">if</span> <span class="n">ax</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">fig</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">figure</span><span class="p">(</span><span class="n">figsize</span><span class="o">=</span><span class="n">figsize</span><span class="p">)</span>
+        <span class="n">ax</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">gca</span><span class="p">()</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">fig</span> <span class="o">=</span> <span class="kc">None</span>
+
+    <span class="k">if</span> <span class="n">node_colors</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">nx</span><span class="o">.</span><span class="n">draw_networkx_nodes</span><span class="p">(</span>
+            <span class="n">graph</span><span class="p">,</span>
+            <span class="n">pos</span><span class="o">=</span><span class="n">positions</span><span class="p">,</span>
+            <span class="n">node_size</span><span class="o">=</span><span class="n">node_size</span><span class="p">,</span>
+            <span class="n">node_color</span><span class="o">=</span><span class="n">node_colors</span><span class="p">,</span>
+            <span class="n">vmin</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+            <span class="n">vmax</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">node_colors</span><span class="p">),</span>
+            <span class="n">cmap</span><span class="o">=</span><span class="n">plt</span><span class="o">.</span><span class="n">get_cmap</span><span class="p">(</span><span class="n">color_map</span><span class="p">),</span>
+        <span class="p">)</span>
+        <span class="n">nodes</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">cm</span><span class="o">.</span><span class="n">ScalarMappable</span><span class="p">(</span>
+            <span class="n">norm</span><span class="o">=</span><span class="n">plt</span><span class="o">.</span><span class="n">cm</span><span class="o">.</span><span class="n">colors</span><span class="o">.</span><span class="n">Normalize</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">node_colors</span><span class="p">)),</span>
+            <span class="n">cmap</span><span class="o">=</span><span class="n">plt</span><span class="o">.</span><span class="n">get_cmap</span><span class="p">(</span><span class="n">color_map</span><span class="p">),</span>
+        <span class="p">)</span>
+
+        <span class="n">plt</span><span class="o">.</span><span class="n">colorbar</span><span class="p">(</span><span class="n">nodes</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="sa">r</span><span class="s2">&quot;node values&quot;</span><span class="p">)</span>
+
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">nx</span><span class="o">.</span><span class="n">draw_networkx_nodes</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">pos</span><span class="o">=</span><span class="n">positions</span><span class="p">,</span> <span class="n">node_size</span><span class="o">=</span><span class="n">node_size</span><span class="p">,</span> <span class="n">node_color</span><span class="o">=</span><span class="s2">&quot;k&quot;</span><span class="p">)</span>
+
+    <span class="c1"># nx.draw_networkx_edges(graph, pos=positions)</span>
+    <span class="c1"># for edge labeling:</span>
+    <span class="c1"># labels = nx.get_edge_attributes(graph,&#39;edgelabel&#39;)</span>
+    <span class="c1"># labels = dict([((u, v), i) for i, (u, v) in enumerate(graph.edges())])</span>
+    <span class="c1"># nx.draw_networkx_edge_labels(graph, pos=positions, edge_labels=labels)</span>
+
+    <span class="k">if</span> <span class="n">edge_colors</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">edge_colors</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">real</span><span class="p">(</span><span class="n">edge_colors</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">ei</span><span class="p">,</span> <span class="n">e</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">order_edges_by</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">edge_colors</span><span class="p">)):</span>
+            <span class="n">nx</span><span class="o">.</span><span class="n">draw_networkx_edges</span><span class="p">(</span>
+                <span class="n">graph</span><span class="p">,</span>
+                <span class="n">pos</span><span class="o">=</span><span class="n">positions</span><span class="p">,</span>
+                <span class="n">edgelist</span><span class="o">=</span><span class="p">[</span><span class="n">e</span><span class="p">],</span>
+                <span class="n">edge_color</span><span class="o">=</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">sort</span><span class="p">(</span><span class="n">edge_colors</span><span class="p">)[</span><span class="n">ei</span><span class="p">]],</span>
+                <span class="n">edge_cmap</span><span class="o">=</span><span class="n">plt</span><span class="o">.</span><span class="n">get_cmap</span><span class="p">(</span><span class="n">color_map</span><span class="p">),</span>
+                <span class="n">width</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>  <span class="c1"># 5</span>
+                <span class="n">alpha</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>  <span class="c1"># 0.7</span>
+                <span class="n">edge_vmin</span><span class="o">=</span><span class="n">cbar_min</span><span class="p">,</span>
+                <span class="n">edge_vmax</span><span class="o">=</span><span class="n">cbar_max</span><span class="p">,</span>
+            <span class="p">)</span>
+
+        <span class="n">edges</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">cm</span><span class="o">.</span><span class="n">ScalarMappable</span><span class="p">(</span>
+            <span class="n">norm</span><span class="o">=</span><span class="n">plt</span><span class="o">.</span><span class="n">cm</span><span class="o">.</span><span class="n">colors</span><span class="o">.</span><span class="n">Normalize</span><span class="p">(</span><span class="n">cbar_min</span><span class="p">,</span> <span class="n">cbar_max</span><span class="p">),</span>
+            <span class="n">cmap</span><span class="o">=</span><span class="n">plt</span><span class="o">.</span><span class="n">get_cmap</span><span class="p">(</span><span class="n">color_map</span><span class="p">),</span>
+        <span class="p">)</span>
+
+        <span class="n">plt</span><span class="o">.</span><span class="n">colorbar</span><span class="p">(</span><span class="n">edges</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="sa">r</span><span class="s2">&quot;edge values&quot;</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">nx</span><span class="o">.</span><span class="n">draw_networkx_edges</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">pos</span><span class="o">=</span><span class="n">positions</span><span class="p">,</span> <span class="n">width</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+
+    <span class="n">out_nodes</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">graph</span><span class="o">.</span><span class="n">edges</span><span class="p">():</span>
+        <span class="k">if</span> <span class="s2">&quot;inner&quot;</span> <span class="ow">in</span> <span class="n">graph</span><span class="p">[</span><span class="n">e</span><span class="p">[</span><span class="mi">0</span><span class="p">]][</span><span class="n">e</span><span class="p">[</span><span class="mi">1</span><span class="p">]]</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">graph</span><span class="p">[</span><span class="n">e</span><span class="p">[</span><span class="mi">0</span><span class="p">]][</span><span class="n">e</span><span class="p">[</span><span class="mi">1</span><span class="p">]][</span><span class="s2">&quot;inner&quot;</span><span class="p">]:</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">graph</span><span class="p">[</span><span class="n">e</span><span class="p">[</span><span class="mi">0</span><span class="p">]])</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="n">out_nodes</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">e</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">graph</span><span class="p">[</span><span class="n">e</span><span class="p">[</span><span class="mi">1</span><span class="p">]])</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="n">out_nodes</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">e</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+
+    <span class="n">nx</span><span class="o">.</span><span class="n">draw_networkx_nodes</span><span class="p">(</span>
+        <span class="n">graph</span><span class="p">,</span> <span class="n">nodelist</span><span class="o">=</span><span class="n">out_nodes</span><span class="p">,</span> <span class="n">pos</span><span class="o">=</span><span class="n">positions</span><span class="p">,</span> <span class="n">node_color</span><span class="o">=</span><span class="s2">&quot;r&quot;</span><span class="p">,</span> <span class="n">node_size</span><span class="o">=</span><span class="n">node_size</span>
+    <span class="p">)</span>
+    <span class="n">plt</span><span class="o">.</span><span class="n">gca</span><span class="p">()</span><span class="o">.</span><span class="n">tick_params</span><span class="p">(</span><span class="n">left</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">bottom</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">labelleft</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">labelbottom</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">save_option</span><span class="p">:</span>
+        <span class="n">_savefig</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">fig</span><span class="p">,</span> <span class="n">folder</span><span class="p">,</span> <span class="n">filename</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="plot_pump_traj"><a class="viewcode-back" href="../../plotting.html#netsalt.plotting.plot_pump_traj">[docs]</a><span class="k">def</span> <span class="nf">plot_pump_traj</span><span class="p">(</span><span class="n">modes_df</span><span class="p">,</span> <span class="n">with_scatter</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">with_approx</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">ax</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;plot pump trajectories&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">ax</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">ax</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">gca</span><span class="p">()</span>
+
+    <span class="n">colors</span> <span class="o">=</span> <span class="n">cycle</span><span class="p">([</span><span class="sa">f</span><span class="s2">&quot;C</span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">10</span><span class="p">)])</span>
+
+    <span class="n">pumped_modes</span> <span class="o">=</span> <span class="n">modes_df</span><span class="p">[</span><span class="s2">&quot;mode_trajectories&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">pumped_mode</span> <span class="ow">in</span> <span class="n">pumped_modes</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">with_scatter</span><span class="p">:</span>
+            <span class="n">ax</span><span class="o">.</span><span class="n">scatter</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">real</span><span class="p">(</span><span class="n">pumped_mode</span><span class="p">),</span> <span class="o">-</span><span class="n">np</span><span class="o">.</span><span class="n">imag</span><span class="p">(</span><span class="n">pumped_mode</span><span class="p">),</span> <span class="n">marker</span><span class="o">=</span><span class="s2">&quot;o&quot;</span><span class="p">,</span> <span class="n">s</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">c</span><span class="o">=</span><span class="s2">&quot;b&quot;</span><span class="p">)</span>
+        <span class="n">ax</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">real</span><span class="p">(</span><span class="n">pumped_mode</span><span class="p">),</span> <span class="o">-</span><span class="n">np</span><span class="o">.</span><span class="n">imag</span><span class="p">(</span><span class="n">pumped_mode</span><span class="p">),</span> <span class="n">c</span><span class="o">=</span><span class="nb">next</span><span class="p">(</span><span class="n">colors</span><span class="p">))</span>
+
+    <span class="k">if</span> <span class="s2">&quot;mode_trajectories_approx&quot;</span> <span class="ow">in</span> <span class="n">modes_df</span> <span class="ow">and</span> <span class="n">with_approx</span><span class="p">:</span>
+        <span class="n">pumped_modes_approx</span> <span class="o">=</span> <span class="n">modes_df</span><span class="p">[</span><span class="s2">&quot;mode_trajectories_approx&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">pumped_mode_approx</span> <span class="ow">in</span> <span class="n">pumped_modes_approx</span><span class="p">:</span>
+            <span class="n">ax</span><span class="o">.</span><span class="n">scatter</span><span class="p">(</span>
+                <span class="n">np</span><span class="o">.</span><span class="n">real</span><span class="p">(</span><span class="n">pumped_mode_approx</span><span class="p">),</span>
+                <span class="o">-</span><span class="n">np</span><span class="o">.</span><span class="n">imag</span><span class="p">(</span><span class="n">pumped_mode_approx</span><span class="p">),</span>
+                <span class="n">marker</span><span class="o">=</span><span class="s2">&quot;+&quot;</span><span class="p">,</span>
+                <span class="n">s</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span>
+                <span class="n">c</span><span class="o">=</span><span class="s2">&quot;k&quot;</span><span class="p">,</span>
+            <span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="plot_single_mode"><a class="viewcode-back" href="../../plotting.html#netsalt.plotting.plot_single_mode">[docs]</a><span class="k">def</span> <span class="nf">plot_single_mode</span><span class="p">(</span>
+    <span class="n">graph</span><span class="p">,</span>
+    <span class="n">modes_df</span><span class="p">,</span>
+    <span class="n">index</span><span class="p">,</span>
+    <span class="n">df_entry</span><span class="o">=</span><span class="s2">&quot;passive&quot;</span><span class="p">,</span>
+    <span class="n">colorbar</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">ax</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">edge_vmin</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">edge_vmax</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Plot single mode on the graph.&quot;&quot;&quot;</span>
+    <span class="n">mode</span> <span class="o">=</span> <span class="n">modes_df</span><span class="p">[</span><span class="n">df_entry</span><span class="p">][</span><span class="n">index</span><span class="p">]</span>
+    <span class="k">if</span> <span class="n">df_entry</span> <span class="o">==</span> <span class="s2">&quot;threshold_lasing_modes&quot;</span><span class="p">:</span>
+        <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">][</span><span class="s2">&quot;D0&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">modes_df</span><span class="p">[</span><span class="s2">&quot;lasing_thresholds&quot;</span><span class="p">][</span><span class="n">index</span><span class="p">]</span>
+    <span class="n">ax</span> <span class="o">=</span> <span class="n">_plot_single_mode</span><span class="p">(</span>
+        <span class="n">graph</span><span class="p">,</span> <span class="n">mode</span><span class="p">,</span> <span class="n">ax</span><span class="o">=</span><span class="n">ax</span><span class="p">,</span> <span class="n">colorbar</span><span class="o">=</span><span class="n">colorbar</span><span class="p">,</span> <span class="n">edge_vmin</span><span class="o">=</span><span class="n">edge_vmin</span><span class="p">,</span> <span class="n">edge_vmax</span><span class="o">=</span><span class="n">edge_vmax</span>
+    <span class="p">)</span>
+    <span class="n">ax</span><span class="o">.</span><span class="n">set_title</span><span class="p">(</span>
+        <span class="s2">&quot;mode &quot;</span>
+        <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">index</span><span class="p">)</span>
+        <span class="o">+</span> <span class="s2">&quot;, k = &quot;</span>
+        <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">around</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">real</span><span class="p">(</span><span class="n">mode</span><span class="p">),</span> <span class="mi">3</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span><span class="n">j</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">around</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">imag</span><span class="p">(</span><span class="n">mode</span><span class="p">),</span> <span class="mi">3</span><span class="p">))</span>
+    <span class="p">)</span></div>
+
+
+<span class="k">def</span> <span class="nf">_plot_single_mode</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">mode</span><span class="p">,</span> <span class="n">ax</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">colorbar</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">edge_vmin</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">edge_vmax</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+    <span class="n">positions</span> <span class="o">=</span> <span class="p">[</span><span class="n">graph</span><span class="o">.</span><span class="n">nodes</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="s2">&quot;position&quot;</span><span class="p">]</span> <span class="k">for</span> <span class="n">u</span> <span class="ow">in</span> <span class="n">graph</span><span class="p">]</span>
+    <span class="n">edge_solution</span> <span class="o">=</span> <span class="n">mean_mode_on_edges</span><span class="p">(</span><span class="n">mode</span><span class="p">,</span> <span class="n">graph</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">ax</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">plt</span><span class="o">.</span><span class="n">figure</span><span class="p">(</span><span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">5</span><span class="p">,</span> <span class="mi">4</span><span class="p">))</span>  <span class="c1"># 14,3</span>
+        <span class="n">ax</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">gca</span><span class="p">()</span>
+
+    <span class="n">nx</span><span class="o">.</span><span class="n">draw</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">pos</span><span class="o">=</span><span class="n">positions</span><span class="p">,</span> <span class="n">node_size</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">width</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">ax</span><span class="o">=</span><span class="n">ax</span><span class="p">)</span>
+
+    <span class="n">cmap</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">get_cmap</span><span class="p">(</span><span class="s2">&quot;PuRd&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">edge_vmax</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">edge_vmax</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">edge_solution</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">edge_vmin</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">edge_vmin</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="n">edge_solution</span><span class="p">)</span>
+    <span class="n">nx</span><span class="o">.</span><span class="n">draw_networkx_edges</span><span class="p">(</span>
+        <span class="n">graph</span><span class="p">,</span>
+        <span class="n">pos</span><span class="o">=</span><span class="n">positions</span><span class="p">,</span>
+        <span class="n">edge_color</span><span class="o">=</span><span class="n">edge_solution</span><span class="p">,</span>
+        <span class="n">width</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+        <span class="n">edge_cmap</span><span class="o">=</span><span class="n">cmap</span><span class="p">,</span>
+        <span class="n">edge_vmin</span><span class="o">=</span><span class="n">edge_vmin</span><span class="p">,</span>
+        <span class="n">edge_vmax</span><span class="o">=</span><span class="n">edge_vmax</span><span class="p">,</span>
+        <span class="n">ax</span><span class="o">=</span><span class="n">ax</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="k">if</span> <span class="n">colorbar</span><span class="p">:</span>
+        <span class="n">sm</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">cm</span><span class="o">.</span><span class="n">ScalarMappable</span><span class="p">(</span><span class="n">cmap</span><span class="o">=</span><span class="n">cmap</span><span class="p">,</span> <span class="n">norm</span><span class="o">=</span><span class="n">plt</span><span class="o">.</span><span class="n">Normalize</span><span class="p">(</span><span class="n">vmin</span><span class="o">=</span><span class="n">edge_vmin</span><span class="p">,</span> <span class="n">vmax</span><span class="o">=</span><span class="n">edge_vmax</span><span class="p">))</span>
+        <span class="n">sm</span><span class="o">.</span><span class="n">set_array</span><span class="p">([])</span>
+        <span class="n">plt</span><span class="o">.</span><span class="n">colorbar</span><span class="p">(</span><span class="n">sm</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="sa">r</span><span class="s2">&quot;$|E|^2$ (a.u)&quot;</span><span class="p">,</span> <span class="n">shrink</span><span class="o">=</span><span class="mf">0.5</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">ax</span>
+
+
+<div class="viewcode-block" id="plot_modes"><a class="viewcode-back" href="../../plotting.html#netsalt.plotting.plot_modes">[docs]</a><span class="k">def</span> <span class="nf">plot_modes</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">modes_df</span><span class="p">,</span> <span class="n">df_entry</span><span class="o">=</span><span class="s2">&quot;passive&quot;</span><span class="p">,</span> <span class="n">folder</span><span class="o">=</span><span class="s2">&quot;modes&quot;</span><span class="p">,</span> <span class="n">ext</span><span class="o">=</span><span class="s2">&quot;.png&quot;</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Plot modes on the graph.&quot;&quot;&quot;</span>
+    <span class="k">for</span> <span class="n">index</span> <span class="ow">in</span> <span class="n">tqdm</span><span class="p">(</span><span class="n">modes_df</span><span class="o">.</span><span class="n">index</span><span class="p">,</span> <span class="n">total</span><span class="o">=</span><span class="nb">len</span><span class="p">(</span><span class="n">modes_df</span><span class="p">)):</span>
+        <span class="n">plot_single_mode</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">modes_df</span><span class="p">,</span> <span class="n">index</span><span class="p">,</span> <span class="n">df_entry</span><span class="p">)</span>
+
+        <span class="n">plt</span><span class="o">.</span><span class="n">savefig</span><span class="p">(</span><span class="n">folder</span> <span class="o">+</span> <span class="s2">&quot;/mode_&quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">index</span><span class="p">)</span> <span class="o">+</span> <span class="n">ext</span><span class="p">)</span>
+        <span class="n">plt</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="k">if</span> <span class="s2">&quot;name&quot;</span> <span class="ow">in</span> <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;name&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;line_PRA&quot;</span> <span class="ow">or</span> <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;name&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;line_semi&quot;</span><span class="p">:</span>
+                <span class="n">plot_line_mode</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">modes_df</span><span class="p">,</span> <span class="n">index</span><span class="p">,</span> <span class="n">df_entry</span><span class="p">)</span>
+                <span class="n">plt</span><span class="o">.</span><span class="n">savefig</span><span class="p">(</span><span class="n">folder</span> <span class="o">+</span> <span class="s2">&quot;/profile_mode_&quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">index</span><span class="p">)</span> <span class="o">+</span> <span class="n">ext</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="plot_mode_evolution"><a class="viewcode-back" href="../../plotting.html#netsalt.plotting.plot_mode_evolution">[docs]</a><span class="k">def</span> <span class="nf">plot_mode_evolution</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">modes_df</span><span class="p">,</span> <span class="n">index</span><span class="p">,</span> <span class="n">folder</span><span class="o">=</span><span class="s2">&quot;mode_evolution&quot;</span><span class="p">,</span> <span class="n">ext</span><span class="o">=</span><span class="s2">&quot;.png&quot;</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Plot mode evolution as a function of pump power.&quot;&quot;&quot;</span>
+    <span class="n">modes</span> <span class="o">=</span> <span class="n">modes_df</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="n">index</span><span class="p">,</span> <span class="s2">&quot;mode_trajectories&quot;</span><span class="p">]</span>
+    <span class="n">Path</span><span class="p">(</span><span class="n">folder</span><span class="p">)</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">parents</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">d0</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">modes</span><span class="o">.</span><span class="n">index</span><span class="p">):</span>
+        <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">][</span><span class="s2">&quot;D0&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">d0</span>
+        <span class="n">_plot_single_mode</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">modes</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="n">d0</span><span class="p">])</span>
+        <span class="n">plt</span><span class="o">.</span><span class="n">suptitle</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;D0=</span><span class="si">{</span><span class="n">np</span><span class="o">.</span><span class="n">around</span><span class="p">(</span><span class="n">d0</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="n">plt</span><span class="o">.</span><span class="n">savefig</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">folder</span><span class="si">}</span><span class="s2">/mode_</span><span class="si">{</span><span class="n">index</span><span class="si">}</span><span class="s2">_D0_</span><span class="si">{</span><span class="n">i</span><span class="si">:</span><span class="s2">03d</span><span class="si">}{</span><span class="n">ext</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="n">plt</span><span class="o">.</span><span class="n">close</span><span class="p">()</span></div>
+
+
+<div class="viewcode-block" id="plot_line_mode"><a class="viewcode-back" href="../../plotting.html#netsalt.plotting.plot_line_mode">[docs]</a><span class="k">def</span> <span class="nf">plot_line_mode</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">modes_df</span><span class="p">,</span> <span class="n">index</span><span class="p">,</span> <span class="n">df_entry</span><span class="o">=</span><span class="s2">&quot;passive&quot;</span><span class="p">,</span> <span class="n">ax</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Plot single mode on the line.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">ax</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">plt</span><span class="o">.</span><span class="n">figure</span><span class="p">(</span><span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">5</span><span class="p">,</span> <span class="mi">4</span><span class="p">))</span>
+        <span class="n">ax</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">gca</span><span class="p">()</span>
+
+    <span class="n">mode</span> <span class="o">=</span> <span class="n">modes_df</span><span class="p">[</span><span class="n">df_entry</span><span class="p">][</span><span class="n">index</span><span class="p">]</span>
+
+    <span class="k">if</span> <span class="n">df_entry</span> <span class="o">==</span> <span class="s2">&quot;threshold_lasing_modes&quot;</span><span class="p">:</span>
+        <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">][</span><span class="s2">&quot;D0&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">modes_df</span><span class="p">[</span><span class="s2">&quot;lasing_thresholds&quot;</span><span class="p">][</span><span class="n">index</span><span class="p">]</span>
+
+    <span class="n">node_solution</span> <span class="o">=</span> <span class="n">mode_on_nodes</span><span class="p">(</span><span class="n">mode</span><span class="p">,</span> <span class="n">graph</span><span class="p">)</span>
+
+    <span class="n">position_x</span> <span class="o">=</span> <span class="p">[</span><span class="n">graph</span><span class="o">.</span><span class="n">nodes</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="s2">&quot;position&quot;</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span> <span class="k">for</span> <span class="n">u</span> <span class="ow">in</span> <span class="n">graph</span><span class="p">]</span>
+    <span class="n">E_sorted</span> <span class="o">=</span> <span class="n">node_solution</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">argsort</span><span class="p">(</span><span class="n">position_x</span><span class="p">)]</span>
+    <span class="n">node_positions</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sort</span><span class="p">(</span><span class="n">position_x</span> <span class="o">-</span> <span class="n">position_x</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+    <span class="n">maxE2</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="nb">abs</span><span class="p">(</span><span class="n">E_sorted</span><span class="p">[</span><span class="mi">1</span><span class="p">:</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span> <span class="o">**</span> <span class="mi">2</span><span class="p">)</span>
+
+    <span class="n">ax</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">node_positions</span><span class="p">[</span><span class="mi">1</span><span class="p">:</span><span class="o">-</span><span class="mi">1</span><span class="p">],</span> <span class="nb">abs</span><span class="p">(</span><span class="n">E_sorted</span><span class="p">[</span><span class="mi">1</span><span class="p">:</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span> <span class="o">**</span> <span class="mi">2</span> <span class="o">/</span> <span class="n">maxE2</span><span class="p">)</span>
+
+    <span class="n">ax</span><span class="o">.</span><span class="n">set_title</span><span class="p">(</span>
+        <span class="s2">&quot;mode &quot;</span>
+        <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">index</span><span class="p">)</span>
+        <span class="o">+</span> <span class="s2">&quot;k = &quot;</span>
+        <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">around</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">real</span><span class="p">(</span><span class="n">mode</span><span class="p">),</span> <span class="mi">3</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span><span class="n">j</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">around</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">imag</span><span class="p">(</span><span class="n">mode</span><span class="p">),</span> <span class="mi">3</span><span class="p">))</span>
+    <span class="p">)</span></div>
+</pre></div>
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="../../index.html">netSALT</a></h1>
+
+
+
+
+
+
+
+
+<h3>Navigation</h3>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../modes.html">The modes module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../physics.html">The physics module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../quantum_graph.html">The quantum graph module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../algorithm.html">The algorithm module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../pump.html">The pump module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../plotting.html">The plotting module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../io.html">The io module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../utils.html">The utils module</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../../index.html">Documentation overview</a><ul>
+  <li><a href="../index.html">Module code</a><ul>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
+<div id="searchbox" style="display: none" role="search">
+  <h3 id="searchlabel">Quick search</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" />
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</div>
+<script>$('#searchbox').show(0);</script>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2020, Alexis Arnaudon.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 3.5.4</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.12</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

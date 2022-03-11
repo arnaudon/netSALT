@@ -1,0 +1,976 @@
+
+<!DOCTYPE html>
+
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>netsalt.modes &#8212; netSALT  documentation</title>
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/alabaster.css" type="text/css" />
+    <script id="documentation_options" data-url_root="../../" src="../../_static/documentation_options.js"></script>
+    <script src="../../_static/jquery.js"></script>
+    <script src="../../_static/underscore.js"></script>
+    <script src="../../_static/doctools.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+   
+  <link rel="stylesheet" href="../../_static/custom.css" type="text/css" />
+  
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9" />
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <h1>Source code for netsalt.modes</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;Functions related to modes.&quot;&quot;&quot;</span>
+<span class="kn">import</span> <span class="nn">logging</span>
+<span class="kn">import</span> <span class="nn">multiprocessing</span>
+<span class="kn">import</span> <span class="nn">warnings</span>
+<span class="kn">from</span> <span class="nn">functools</span> <span class="kn">import</span> <span class="n">partial</span>
+
+<span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
+<span class="kn">import</span> <span class="nn">pandas</span> <span class="k">as</span> <span class="nn">pd</span>
+<span class="kn">import</span> <span class="nn">scipy</span> <span class="k">as</span> <span class="nn">sc</span>
+<span class="kn">from</span> <span class="nn">tqdm</span> <span class="kn">import</span> <span class="n">tqdm</span>
+
+<span class="kn">from</span> <span class="nn">.algorithm</span> <span class="kn">import</span> <span class="p">(</span>
+    <span class="n">clean_duplicate_modes</span><span class="p">,</span>
+    <span class="n">find_rough_modes_from_scan</span><span class="p">,</span>
+    <span class="n">refine_mode_brownian_ratchet</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span> <span class="nn">.physics</span> <span class="kn">import</span> <span class="n">gamma</span><span class="p">,</span> <span class="n">q_value</span>
+<span class="kn">from</span> <span class="nn">.quantum_graph</span> <span class="kn">import</span> <span class="p">(</span>
+    <span class="n">construct_incidence_matrix</span><span class="p">,</span>
+    <span class="n">construct_laplacian</span><span class="p">,</span>
+    <span class="n">construct_weight_matrix</span><span class="p">,</span>
+    <span class="n">mode_quality</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span> <span class="nn">.utils</span> <span class="kn">import</span> <span class="n">from_complex</span><span class="p">,</span> <span class="n">get_scan_grid</span><span class="p">,</span> <span class="n">to_complex</span>
+
+<span class="n">warnings</span><span class="o">.</span><span class="n">filterwarnings</span><span class="p">(</span><span class="s2">&quot;ignore&quot;</span><span class="p">)</span>
+<span class="n">warnings</span><span class="o">.</span><span class="n">filterwarnings</span><span class="p">(</span><span class="s2">&quot;error&quot;</span><span class="p">,</span> <span class="n">category</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">ComplexWarning</span><span class="p">)</span>
+
+<span class="n">L</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
+
+<span class="c1"># pylint: disable=too-many-locals</span>
+
+
+<div class="viewcode-block" id="WorkerModes"><a class="viewcode-back" href="../../modes.html#netsalt.modes.WorkerModes">[docs]</a><span class="k">class</span> <span class="nc">WorkerModes</span><span class="p">:</span>
+    <span class="sd">&quot;&quot;&quot;Worker to find modes.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">estimated_modes</span><span class="p">,</span> <span class="n">graph</span><span class="p">,</span> <span class="n">D0s</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">search_radii</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">seed</span><span class="o">=</span><span class="mi">42</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Init function of the worker.&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">graph</span> <span class="o">=</span> <span class="n">graph</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">params</span> <span class="o">=</span> <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">estimated_modes</span> <span class="o">=</span> <span class="n">estimated_modes</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">D0s</span> <span class="o">=</span> <span class="n">D0s</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">search_radii</span> <span class="o">=</span> <span class="n">search_radii</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">seed</span> <span class="o">=</span> <span class="n">seed</span>
+
+<div class="viewcode-block" id="WorkerModes.set_search_radii"><a class="viewcode-back" href="../../modes.html#netsalt.modes.WorkerModes.set_search_radii">[docs]</a>    <span class="k">def</span> <span class="nf">set_search_radii</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">mode</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;This fixes a local search region set by search radii.&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">params</span><span class="p">[</span><span class="s2">&quot;k_min&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">mode</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">search_radii</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">params</span><span class="p">[</span><span class="s2">&quot;k_max&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">mode</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">search_radii</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">params</span><span class="p">[</span><span class="s2">&quot;alpha_min&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">mode</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">search_radii</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">params</span><span class="p">[</span><span class="s2">&quot;alpha_max&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">mode</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">search_radii</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+        <span class="c1"># the 0.1 is hardcoded, and seems to be a good value</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">params</span><span class="p">[</span><span class="s2">&quot;search_stepsize&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.1</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">norm</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">search_radii</span><span class="p">)</span></div>
+
+    <span class="k">def</span> <span class="fm">__call__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">mode_id</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Call function of the worker.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">D0s</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">params</span><span class="p">[</span><span class="s2">&quot;D0&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">D0s</span><span class="p">[</span><span class="n">mode_id</span><span class="p">]</span>
+        <span class="n">mode</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">estimated_modes</span><span class="p">[</span><span class="n">mode_id</span><span class="p">]</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">search_radii</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">set_search_radii</span><span class="p">(</span><span class="n">mode</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">refine_mode_brownian_ratchet</span><span class="p">(</span><span class="n">mode</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">graph</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">params</span><span class="p">,</span> <span class="n">seed</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">seed</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="WorkerScan"><a class="viewcode-back" href="../../modes.html#netsalt.modes.WorkerScan">[docs]</a><span class="k">class</span> <span class="nc">WorkerScan</span><span class="p">:</span>
+    <span class="sd">&quot;&quot;&quot;Worker to scan complex frequency.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">graph</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">graph</span> <span class="o">=</span> <span class="n">graph</span>
+        <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">seed</span><span class="p">(</span><span class="mi">42</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="fm">__call__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">freq</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">mode_quality</span><span class="p">(</span><span class="n">to_complex</span><span class="p">(</span><span class="n">freq</span><span class="p">),</span> <span class="bp">self</span><span class="o">.</span><span class="n">graph</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="scan_frequencies"><a class="viewcode-back" href="../../modes.html#netsalt.modes.scan_frequencies">[docs]</a><span class="k">def</span> <span class="nf">scan_frequencies</span><span class="p">(</span><span class="n">graph</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Scan a range of complex frequencies and return mode qualities.&quot;&quot;&quot;</span>
+    <span class="n">ks</span><span class="p">,</span> <span class="n">alphas</span> <span class="o">=</span> <span class="n">get_scan_grid</span><span class="p">(</span><span class="n">graph</span><span class="p">)</span>
+    <span class="n">freqs</span> <span class="o">=</span> <span class="p">[[</span><span class="n">k</span><span class="p">,</span> <span class="n">a</span><span class="p">]</span> <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">ks</span> <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">alphas</span><span class="p">]</span>
+
+    <span class="n">worker_scan</span> <span class="o">=</span> <span class="n">WorkerScan</span><span class="p">(</span><span class="n">graph</span><span class="p">)</span>
+    <span class="n">chunksize</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="mf">0.1</span> <span class="o">*</span> <span class="nb">len</span><span class="p">(</span><span class="n">freqs</span><span class="p">)</span> <span class="o">/</span> <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">][</span><span class="s2">&quot;n_workers&quot;</span><span class="p">]))</span>
+    <span class="k">with</span> <span class="n">multiprocessing</span><span class="o">.</span><span class="n">Pool</span><span class="p">(</span><span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">][</span><span class="s2">&quot;n_workers&quot;</span><span class="p">])</span> <span class="k">as</span> <span class="n">pool</span><span class="p">:</span>
+        <span class="n">qualities_list</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span>
+            <span class="n">tqdm</span><span class="p">(</span>
+                <span class="n">pool</span><span class="o">.</span><span class="n">imap</span><span class="p">(</span><span class="n">worker_scan</span><span class="p">,</span> <span class="n">freqs</span><span class="p">,</span> <span class="n">chunksize</span><span class="o">=</span><span class="n">chunksize</span><span class="p">),</span>
+                <span class="n">total</span><span class="o">=</span><span class="nb">len</span><span class="p">(</span><span class="n">freqs</span><span class="p">),</span>
+            <span class="p">)</span>
+        <span class="p">)</span>
+
+    <span class="n">id_k</span> <span class="o">=</span> <span class="p">[</span><span class="n">k_i</span> <span class="k">for</span> <span class="n">k_i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">ks</span><span class="p">))</span> <span class="k">for</span> <span class="n">a_i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">alphas</span><span class="p">))]</span>
+    <span class="n">id_a</span> <span class="o">=</span> <span class="p">[</span><span class="n">a_i</span> <span class="k">for</span> <span class="n">k_i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">ks</span><span class="p">))</span> <span class="k">for</span> <span class="n">a_i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">alphas</span><span class="p">))]</span>
+    <span class="n">qualities</span> <span class="o">=</span> <span class="n">sc</span><span class="o">.</span><span class="n">sparse</span><span class="o">.</span><span class="n">coo_matrix</span><span class="p">(</span>
+        <span class="p">(</span><span class="n">qualities_list</span><span class="p">,</span> <span class="p">(</span><span class="n">id_k</span><span class="p">,</span> <span class="n">id_a</span><span class="p">)),</span>
+        <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">][</span><span class="s2">&quot;k_n&quot;</span><span class="p">],</span> <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">][</span><span class="s2">&quot;alpha_n&quot;</span><span class="p">]),</span>
+    <span class="p">)</span><span class="o">.</span><span class="n">toarray</span><span class="p">()</span>
+
+    <span class="k">return</span> <span class="n">qualities</span></div>
+
+
+<span class="k">def</span> <span class="nf">_init_dataframe</span><span class="p">():</span>
+    <span class="sd">&quot;&quot;&quot;Initialize multicolumn dataframe.&quot;&quot;&quot;</span>
+    <span class="n">indexes</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">MultiIndex</span><span class="p">(</span><span class="n">levels</span><span class="o">=</span><span class="p">[[],</span> <span class="p">[]],</span> <span class="n">codes</span><span class="o">=</span><span class="p">[[],</span> <span class="p">[]],</span> <span class="n">names</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;data&quot;</span><span class="p">,</span> <span class="s2">&quot;D0&quot;</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">columns</span><span class="o">=</span><span class="n">indexes</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="find_modes"><a class="viewcode-back" href="../../modes.html#netsalt.modes.find_modes">[docs]</a><span class="k">def</span> <span class="nf">find_modes</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">qualities</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Find the modes from a scan.&quot;&quot;&quot;</span>
+    <span class="n">ks</span><span class="p">,</span> <span class="n">alphas</span> <span class="o">=</span> <span class="n">get_scan_grid</span><span class="p">(</span><span class="n">graph</span><span class="p">)</span>
+    <span class="n">estimated_modes</span> <span class="o">=</span> <span class="n">find_rough_modes_from_scan</span><span class="p">(</span>
+        <span class="n">ks</span><span class="p">,</span> <span class="n">alphas</span><span class="p">,</span> <span class="n">qualities</span><span class="p">,</span> <span class="n">min_distance</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">threshold_abs</span><span class="o">=</span><span class="mf">1.0</span>
+    <span class="p">)</span>
+    <span class="n">L</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Found </span><span class="si">%s</span><span class="s2"> mode candidates.&quot;</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">estimated_modes</span><span class="p">))</span>
+    <span class="n">search_radii</span> <span class="o">=</span> <span class="p">[</span><span class="mi">1</span> <span class="o">*</span> <span class="p">(</span><span class="n">ks</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">-</span> <span class="n">ks</span><span class="p">[</span><span class="mi">0</span><span class="p">]),</span> <span class="mi">1</span> <span class="o">*</span> <span class="p">(</span><span class="n">alphas</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">-</span> <span class="n">alphas</span><span class="p">[</span><span class="mi">0</span><span class="p">])]</span>
+    <span class="n">worker_modes</span> <span class="o">=</span> <span class="n">WorkerModes</span><span class="p">(</span><span class="n">estimated_modes</span><span class="p">,</span> <span class="n">graph</span><span class="p">,</span> <span class="n">search_radii</span><span class="o">=</span><span class="n">search_radii</span><span class="p">)</span>
+    <span class="k">with</span> <span class="n">multiprocessing</span><span class="o">.</span><span class="n">Pool</span><span class="p">(</span><span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">][</span><span class="s2">&quot;n_workers&quot;</span><span class="p">])</span> <span class="k">as</span> <span class="n">pool</span><span class="p">:</span>
+        <span class="n">refined_modes</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span>
+            <span class="n">tqdm</span><span class="p">(</span>
+                <span class="n">pool</span><span class="o">.</span><span class="n">imap</span><span class="p">(</span><span class="n">worker_modes</span><span class="p">,</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">estimated_modes</span><span class="p">))),</span>
+                <span class="n">total</span><span class="o">=</span><span class="nb">len</span><span class="p">(</span><span class="n">estimated_modes</span><span class="p">),</span>
+            <span class="p">)</span>
+        <span class="p">)</span>
+
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">refined_modes</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s2">&quot;No modes found!&quot;</span><span class="p">)</span>
+
+    <span class="n">refined_modes</span> <span class="o">=</span> <span class="p">[</span><span class="n">refined_mode</span> <span class="k">for</span> <span class="n">refined_mode</span> <span class="ow">in</span> <span class="n">refined_modes</span> <span class="k">if</span> <span class="n">refined_mode</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">]</span>
+
+    <span class="n">true_modes</span> <span class="o">=</span> <span class="n">clean_duplicate_modes</span><span class="p">(</span><span class="n">refined_modes</span><span class="p">,</span> <span class="n">ks</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">-</span> <span class="n">ks</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">alphas</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">-</span> <span class="n">alphas</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+    <span class="n">L</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Found </span><span class="si">%s</span><span class="s2"> after refinements.&quot;</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">true_modes</span><span class="p">))</span>
+
+    <span class="c1"># sort by decreasing Q*\Gamma value</span>
+    <span class="n">_gammas</span> <span class="o">=</span> <span class="n">gamma</span><span class="p">(</span><span class="n">to_complex</span><span class="p">(</span><span class="n">true_modes</span><span class="o">.</span><span class="n">T</span><span class="p">),</span> <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">])</span>
+    <span class="n">q_factors</span> <span class="o">=</span> <span class="o">-</span><span class="n">np</span><span class="o">.</span><span class="n">imag</span><span class="p">(</span><span class="n">_gammas</span><span class="p">)</span> <span class="o">*</span> <span class="n">true_modes</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">]</span> <span class="o">/</span> <span class="p">(</span><span class="mi">2</span> <span class="o">*</span> <span class="n">true_modes</span><span class="p">[:,</span> <span class="mi">1</span><span class="p">])</span>
+    <span class="n">modes_sorted</span> <span class="o">=</span> <span class="n">true_modes</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">argsort</span><span class="p">(</span><span class="n">q_factors</span><span class="p">)[::</span><span class="o">-</span><span class="mi">1</span><span class="p">]]</span>
+    <span class="n">q_factors</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sort</span><span class="p">(</span><span class="n">q_factors</span><span class="p">)[::</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+    <span class="k">if</span> <span class="s2">&quot;n_modes_max&quot;</span> <span class="ow">in</span> <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">]</span> <span class="ow">and</span> <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">][</span><span class="s2">&quot;n_modes_max&quot;</span><span class="p">]:</span>
+        <span class="n">L</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+            <span class="s2">&quot;...but we will use the top </span><span class="si">%s</span><span class="s2"> modes only&quot;</span><span class="p">,</span>
+            <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">][</span><span class="s2">&quot;n_modes_max&quot;</span><span class="p">],</span>
+        <span class="p">)</span>
+        <span class="n">modes_sorted</span> <span class="o">=</span> <span class="n">modes_sorted</span><span class="p">[:</span> <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">][</span><span class="s2">&quot;n_modes_max&quot;</span><span class="p">]]</span>
+        <span class="n">q_factors</span> <span class="o">=</span> <span class="n">q_factors</span><span class="p">[:</span> <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">][</span><span class="s2">&quot;n_modes_max&quot;</span><span class="p">]]</span>
+
+    <span class="n">modes_df</span> <span class="o">=</span> <span class="n">_init_dataframe</span><span class="p">()</span>
+    <span class="n">modes_df</span><span class="p">[</span><span class="s2">&quot;passive&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">to_complex</span><span class="p">(</span><span class="n">mode_sorted</span><span class="p">)</span> <span class="k">for</span> <span class="n">mode_sorted</span> <span class="ow">in</span> <span class="n">modes_sorted</span><span class="p">]</span>
+    <span class="n">modes_df</span><span class="p">[</span><span class="s2">&quot;q_factor&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">q_factors</span>
+    <span class="k">return</span> <span class="n">modes_df</span></div>
+
+
+<span class="k">def</span> <span class="nf">_convert_edges</span><span class="p">(</span><span class="n">vector</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Convert single edge values to double edges.&quot;&quot;&quot;</span>
+    <span class="n">edge_vector</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="mi">2</span> <span class="o">*</span> <span class="nb">len</span><span class="p">(</span><span class="n">vector</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">complex128</span><span class="p">)</span>
+    <span class="n">edge_vector</span><span class="p">[::</span><span class="mi">2</span><span class="p">]</span> <span class="o">=</span> <span class="n">vector</span>
+    <span class="n">edge_vector</span><span class="p">[</span><span class="mi">1</span><span class="p">::</span><span class="mi">2</span><span class="p">]</span> <span class="o">=</span> <span class="n">vector</span>
+    <span class="k">return</span> <span class="n">edge_vector</span>
+
+
+<span class="k">def</span> <span class="nf">_get_dielectric_constant_matrix</span><span class="p">(</span><span class="n">params</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Return sparse diagonal matrix of dielectric constants.&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">sc</span><span class="o">.</span><span class="n">sparse</span><span class="o">.</span><span class="n">diags</span><span class="p">(</span><span class="n">_convert_edges</span><span class="p">(</span><span class="n">params</span><span class="p">[</span><span class="s2">&quot;dielectric_constant&quot;</span><span class="p">]))</span>
+
+
+<span class="k">def</span> <span class="nf">_get_mask_matrices</span><span class="p">(</span><span class="n">params</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Return sparse diagonal matrices of pump and inner edge masks.&quot;&quot;&quot;</span>
+    <span class="n">in_mask</span> <span class="o">=</span> <span class="n">sc</span><span class="o">.</span><span class="n">sparse</span><span class="o">.</span><span class="n">diags</span><span class="p">(</span><span class="n">_convert_edges</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">params</span><span class="p">[</span><span class="s2">&quot;inner&quot;</span><span class="p">])))</span>
+    <span class="n">pump_mask</span> <span class="o">=</span> <span class="n">sc</span><span class="o">.</span><span class="n">sparse</span><span class="o">.</span><span class="n">diags</span><span class="p">(</span><span class="n">_convert_edges</span><span class="p">(</span><span class="n">params</span><span class="p">[</span><span class="s2">&quot;pump&quot;</span><span class="p">]))</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">in_mask</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">in_mask</span><span class="p">,</span> <span class="n">pump_mask</span>
+
+
+<span class="k">def</span> <span class="nf">_graph_norm</span><span class="p">(</span><span class="n">BT</span><span class="p">,</span> <span class="n">Bout</span><span class="p">,</span> <span class="n">Winv</span><span class="p">,</span> <span class="n">z_matrix</span><span class="p">,</span> <span class="n">node_solution</span><span class="p">,</span> <span class="n">mask</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Compute the norm of the node solution on the graph.&quot;&quot;&quot;</span>
+    <span class="n">weight_matrix</span> <span class="o">=</span> <span class="n">Winv</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">z_matrix</span><span class="p">)</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">Winv</span><span class="p">)</span>
+    <span class="n">inner_matrix</span> <span class="o">=</span> <span class="n">BT</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">weight_matrix</span><span class="p">)</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">mask</span><span class="p">)</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">Bout</span><span class="p">)</span>
+    <span class="n">norm</span> <span class="o">=</span> <span class="n">node_solution</span><span class="o">.</span><span class="n">T</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">inner_matrix</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">node_solution</span><span class="p">))</span>
+    <span class="k">return</span> <span class="n">norm</span>
+
+
+<div class="viewcode-block" id="compute_z_matrix"><a class="viewcode-back" href="../../modes.html#netsalt.modes.compute_z_matrix">[docs]</a><span class="k">def</span> <span class="nf">compute_z_matrix</span><span class="p">(</span><span class="n">graph</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Construct the matrix Z used for computing the pump overlapping factor.&quot;&quot;&quot;</span>
+    <span class="n">data_diag</span> <span class="o">=</span> <span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="mf">2.0</span><span class="n">j</span> <span class="o">*</span> <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;lengths&quot;</span><span class="p">]</span> <span class="o">*</span> <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;ks&quot;</span><span class="p">])</span> <span class="o">-</span> <span class="mf">1.0</span><span class="p">)</span> <span class="o">/</span> <span class="p">(</span>
+        <span class="mf">2.0</span><span class="n">j</span> <span class="o">*</span> <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;ks&quot;</span><span class="p">]</span>
+    <span class="p">)</span>
+    <span class="n">data_off_diag</span> <span class="o">=</span> <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;lengths&quot;</span><span class="p">]</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span>
+        <span class="mf">1.0</span><span class="n">j</span> <span class="o">*</span> <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;lengths&quot;</span><span class="p">]</span> <span class="o">*</span> <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;ks&quot;</span><span class="p">]</span>
+    <span class="p">)</span>
+    <span class="n">data</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">dstack</span><span class="p">([</span><span class="n">data_diag</span><span class="p">,</span> <span class="n">data_diag</span><span class="p">,</span> <span class="n">data_off_diag</span><span class="p">,</span> <span class="n">data_off_diag</span><span class="p">])</span><span class="o">.</span><span class="n">flatten</span><span class="p">()</span>
+
+    <span class="n">m</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">graph</span><span class="o">.</span><span class="n">edges</span><span class="p">)</span>
+    <span class="n">edge_ids</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">m</span><span class="p">)</span>
+    <span class="n">row</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">dstack</span><span class="p">([</span><span class="mi">2</span> <span class="o">*</span> <span class="n">edge_ids</span><span class="p">,</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">edge_ids</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">edge_ids</span><span class="p">,</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">edge_ids</span> <span class="o">+</span> <span class="mi">1</span><span class="p">])</span><span class="o">.</span><span class="n">flatten</span><span class="p">()</span>
+    <span class="n">col</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">dstack</span><span class="p">([</span><span class="mi">2</span> <span class="o">*</span> <span class="n">edge_ids</span><span class="p">,</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">edge_ids</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">edge_ids</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">edge_ids</span><span class="p">])</span><span class="o">.</span><span class="n">flatten</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">sc</span><span class="o">.</span><span class="n">sparse</span><span class="o">.</span><span class="n">csc_matrix</span><span class="p">((</span><span class="n">data</span><span class="p">,</span> <span class="p">(</span><span class="n">col</span><span class="p">,</span> <span class="n">row</span><span class="p">)),</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="mi">2</span> <span class="o">*</span> <span class="n">m</span><span class="p">,</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">m</span><span class="p">))</span></div>
+
+
+<div class="viewcode-block" id="compute_overlapping_single_edges"><a class="viewcode-back" href="../../modes.html#netsalt.modes.compute_overlapping_single_edges">[docs]</a><span class="k">def</span> <span class="nf">compute_overlapping_single_edges</span><span class="p">(</span><span class="n">passive_mode</span><span class="p">,</span> <span class="n">graph</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Compute the overlappin factor of a mode with the pump.&quot;&quot;&quot;</span>
+    <span class="n">dielectric_constant</span> <span class="o">=</span> <span class="n">_get_dielectric_constant_matrix</span><span class="p">(</span><span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">])</span>
+    <span class="n">in_mask</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">_get_mask_matrices</span><span class="p">(</span><span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">])</span>
+    <span class="n">inner_dielectric_constants</span> <span class="o">=</span> <span class="n">dielectric_constant</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">in_mask</span><span class="p">)</span>
+
+    <span class="n">node_solution</span> <span class="o">=</span> <span class="n">mode_on_nodes</span><span class="p">(</span><span class="n">passive_mode</span><span class="p">,</span> <span class="n">graph</span><span class="p">)</span>
+
+    <span class="n">z_matrix</span> <span class="o">=</span> <span class="n">compute_z_matrix</span><span class="p">(</span><span class="n">graph</span><span class="p">)</span>
+
+    <span class="n">BT</span><span class="p">,</span> <span class="n">Bout</span> <span class="o">=</span> <span class="n">construct_incidence_matrix</span><span class="p">(</span><span class="n">graph</span><span class="p">)</span>
+    <span class="n">Winv</span> <span class="o">=</span> <span class="n">construct_weight_matrix</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">with_k</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+
+    <span class="n">inner_norm</span> <span class="o">=</span> <span class="n">_graph_norm</span><span class="p">(</span><span class="n">BT</span><span class="p">,</span> <span class="n">Bout</span><span class="p">,</span> <span class="n">Winv</span><span class="p">,</span> <span class="n">z_matrix</span><span class="p">,</span> <span class="n">node_solution</span><span class="p">,</span> <span class="n">inner_dielectric_constants</span><span class="p">)</span>
+
+    <span class="n">pump_norm</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">graph</span><span class="o">.</span><span class="n">edges</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">complex128</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">pump_edge</span><span class="p">,</span> <span class="n">inner</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">][</span><span class="s2">&quot;inner&quot;</span><span class="p">]):</span>
+        <span class="k">if</span> <span class="n">inner</span><span class="p">:</span>
+            <span class="n">mask</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">graph</span><span class="o">.</span><span class="n">edges</span><span class="p">))</span>
+            <span class="n">mask</span><span class="p">[</span><span class="n">pump_edge</span><span class="p">]</span> <span class="o">=</span> <span class="mf">1.0</span>
+            <span class="n">pump_mask</span> <span class="o">=</span> <span class="n">sc</span><span class="o">.</span><span class="n">sparse</span><span class="o">.</span><span class="n">diags</span><span class="p">(</span><span class="n">_convert_edges</span><span class="p">(</span><span class="n">mask</span><span class="p">))</span>
+            <span class="n">pump_norm</span><span class="p">[</span><span class="n">pump_edge</span><span class="p">]</span> <span class="o">=</span> <span class="n">_graph_norm</span><span class="p">(</span><span class="n">BT</span><span class="p">,</span> <span class="n">Bout</span><span class="p">,</span> <span class="n">Winv</span><span class="p">,</span> <span class="n">z_matrix</span><span class="p">,</span> <span class="n">node_solution</span><span class="p">,</span> <span class="n">pump_mask</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">real</span><span class="p">(</span><span class="n">pump_norm</span> <span class="o">/</span> <span class="n">inner_norm</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="compute_overlapping_factor"><a class="viewcode-back" href="../../modes.html#netsalt.modes.compute_overlapping_factor">[docs]</a><span class="k">def</span> <span class="nf">compute_overlapping_factor</span><span class="p">(</span><span class="n">passive_mode</span><span class="p">,</span> <span class="n">graph</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Compute the overlapping factor of a mode with the pump.&quot;&quot;&quot;</span>
+    <span class="n">dielectric_constant</span> <span class="o">=</span> <span class="n">_get_dielectric_constant_matrix</span><span class="p">(</span><span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">])</span>
+    <span class="n">in_mask</span><span class="p">,</span> <span class="n">pump_mask</span> <span class="o">=</span> <span class="n">_get_mask_matrices</span><span class="p">(</span><span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">])</span>
+    <span class="n">inner_dielectric_constants</span> <span class="o">=</span> <span class="n">dielectric_constant</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">in_mask</span><span class="p">)</span>
+
+    <span class="n">node_solution</span> <span class="o">=</span> <span class="n">mode_on_nodes</span><span class="p">(</span><span class="n">passive_mode</span><span class="p">,</span> <span class="n">graph</span><span class="p">)</span>
+
+    <span class="n">z_matrix</span> <span class="o">=</span> <span class="n">compute_z_matrix</span><span class="p">(</span><span class="n">graph</span><span class="p">)</span>
+
+    <span class="n">BT</span><span class="p">,</span> <span class="n">Bout</span> <span class="o">=</span> <span class="n">construct_incidence_matrix</span><span class="p">(</span><span class="n">graph</span><span class="p">)</span>
+    <span class="n">Winv</span> <span class="o">=</span> <span class="n">construct_weight_matrix</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">with_k</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+
+    <span class="n">pump_norm</span> <span class="o">=</span> <span class="n">_graph_norm</span><span class="p">(</span><span class="n">BT</span><span class="p">,</span> <span class="n">Bout</span><span class="p">,</span> <span class="n">Winv</span><span class="p">,</span> <span class="n">z_matrix</span><span class="p">,</span> <span class="n">node_solution</span><span class="p">,</span> <span class="n">pump_mask</span><span class="p">)</span>
+    <span class="n">inner_norm</span> <span class="o">=</span> <span class="n">_graph_norm</span><span class="p">(</span><span class="n">BT</span><span class="p">,</span> <span class="n">Bout</span><span class="p">,</span> <span class="n">Winv</span><span class="p">,</span> <span class="n">z_matrix</span><span class="p">,</span> <span class="n">node_solution</span><span class="p">,</span> <span class="n">inner_dielectric_constants</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">pump_norm</span> <span class="o">/</span> <span class="n">inner_norm</span></div>
+
+
+<div class="viewcode-block" id="pump_linear"><a class="viewcode-back" href="../../modes.html#netsalt.modes.pump_linear">[docs]</a><span class="k">def</span> <span class="nf">pump_linear</span><span class="p">(</span><span class="n">mode_0</span><span class="p">,</span> <span class="n">graph</span><span class="p">,</span> <span class="n">D0_0</span><span class="p">,</span> <span class="n">D0_1</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Find the linear approximation of the new wavenumber.&quot;&quot;&quot;</span>
+    <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">][</span><span class="s2">&quot;D0&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">D0_0</span>
+    <span class="n">overlapping_factor</span> <span class="o">=</span> <span class="n">compute_overlapping_factor</span><span class="p">(</span><span class="n">mode_0</span><span class="p">,</span> <span class="n">graph</span><span class="p">)</span>
+    <span class="n">freq</span> <span class="o">=</span> <span class="n">to_complex</span><span class="p">(</span><span class="n">mode_0</span><span class="p">)</span>
+    <span class="n">gamma_overlap</span> <span class="o">=</span> <span class="n">gamma</span><span class="p">(</span><span class="n">freq</span><span class="p">,</span> <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">])</span> <span class="o">*</span> <span class="n">overlapping_factor</span>
+    <span class="k">return</span> <span class="n">from_complex</span><span class="p">(</span><span class="n">freq</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">((</span><span class="mf">1.0</span> <span class="o">+</span> <span class="n">gamma_overlap</span> <span class="o">*</span> <span class="n">D0_0</span><span class="p">)</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="n">gamma_overlap</span> <span class="o">*</span> <span class="n">D0_1</span><span class="p">)))</span></div>
+
+
+<div class="viewcode-block" id="mode_on_nodes"><a class="viewcode-back" href="../../modes.html#netsalt.modes.mode_on_nodes">[docs]</a><span class="k">def</span> <span class="nf">mode_on_nodes</span><span class="p">(</span><span class="n">mode</span><span class="p">,</span> <span class="n">graph</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Compute the mode solution on the nodes of the graph.&quot;&quot;&quot;</span>
+    <span class="n">laplacian</span> <span class="o">=</span> <span class="n">construct_laplacian</span><span class="p">(</span><span class="n">to_complex</span><span class="p">(</span><span class="n">mode</span><span class="p">),</span> <span class="n">graph</span><span class="p">)</span>
+    <span class="n">min_eigenvalue</span><span class="p">,</span> <span class="n">node_solution</span> <span class="o">=</span> <span class="n">sc</span><span class="o">.</span><span class="n">sparse</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">eigs</span><span class="p">(</span>
+        <span class="n">laplacian</span><span class="p">,</span> <span class="n">k</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">sigma</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">v0</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">graph</span><span class="p">)),</span> <span class="n">which</span><span class="o">=</span><span class="s2">&quot;LM&quot;</span>
+    <span class="p">)</span>
+    <span class="n">quality_thresh</span> <span class="o">=</span> <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;quality_threshold&quot;</span><span class="p">,</span> <span class="mf">1e-4</span><span class="p">)</span>
+    <span class="k">if</span> <span class="nb">abs</span><span class="p">(</span><span class="n">min_eigenvalue</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span> <span class="o">&gt;</span> <span class="n">quality_thresh</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span>
+            <span class="s2">&quot;Not a mode, as quality is too high: &quot;</span>
+            <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="nb">abs</span><span class="p">(</span><span class="n">min_eigenvalue</span><span class="p">[</span><span class="mi">0</span><span class="p">]))</span>
+            <span class="o">+</span> <span class="s2">&quot; &gt; &quot;</span>
+            <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">quality_thresh</span><span class="p">)</span>
+            <span class="o">+</span> <span class="s2">&quot;, mode: &quot;</span>
+            <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">mode</span><span class="p">)</span>
+        <span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">node_solution</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">]</span></div>
+
+
+<div class="viewcode-block" id="flux_on_edges"><a class="viewcode-back" href="../../modes.html#netsalt.modes.flux_on_edges">[docs]</a><span class="k">def</span> <span class="nf">flux_on_edges</span><span class="p">(</span><span class="n">mode</span><span class="p">,</span> <span class="n">graph</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Compute the flux on each edge (in both directions).&quot;&quot;&quot;</span>
+
+    <span class="n">node_solution</span> <span class="o">=</span> <span class="n">mode_on_nodes</span><span class="p">(</span><span class="n">mode</span><span class="p">,</span> <span class="n">graph</span><span class="p">)</span>
+
+    <span class="n">BT</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">construct_incidence_matrix</span><span class="p">(</span><span class="n">graph</span><span class="p">)</span>
+    <span class="n">Winv</span> <span class="o">=</span> <span class="n">construct_weight_matrix</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">with_k</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">Winv</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">BT</span><span class="o">.</span><span class="n">T</span><span class="p">)</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">node_solution</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="mean_mode_on_edges"><a class="viewcode-back" href="../../modes.html#netsalt.modes.mean_mode_on_edges">[docs]</a><span class="k">def</span> <span class="nf">mean_mode_on_edges</span><span class="p">(</span><span class="n">mode</span><span class="p">,</span> <span class="n">graph</span><span class="p">):</span>
+    <span class="sa">r</span><span class="sd">&quot;&quot;&quot;Compute the average :math:`|E|^2` on each edge.&quot;&quot;&quot;</span>
+    <span class="n">edge_flux</span> <span class="o">=</span> <span class="n">flux_on_edges</span><span class="p">(</span><span class="n">mode</span><span class="p">,</span> <span class="n">graph</span><span class="p">)</span>
+
+    <span class="n">mean_edge_solution</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">graph</span><span class="o">.</span><span class="n">edges</span><span class="p">))</span>
+    <span class="k">for</span> <span class="n">ei</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">graph</span><span class="o">.</span><span class="n">edges</span><span class="p">)):</span>
+        <span class="n">k</span> <span class="o">=</span> <span class="mf">1.0</span><span class="n">j</span> <span class="o">*</span> <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;ks&quot;</span><span class="p">][</span><span class="n">ei</span><span class="p">]</span>
+        <span class="n">length</span> <span class="o">=</span> <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;lengths&quot;</span><span class="p">][</span><span class="n">ei</span><span class="p">]</span>
+        <span class="n">z</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">([</span><span class="mi">2</span><span class="p">,</span> <span class="mi">2</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">complex128</span><span class="p">)</span>
+
+        <span class="n">z</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="n">length</span> <span class="o">*</span> <span class="p">(</span><span class="n">k</span> <span class="o">+</span> <span class="n">np</span><span class="o">.</span><span class="n">conj</span><span class="p">(</span><span class="n">k</span><span class="p">)))</span> <span class="o">-</span> <span class="mf">1.0</span><span class="p">)</span> <span class="o">/</span> <span class="p">(</span><span class="n">length</span> <span class="o">*</span> <span class="p">(</span><span class="n">k</span> <span class="o">+</span> <span class="n">np</span><span class="o">.</span><span class="n">conj</span><span class="p">(</span><span class="n">k</span><span class="p">)))</span>
+        <span class="n">z</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="n">length</span> <span class="o">*</span> <span class="n">k</span><span class="p">)</span> <span class="o">-</span> <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="n">length</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">conj</span><span class="p">(</span><span class="n">k</span><span class="p">)))</span> <span class="o">/</span> <span class="p">(</span><span class="n">length</span> <span class="o">*</span> <span class="p">(</span><span class="n">k</span> <span class="o">-</span> <span class="n">np</span><span class="o">.</span><span class="n">conj</span><span class="p">(</span><span class="n">k</span><span class="p">)))</span>
+
+        <span class="n">z</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="n">z</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">]</span>
+        <span class="n">z</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="n">z</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">]</span>
+
+        <span class="n">mean_edge_solution</span><span class="p">[</span><span class="n">ei</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">real</span><span class="p">(</span>
+            <span class="n">edge_flux</span><span class="p">[</span><span class="mi">2</span> <span class="o">*</span> <span class="n">ei</span> <span class="p">:</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">ei</span> <span class="o">+</span> <span class="mi">2</span><span class="p">]</span><span class="o">.</span><span class="n">T</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">z</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">conj</span><span class="p">(</span><span class="n">edge_flux</span><span class="p">[</span><span class="mi">2</span> <span class="o">*</span> <span class="n">ei</span> <span class="p">:</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">ei</span> <span class="o">+</span> <span class="mi">2</span><span class="p">])))</span>
+        <span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">mean_edge_solution</span></div>
+
+
+<div class="viewcode-block" id="mean_mode_E4_on_edges"><a class="viewcode-back" href="../../modes.html#netsalt.modes.mean_mode_E4_on_edges">[docs]</a><span class="k">def</span> <span class="nf">mean_mode_E4_on_edges</span><span class="p">(</span><span class="n">mode</span><span class="p">,</span> <span class="n">graph</span><span class="p">):</span>
+    <span class="sa">r</span><span class="sd">&quot;&quot;&quot;Compute the average :math:`|E|^4` on each edge.&quot;&quot;&quot;</span>
+    <span class="n">edge_flux</span> <span class="o">=</span> <span class="n">flux_on_edges</span><span class="p">(</span><span class="n">mode</span><span class="p">,</span> <span class="n">graph</span><span class="p">)</span>
+
+    <span class="n">meanE4_edge_solution</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">graph</span><span class="o">.</span><span class="n">edges</span><span class="p">))</span>
+    <span class="k">for</span> <span class="n">ei</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">graph</span><span class="o">.</span><span class="n">edges</span><span class="p">)):</span>
+        <span class="n">k</span> <span class="o">=</span> <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;ks&quot;</span><span class="p">][</span><span class="n">ei</span><span class="p">]</span>
+        <span class="n">length</span> <span class="o">=</span> <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;lengths&quot;</span><span class="p">][</span><span class="n">ei</span><span class="p">]</span>
+        <span class="n">z</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">([</span><span class="mi">4</span><span class="p">,</span> <span class="mi">4</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">complex128</span><span class="p">)</span>
+
+        <span class="n">z</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="mf">2.0</span><span class="n">j</span> <span class="o">*</span> <span class="n">length</span> <span class="o">*</span> <span class="p">(</span><span class="n">k</span> <span class="o">-</span> <span class="n">np</span><span class="o">.</span><span class="n">conj</span><span class="p">(</span><span class="n">k</span><span class="p">)))</span> <span class="o">-</span> <span class="mf">1.0</span><span class="p">)</span> <span class="o">/</span> <span class="p">(</span>
+            <span class="mf">2.0</span><span class="n">j</span> <span class="o">*</span> <span class="n">length</span> <span class="o">*</span> <span class="p">(</span><span class="n">k</span> <span class="o">-</span> <span class="n">np</span><span class="o">.</span><span class="n">conj</span><span class="p">(</span><span class="n">k</span><span class="p">))</span>
+        <span class="p">)</span>
+        <span class="n">z</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="mf">2.0</span><span class="n">j</span> <span class="o">*</span> <span class="n">length</span> <span class="o">*</span> <span class="n">k</span><span class="p">)</span> <span class="o">-</span> <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="o">-</span><span class="mf">2.0</span><span class="n">j</span> <span class="o">*</span> <span class="n">length</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">conj</span><span class="p">(</span><span class="n">k</span><span class="p">)))</span> <span class="o">/</span> <span class="p">(</span>
+            <span class="mf">2.0</span><span class="n">j</span> <span class="o">*</span> <span class="n">length</span> <span class="o">*</span> <span class="p">(</span><span class="n">k</span> <span class="o">+</span> <span class="n">np</span><span class="o">.</span><span class="n">conj</span><span class="p">(</span><span class="n">k</span><span class="p">))</span>
+        <span class="p">)</span>
+        <span class="n">z</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="mf">1.0</span><span class="n">j</span> <span class="o">*</span> <span class="n">length</span> <span class="o">*</span> <span class="p">(</span><span class="n">k</span> <span class="o">-</span> <span class="n">np</span><span class="o">.</span><span class="n">conj</span><span class="p">(</span><span class="n">k</span><span class="p">))))</span>
+            <span class="o">*</span> <span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="mf">1.0</span><span class="n">j</span> <span class="o">*</span> <span class="n">length</span> <span class="o">*</span> <span class="n">k</span><span class="p">)</span> <span class="o">-</span> <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="o">-</span><span class="mf">1.0</span><span class="n">j</span> <span class="o">*</span> <span class="n">length</span> <span class="o">*</span> <span class="n">k</span><span class="p">))</span>
+            <span class="o">/</span> <span class="p">(</span><span class="mf">2.0</span><span class="n">j</span> <span class="o">*</span> <span class="n">length</span> <span class="o">*</span> <span class="n">k</span><span class="p">)</span>
+        <span class="p">)</span>
+        <span class="n">z</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">3</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="mf">1.0</span><span class="n">j</span> <span class="o">*</span> <span class="n">length</span> <span class="o">*</span> <span class="p">(</span><span class="n">k</span> <span class="o">-</span> <span class="n">np</span><span class="o">.</span><span class="n">conj</span><span class="p">(</span><span class="n">k</span><span class="p">)))</span>
+
+        <span class="n">z</span><span class="p">[</span><span class="mi">2</span><span class="p">,</span> <span class="mi">2</span><span class="p">]</span> <span class="o">=</span> <span class="n">z</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">]</span>
+        <span class="n">z</span><span class="p">[</span><span class="mi">3</span><span class="p">,</span> <span class="mi">3</span><span class="p">]</span> <span class="o">=</span> <span class="n">z</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">]</span>
+        <span class="n">z</span><span class="p">[</span><span class="mi">3</span><span class="p">,</span> <span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="n">z</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">3</span><span class="p">]</span>
+        <span class="n">z</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">]</span> <span class="o">=</span> <span class="n">z</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">3</span><span class="p">]</span>
+        <span class="n">z</span><span class="p">[</span><span class="mi">2</span><span class="p">,</span> <span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="n">z</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">3</span><span class="p">]</span>
+        <span class="n">z</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="n">z</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">]</span>
+        <span class="n">z</span><span class="p">[</span><span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">]</span> <span class="o">=</span> <span class="n">z</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">]</span>
+        <span class="n">z</span><span class="p">[</span><span class="mi">3</span><span class="p">,</span> <span class="mi">2</span><span class="p">]</span> <span class="o">=</span> <span class="n">z</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">]</span>
+        <span class="n">z</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">conj</span><span class="p">(</span><span class="n">z</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">])</span>
+        <span class="n">z</span><span class="p">[</span><span class="mi">2</span><span class="p">,</span> <span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="n">z</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">]</span>
+        <span class="n">z</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">3</span><span class="p">]</span> <span class="o">=</span> <span class="n">z</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">]</span>
+        <span class="n">z</span><span class="p">[</span><span class="mi">3</span><span class="p">,</span> <span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="n">z</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">]</span>
+
+        <span class="n">fluxvec</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">outer</span><span class="p">(</span>
+            <span class="n">np</span><span class="o">.</span><span class="n">conj</span><span class="p">(</span><span class="n">edge_flux</span><span class="p">[</span><span class="mi">2</span> <span class="o">*</span> <span class="n">ei</span> <span class="p">:</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">ei</span> <span class="o">+</span> <span class="mi">2</span><span class="p">]),</span> <span class="n">edge_flux</span><span class="p">[</span><span class="mi">2</span> <span class="o">*</span> <span class="n">ei</span> <span class="p">:</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">ei</span> <span class="o">+</span> <span class="mi">2</span><span class="p">]</span>
+        <span class="p">)</span><span class="o">.</span><span class="n">flatten</span><span class="p">()</span>
+        <span class="n">meanE4_edge_solution</span><span class="p">[</span><span class="n">ei</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">real</span><span class="p">(</span><span class="n">fluxvec</span><span class="o">.</span><span class="n">T</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">z</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">fluxvec</span><span class="p">)))</span>
+
+    <span class="k">return</span> <span class="n">meanE4_edge_solution</span></div>
+
+
+<div class="viewcode-block" id="compute_mode_IPR"><a class="viewcode-back" href="../../modes.html#netsalt.modes.compute_mode_IPR">[docs]</a><span class="k">def</span> <span class="nf">compute_mode_IPR</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">modes_df</span><span class="p">,</span> <span class="n">index</span><span class="p">,</span> <span class="n">df_entry</span><span class="o">=</span><span class="s2">&quot;passive&quot;</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Compute the IPR of a mode</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">mode</span> <span class="o">=</span> <span class="n">modes_df</span><span class="p">[</span><span class="n">df_entry</span><span class="p">][</span><span class="n">index</span><span class="p">]</span>
+
+    <span class="n">mode_E4_mean</span> <span class="o">=</span> <span class="n">mean_mode_E4_on_edges</span><span class="p">(</span><span class="n">mode</span><span class="p">,</span> <span class="n">graph</span><span class="p">)</span>
+    <span class="n">mode_E2_mean</span> <span class="o">=</span> <span class="n">mean_mode_on_edges</span><span class="p">(</span><span class="n">mode</span><span class="p">,</span> <span class="n">graph</span><span class="p">)</span>
+
+    <span class="n">edge_length</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">graph</span><span class="o">.</span><span class="n">edges</span><span class="p">))</span>
+    <span class="n">integral_E2</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">integral_E4</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="k">for</span> <span class="n">ei</span><span class="p">,</span> <span class="n">inner</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">][</span><span class="s2">&quot;inner&quot;</span><span class="p">]):</span>
+        <span class="k">if</span> <span class="n">inner</span><span class="p">:</span>
+            <span class="n">edge_length</span><span class="p">[</span><span class="n">ei</span><span class="p">]</span> <span class="o">=</span> <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;lengths&quot;</span><span class="p">][</span><span class="n">ei</span><span class="p">]</span>
+            <span class="n">integral_E2</span> <span class="o">+=</span> <span class="n">mode_E2_mean</span><span class="p">[</span><span class="n">ei</span><span class="p">]</span> <span class="o">*</span> <span class="n">edge_length</span><span class="p">[</span><span class="n">ei</span><span class="p">]</span>
+            <span class="n">integral_E4</span> <span class="o">+=</span> <span class="n">mode_E4_mean</span><span class="p">[</span><span class="n">ei</span><span class="p">]</span> <span class="o">*</span> <span class="n">edge_length</span><span class="p">[</span><span class="n">ei</span><span class="p">]</span>
+
+    <span class="n">tot_length</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">edge_length</span><span class="p">)</span>  <span class="c1"># total inner length</span>
+    <span class="n">IPR</span> <span class="o">=</span> <span class="n">tot_length</span> <span class="o">*</span> <span class="n">integral_E4</span> <span class="o">/</span> <span class="n">integral_E2</span><span class="o">**</span><span class="mi">2</span>
+
+    <span class="k">return</span> <span class="n">IPR</span></div>
+
+
+<div class="viewcode-block" id="compute_IPRs"><a class="viewcode-back" href="../../modes.html#netsalt.modes.compute_IPRs">[docs]</a><span class="k">def</span> <span class="nf">compute_IPRs</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">modes_df</span><span class="p">,</span> <span class="n">df_entry</span><span class="o">=</span><span class="s2">&quot;passive&quot;</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Compute IPR of all modes on the graph.&quot;&quot;&quot;</span>
+
+    <span class="n">IPRs</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">index</span> <span class="ow">in</span> <span class="n">tqdm</span><span class="p">(</span><span class="n">modes_df</span><span class="o">.</span><span class="n">index</span><span class="p">,</span> <span class="n">total</span><span class="o">=</span><span class="nb">len</span><span class="p">(</span><span class="n">modes_df</span><span class="p">)):</span>
+        <span class="n">IPR</span> <span class="o">=</span> <span class="n">compute_mode_IPR</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">modes_df</span><span class="p">,</span> <span class="n">index</span><span class="p">,</span> <span class="n">df_entry</span><span class="p">)</span>
+        <span class="n">IPRs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">IPR</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="s2">&quot;IPR&quot;</span> <span class="ow">in</span> <span class="n">modes_df</span><span class="p">:</span>
+        <span class="k">del</span> <span class="n">modes_df</span><span class="p">[</span><span class="s2">&quot;IPR&quot;</span><span class="p">]</span>
+
+    <span class="n">modes_df</span><span class="p">[</span><span class="s2">&quot;IPR&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">IPRs</span>
+
+    <span class="k">return</span> <span class="n">modes_df</span></div>
+
+
+<div class="viewcode-block" id="gamma_q_value"><a class="viewcode-back" href="../../modes.html#netsalt.modes.gamma_q_value">[docs]</a><span class="k">def</span> <span class="nf">gamma_q_value</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">modes_df</span><span class="p">,</span> <span class="n">index</span><span class="p">,</span> <span class="n">df_entry</span><span class="o">=</span><span class="s2">&quot;passive&quot;</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Compute gamma * Q factor for a given mode.&quot;&quot;&quot;</span>
+    <span class="n">mode</span> <span class="o">=</span> <span class="n">modes_df</span><span class="p">[</span><span class="n">df_entry</span><span class="p">][</span><span class="n">index</span><span class="p">]</span>
+    <span class="k">return</span> <span class="o">-</span><span class="n">q_value</span><span class="p">(</span><span class="n">mode</span><span class="p">)</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">imag</span><span class="p">(</span><span class="n">gamma</span><span class="p">(</span><span class="n">to_complex</span><span class="p">(</span><span class="n">mode</span><span class="p">),</span> <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">]))</span></div>
+
+
+<div class="viewcode-block" id="compute_gamma_q_values"><a class="viewcode-back" href="../../modes.html#netsalt.modes.compute_gamma_q_values">[docs]</a><span class="k">def</span> <span class="nf">compute_gamma_q_values</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">modes_df</span><span class="p">,</span> <span class="n">df_entry</span><span class="o">=</span><span class="s2">&quot;passive&quot;</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Compute gamma * Q factor for all modes on the graph.&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="p">[</span>
+        <span class="n">gamma_q_value</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">modes_df</span><span class="p">,</span> <span class="n">index</span><span class="p">,</span> <span class="n">df_entry</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">index</span> <span class="ow">in</span> <span class="n">tqdm</span><span class="p">(</span><span class="n">modes_df</span><span class="o">.</span><span class="n">index</span><span class="p">,</span> <span class="n">total</span><span class="o">=</span><span class="nb">len</span><span class="p">(</span><span class="n">modes_df</span><span class="p">))</span>
+    <span class="p">]</span></div>
+
+
+<span class="k">def</span> <span class="nf">_precomputations_mode_competition</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">pump_mask</span><span class="p">,</span> <span class="n">mode_threshold</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;precompute some quantities for a mode for mode competition matrix&quot;&quot;&quot;</span>
+    <span class="n">mode</span><span class="p">,</span> <span class="n">threshold</span> <span class="o">=</span> <span class="n">mode_threshold</span>
+
+    <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">][</span><span class="s2">&quot;D0&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">threshold</span>
+    <span class="n">node_solution</span> <span class="o">=</span> <span class="n">mode_on_nodes</span><span class="p">(</span><span class="n">mode</span><span class="p">,</span> <span class="n">graph</span><span class="p">)</span>
+
+    <span class="n">z_matrix</span> <span class="o">=</span> <span class="n">compute_z_matrix</span><span class="p">(</span><span class="n">graph</span><span class="p">)</span>
+    <span class="n">BT</span><span class="p">,</span> <span class="n">Bout</span> <span class="o">=</span> <span class="n">construct_incidence_matrix</span><span class="p">(</span><span class="n">graph</span><span class="p">)</span>
+    <span class="n">Winv</span> <span class="o">=</span> <span class="n">construct_weight_matrix</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">with_k</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+    <span class="n">pump_norm</span> <span class="o">=</span> <span class="n">_graph_norm</span><span class="p">(</span><span class="n">BT</span><span class="p">,</span> <span class="n">Bout</span><span class="p">,</span> <span class="n">Winv</span><span class="p">,</span> <span class="n">z_matrix</span><span class="p">,</span> <span class="n">node_solution</span><span class="p">,</span> <span class="n">pump_mask</span><span class="p">)</span>
+
+    <span class="n">edge_flux</span> <span class="o">=</span> <span class="n">flux_on_edges</span><span class="p">(</span><span class="n">mode</span><span class="p">,</span> <span class="n">graph</span><span class="p">)</span> <span class="o">/</span> <span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">pump_norm</span><span class="p">)</span>
+    <span class="n">k_mu</span> <span class="o">=</span> <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;ks&quot;</span><span class="p">]</span>
+    <span class="n">gam</span> <span class="o">=</span> <span class="n">gamma</span><span class="p">(</span><span class="n">to_complex</span><span class="p">(</span><span class="n">mode</span><span class="p">),</span> <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">])</span>
+
+    <span class="k">return</span> <span class="n">k_mu</span><span class="p">,</span> <span class="n">edge_flux</span><span class="p">,</span> <span class="n">gam</span>
+
+
+<span class="k">def</span> <span class="nf">_compute_mode_competition_element</span><span class="p">(</span><span class="n">lengths</span><span class="p">,</span> <span class="n">params</span><span class="p">,</span> <span class="n">data</span><span class="p">,</span> <span class="n">with_gamma</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Computes a single element of the mode competition matrix.&quot;&quot;&quot;</span>
+    <span class="n">mu_data</span><span class="p">,</span> <span class="n">nu_data</span><span class="p">,</span> <span class="n">gamma_nu</span> <span class="o">=</span> <span class="n">data</span>
+    <span class="n">k_mus</span><span class="p">,</span> <span class="n">edge_flux_mu</span> <span class="o">=</span> <span class="n">mu_data</span>
+    <span class="n">k_nus</span><span class="p">,</span> <span class="n">edge_flux_nu</span> <span class="o">=</span> <span class="n">nu_data</span>
+
+    <span class="n">matrix_element</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="k">for</span> <span class="n">ei</span><span class="p">,</span> <span class="n">length</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">lengths</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">params</span><span class="p">[</span><span class="s2">&quot;pump&quot;</span><span class="p">][</span><span class="n">ei</span><span class="p">]</span> <span class="o">&gt;</span> <span class="mf">0.0</span> <span class="ow">and</span> <span class="n">params</span><span class="p">[</span><span class="s2">&quot;inner&quot;</span><span class="p">][</span><span class="n">ei</span><span class="p">]:</span>
+            <span class="n">k_mu</span> <span class="o">=</span> <span class="n">k_mus</span><span class="p">[</span><span class="n">ei</span><span class="p">]</span>
+            <span class="n">k_nu</span> <span class="o">=</span> <span class="n">k_nus</span><span class="p">[</span><span class="n">ei</span><span class="p">]</span>
+
+            <span class="n">inner_matrix</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">([</span><span class="mi">4</span><span class="p">,</span> <span class="mi">4</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">complex128</span><span class="p">)</span>
+
+            <span class="c1"># A terms</span>
+            <span class="n">ik_tmp</span> <span class="o">=</span> <span class="mf">1.0</span><span class="n">j</span> <span class="o">*</span> <span class="p">(</span><span class="n">k_nu</span> <span class="o">-</span> <span class="n">np</span><span class="o">.</span><span class="n">conj</span><span class="p">(</span><span class="n">k_nu</span><span class="p">)</span> <span class="o">+</span> <span class="mf">2.0</span> <span class="o">*</span> <span class="n">k_mu</span><span class="p">)</span>
+            <span class="n">inner_matrix</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="n">inner_matrix</span><span class="p">[</span><span class="mi">3</span><span class="p">,</span> <span class="mi">3</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="n">ik_tmp</span> <span class="o">*</span> <span class="n">length</span><span class="p">)</span> <span class="o">-</span> <span class="mf">1.0</span><span class="p">)</span> <span class="o">/</span> <span class="n">ik_tmp</span>
+
+            <span class="c1"># B terms</span>
+            <span class="n">ik_tmp</span> <span class="o">=</span> <span class="mf">1.0</span><span class="n">j</span> <span class="o">*</span> <span class="p">(</span><span class="n">k_nu</span> <span class="o">-</span> <span class="n">np</span><span class="o">.</span><span class="n">conj</span><span class="p">(</span><span class="n">k_nu</span><span class="p">)</span> <span class="o">-</span> <span class="mf">2.0</span> <span class="o">*</span> <span class="n">k_mu</span><span class="p">)</span>
+            <span class="n">inner_matrix</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">3</span><span class="p">]</span> <span class="o">=</span> <span class="n">inner_matrix</span><span class="p">[</span><span class="mi">3</span><span class="p">,</span> <span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="mf">2.0</span><span class="n">j</span> <span class="o">*</span> <span class="n">k_mu</span> <span class="o">*</span> <span class="n">length</span><span class="p">)</span> <span class="o">*</span> <span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="n">ik_tmp</span> <span class="o">*</span> <span class="n">length</span><span class="p">)</span> <span class="o">-</span> <span class="mf">1.0</span><span class="p">)</span> <span class="o">/</span> <span class="n">ik_tmp</span>
+            <span class="p">)</span>
+
+            <span class="c1"># C terms</span>
+            <span class="n">ik_tmp</span> <span class="o">=</span> <span class="mf">1.0</span><span class="n">j</span> <span class="o">*</span> <span class="p">(</span><span class="n">k_nu</span> <span class="o">+</span> <span class="n">np</span><span class="o">.</span><span class="n">conj</span><span class="p">(</span><span class="n">k_nu</span><span class="p">)</span> <span class="o">+</span> <span class="mf">2.0</span> <span class="o">*</span> <span class="n">k_mu</span><span class="p">)</span>
+            <span class="n">inner_matrix</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="n">inner_matrix</span><span class="p">[</span><span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="mf">1.0</span><span class="n">j</span> <span class="o">*</span> <span class="p">(</span><span class="n">k_nu</span> <span class="o">+</span> <span class="mf">2.0</span> <span class="o">*</span> <span class="n">k_mu</span><span class="p">)</span> <span class="o">*</span> <span class="n">length</span><span class="p">)</span> <span class="o">-</span> <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="o">-</span><span class="mf">1.0</span><span class="n">j</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">conj</span><span class="p">(</span><span class="n">k_nu</span><span class="p">)</span> <span class="o">*</span> <span class="n">length</span><span class="p">)</span>
+            <span class="p">)</span> <span class="o">/</span> <span class="n">ik_tmp</span>
+
+            <span class="c1"># D terms</span>
+            <span class="n">ik_tmp</span> <span class="o">=</span> <span class="mf">1.0</span><span class="n">j</span> <span class="o">*</span> <span class="p">(</span><span class="n">k_nu</span> <span class="o">+</span> <span class="n">np</span><span class="o">.</span><span class="n">conj</span><span class="p">(</span><span class="n">k_nu</span><span class="p">)</span> <span class="o">-</span> <span class="mf">2.0</span> <span class="o">*</span> <span class="n">k_mu</span><span class="p">)</span>
+            <span class="n">inner_matrix</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">3</span><span class="p">]</span> <span class="o">=</span> <span class="n">inner_matrix</span><span class="p">[</span><span class="mi">2</span><span class="p">,</span> <span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="mf">1.0</span><span class="n">j</span> <span class="o">*</span> <span class="n">k_nu</span> <span class="o">*</span> <span class="n">length</span><span class="p">)</span> <span class="o">-</span> <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="mf">1.0</span><span class="n">j</span> <span class="o">*</span> <span class="p">(</span><span class="mf">2.0</span> <span class="o">*</span> <span class="n">k_mu</span> <span class="o">-</span> <span class="n">np</span><span class="o">.</span><span class="n">conj</span><span class="p">(</span><span class="n">k_nu</span><span class="p">))</span> <span class="o">*</span> <span class="n">length</span><span class="p">)</span>
+            <span class="p">)</span> <span class="o">/</span> <span class="n">ik_tmp</span>
+
+            <span class="c1"># E terms</span>
+            <span class="n">ik_tmp</span> <span class="o">=</span> <span class="mf">1.0</span><span class="n">j</span> <span class="o">*</span> <span class="p">(</span><span class="n">k_nu</span> <span class="o">-</span> <span class="n">np</span><span class="o">.</span><span class="n">conj</span><span class="p">(</span><span class="n">k_nu</span><span class="p">))</span>
+            <span class="n">inner_matrix</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="n">inner_matrix</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">]</span> <span class="o">=</span> <span class="n">inner_matrix</span><span class="p">[</span><span class="mi">3</span><span class="p">,</span> <span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="n">inner_matrix</span><span class="p">[</span><span class="mi">3</span><span class="p">,</span> <span class="mi">2</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="mf">1.0</span><span class="n">j</span> <span class="o">*</span> <span class="n">k_mu</span> <span class="o">*</span> <span class="n">length</span><span class="p">)</span> <span class="o">*</span> <span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="n">ik_tmp</span> <span class="o">*</span> <span class="n">length</span><span class="p">)</span> <span class="o">-</span> <span class="mf">1.0</span><span class="p">)</span> <span class="o">/</span> <span class="n">ik_tmp</span>
+            <span class="p">)</span>
+
+            <span class="c1"># F terms</span>
+            <span class="n">ik_tmp</span> <span class="o">=</span> <span class="mf">1.0</span><span class="n">j</span> <span class="o">*</span> <span class="p">(</span><span class="n">k_nu</span> <span class="o">+</span> <span class="n">np</span><span class="o">.</span><span class="n">conj</span><span class="p">(</span><span class="n">k_nu</span><span class="p">))</span>
+            <span class="n">inner_matrix</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="n">inner_matrix</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">]</span> <span class="o">=</span> <span class="n">inner_matrix</span><span class="p">[</span><span class="mi">2</span><span class="p">,</span> <span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="n">inner_matrix</span><span class="p">[</span><span class="mi">2</span><span class="p">,</span> <span class="mi">2</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="mf">1.0</span><span class="n">j</span> <span class="o">*</span> <span class="n">k_mu</span> <span class="o">*</span> <span class="n">length</span><span class="p">)</span>
+                <span class="o">*</span> <span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="mf">1.0</span><span class="n">j</span> <span class="o">*</span> <span class="n">k_nu</span> <span class="o">*</span> <span class="n">length</span><span class="p">)</span> <span class="o">-</span> <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="o">-</span><span class="mf">1.0</span><span class="n">j</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">conj</span><span class="p">(</span><span class="n">k_nu</span><span class="p">)</span> <span class="o">*</span> <span class="n">length</span><span class="p">))</span>
+                <span class="o">/</span> <span class="n">ik_tmp</span>
+            <span class="p">)</span>
+
+            <span class="c1"># left vector</span>
+            <span class="n">flux_nu_plus</span> <span class="o">=</span> <span class="n">edge_flux_nu</span><span class="p">[</span><span class="mi">2</span> <span class="o">*</span> <span class="n">ei</span><span class="p">]</span>
+            <span class="n">flux_nu_minus</span> <span class="o">=</span> <span class="n">edge_flux_nu</span><span class="p">[</span><span class="mi">2</span> <span class="o">*</span> <span class="n">ei</span> <span class="o">+</span> <span class="mi">1</span><span class="p">]</span>
+            <span class="n">left_vector</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span>
+                <span class="p">[</span>
+                    <span class="nb">abs</span><span class="p">(</span><span class="n">flux_nu_plus</span><span class="p">)</span> <span class="o">**</span> <span class="mi">2</span><span class="p">,</span>
+                    <span class="n">flux_nu_plus</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">conj</span><span class="p">(</span><span class="n">flux_nu_minus</span><span class="p">),</span>
+                    <span class="n">np</span><span class="o">.</span><span class="n">conj</span><span class="p">(</span><span class="n">flux_nu_plus</span><span class="p">)</span> <span class="o">*</span> <span class="n">flux_nu_minus</span><span class="p">,</span>
+                    <span class="nb">abs</span><span class="p">(</span><span class="n">flux_nu_minus</span><span class="p">)</span> <span class="o">**</span> <span class="mi">2</span><span class="p">,</span>
+                <span class="p">]</span>
+            <span class="p">)</span>
+
+            <span class="c1"># right vector</span>
+            <span class="n">flux_mu_plus</span> <span class="o">=</span> <span class="n">edge_flux_mu</span><span class="p">[</span><span class="mi">2</span> <span class="o">*</span> <span class="n">ei</span><span class="p">]</span>
+            <span class="n">flux_mu_minus</span> <span class="o">=</span> <span class="n">edge_flux_mu</span><span class="p">[</span><span class="mi">2</span> <span class="o">*</span> <span class="n">ei</span> <span class="o">+</span> <span class="mi">1</span><span class="p">]</span>
+            <span class="n">right_vector</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span>
+                <span class="p">[</span>
+                    <span class="n">flux_mu_plus</span><span class="o">**</span><span class="mi">2</span><span class="p">,</span>
+                    <span class="n">flux_mu_plus</span> <span class="o">*</span> <span class="n">flux_mu_minus</span><span class="p">,</span>
+                    <span class="n">flux_mu_plus</span> <span class="o">*</span> <span class="n">flux_mu_minus</span><span class="p">,</span>
+                    <span class="n">flux_mu_minus</span><span class="o">**</span><span class="mi">2</span><span class="p">,</span>
+                <span class="p">]</span>
+            <span class="p">)</span>
+
+            <span class="n">matrix_element</span> <span class="o">+=</span> <span class="n">left_vector</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">inner_matrix</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">right_vector</span><span class="p">))</span>
+
+    <span class="k">if</span> <span class="n">with_gamma</span><span class="p">:</span>
+        <span class="k">return</span> <span class="o">-</span><span class="n">matrix_element</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">imag</span><span class="p">(</span><span class="n">gamma_nu</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">matrix_element</span>
+
+
+<div class="viewcode-block" id="compute_mode_competition_matrix"><a class="viewcode-back" href="../../modes.html#netsalt.modes.compute_mode_competition_matrix">[docs]</a><span class="k">def</span> <span class="nf">compute_mode_competition_matrix</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">modes_df</span><span class="p">,</span> <span class="n">with_gamma</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Compute the mode competition matrix, or T matrix.&quot;&quot;&quot;</span>
+    <span class="n">threshold_modes</span> <span class="o">=</span> <span class="n">modes_df</span><span class="p">[</span><span class="s2">&quot;threshold_lasing_modes&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">()</span>
+    <span class="n">lasing_thresholds_all</span> <span class="o">=</span> <span class="n">modes_df</span><span class="p">[</span><span class="s2">&quot;lasing_thresholds&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">()</span>
+
+    <span class="n">threshold_modes</span> <span class="o">=</span> <span class="n">threshold_modes</span><span class="p">[</span><span class="n">lasing_thresholds_all</span> <span class="o">&lt;</span> <span class="n">np</span><span class="o">.</span><span class="n">inf</span><span class="p">]</span>
+    <span class="n">lasing_thresholds</span> <span class="o">=</span> <span class="n">lasing_thresholds_all</span><span class="p">[</span><span class="n">lasing_thresholds_all</span> <span class="o">&lt;</span> <span class="n">np</span><span class="o">.</span><span class="n">inf</span><span class="p">]</span>
+
+    <span class="n">precomp</span> <span class="o">=</span> <span class="n">partial</span><span class="p">(</span>
+        <span class="n">_precomputations_mode_competition</span><span class="p">,</span>
+        <span class="n">graph</span><span class="p">,</span>
+        <span class="n">_get_mask_matrices</span><span class="p">(</span><span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">])[</span><span class="mi">1</span><span class="p">],</span>
+    <span class="p">)</span>
+
+    <span class="n">chunksize</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="mf">0.1</span> <span class="o">*</span> <span class="nb">len</span><span class="p">(</span><span class="n">lasing_thresholds</span><span class="p">)</span> <span class="o">/</span> <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">][</span><span class="s2">&quot;n_workers&quot;</span><span class="p">]))</span>
+    <span class="k">with</span> <span class="n">multiprocessing</span><span class="o">.</span><span class="n">Pool</span><span class="p">(</span><span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">][</span><span class="s2">&quot;n_workers&quot;</span><span class="p">])</span> <span class="k">as</span> <span class="n">pool</span><span class="p">:</span>
+        <span class="n">precomp_results</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span>
+            <span class="n">tqdm</span><span class="p">(</span>
+                <span class="n">pool</span><span class="o">.</span><span class="n">imap</span><span class="p">(</span><span class="n">precomp</span><span class="p">,</span> <span class="nb">zip</span><span class="p">(</span><span class="n">threshold_modes</span><span class="p">,</span> <span class="n">lasing_thresholds</span><span class="p">),</span> <span class="n">chunksize</span><span class="o">=</span><span class="n">chunksize</span><span class="p">),</span>
+                <span class="n">total</span><span class="o">=</span><span class="nb">len</span><span class="p">(</span><span class="n">lasing_thresholds</span><span class="p">),</span>
+            <span class="p">)</span>
+        <span class="p">)</span>
+
+    <span class="n">input_data</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">mu</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">threshold_modes</span><span class="p">)):</span>
+        <span class="k">for</span> <span class="n">nu</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">threshold_modes</span><span class="p">)):</span>
+            <span class="n">input_data</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                <span class="p">[</span>
+                    <span class="n">precomp_results</span><span class="p">[</span><span class="n">mu</span><span class="p">][:</span><span class="mi">2</span><span class="p">],</span>
+                    <span class="n">precomp_results</span><span class="p">[</span><span class="n">nu</span><span class="p">][:</span><span class="mi">2</span><span class="p">],</span>
+                    <span class="n">precomp_results</span><span class="p">[</span><span class="n">nu</span><span class="p">][</span><span class="mi">2</span><span class="p">],</span>
+                <span class="p">]</span>
+            <span class="p">)</span>
+
+    <span class="n">chunksize</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="mf">0.1</span> <span class="o">*</span> <span class="nb">len</span><span class="p">(</span><span class="n">input_data</span><span class="p">)</span> <span class="o">/</span> <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">][</span><span class="s2">&quot;n_workers&quot;</span><span class="p">]))</span>
+    <span class="k">with</span> <span class="n">multiprocessing</span><span class="o">.</span><span class="n">Pool</span><span class="p">(</span><span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">][</span><span class="s2">&quot;n_workers&quot;</span><span class="p">])</span> <span class="k">as</span> <span class="n">pool</span><span class="p">:</span>
+        <span class="n">output_data</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span>
+            <span class="n">tqdm</span><span class="p">(</span>
+                <span class="n">pool</span><span class="o">.</span><span class="n">imap</span><span class="p">(</span>
+                    <span class="n">partial</span><span class="p">(</span>
+                        <span class="n">_compute_mode_competition_element</span><span class="p">,</span>
+                        <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;lengths&quot;</span><span class="p">],</span>
+                        <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">],</span>
+                        <span class="n">with_gamma</span><span class="o">=</span><span class="n">with_gamma</span><span class="p">,</span>
+                    <span class="p">),</span>
+                    <span class="n">input_data</span><span class="p">,</span>
+                    <span class="n">chunksize</span><span class="o">=</span><span class="n">chunksize</span><span class="p">,</span>
+                <span class="p">),</span>
+                <span class="n">total</span><span class="o">=</span><span class="nb">len</span><span class="p">(</span><span class="n">input_data</span><span class="p">),</span>
+            <span class="p">)</span>
+        <span class="p">)</span>
+
+    <span class="n">mode_competition_matrix</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span>
+        <span class="p">[</span><span class="nb">len</span><span class="p">(</span><span class="n">threshold_modes</span><span class="p">),</span> <span class="nb">len</span><span class="p">(</span><span class="n">threshold_modes</span><span class="p">)],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">complex128</span>
+    <span class="p">)</span>
+    <span class="n">index</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="k">for</span> <span class="n">mu</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">threshold_modes</span><span class="p">)):</span>
+        <span class="k">for</span> <span class="n">nu</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">threshold_modes</span><span class="p">)):</span>
+            <span class="n">mode_competition_matrix</span><span class="p">[</span><span class="n">mu</span><span class="p">,</span> <span class="n">nu</span><span class="p">]</span> <span class="o">=</span> <span class="n">output_data</span><span class="p">[</span><span class="n">index</span><span class="p">]</span>
+            <span class="n">index</span> <span class="o">+=</span> <span class="mi">1</span>
+
+    <span class="n">pool</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+    <span class="n">mode_competition_matrix_full</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span>
+        <span class="p">[</span>
+            <span class="nb">len</span><span class="p">(</span><span class="n">modes_df</span><span class="p">[</span><span class="s2">&quot;threshold_lasing_modes&quot;</span><span class="p">]),</span>
+            <span class="nb">len</span><span class="p">(</span><span class="n">modes_df</span><span class="p">[</span><span class="s2">&quot;threshold_lasing_modes&quot;</span><span class="p">]),</span>
+        <span class="p">]</span>
+    <span class="p">)</span>
+    <span class="n">mode_competition_matrix_full</span><span class="p">[</span>
+        <span class="n">np</span><span class="o">.</span><span class="n">ix_</span><span class="p">(</span><span class="n">lasing_thresholds_all</span> <span class="o">&lt;</span> <span class="n">np</span><span class="o">.</span><span class="n">inf</span><span class="p">,</span> <span class="n">lasing_thresholds_all</span> <span class="o">&lt;</span> <span class="n">np</span><span class="o">.</span><span class="n">inf</span><span class="p">)</span>
+    <span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">real</span><span class="p">(</span><span class="n">mode_competition_matrix</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">mode_competition_matrix_full</span></div>
+
+
+<span class="k">def</span> <span class="nf">_find_next_lasing_mode</span><span class="p">(</span>
+    <span class="n">pump_intensity</span><span class="p">,</span>
+    <span class="n">modes_df</span><span class="p">,</span>
+    <span class="n">lasing_thresholds</span><span class="p">,</span>
+    <span class="n">lasing_mode_ids</span><span class="p">,</span>
+    <span class="n">mode_competition_matrix</span><span class="p">,</span>
+<span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Find next interacting lasing mode.&quot;&quot;&quot;</span>
+    <span class="n">interacting_lasing_thresholds</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">modes_df</span><span class="p">))</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">inf</span>
+    <span class="k">for</span> <span class="n">mu</span> <span class="ow">in</span> <span class="n">modes_df</span><span class="o">.</span><span class="n">index</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">mu</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">lasing_mode_ids</span><span class="p">:</span>
+            <span class="n">sub_mode_comp_matrix_mu</span> <span class="o">=</span> <span class="n">mode_competition_matrix</span><span class="p">[</span>
+                <span class="n">np</span><span class="o">.</span><span class="n">ix_</span><span class="p">(</span><span class="n">lasing_mode_ids</span> <span class="o">+</span> <span class="p">[</span><span class="n">mu</span><span class="p">],</span> <span class="n">lasing_mode_ids</span><span class="p">)</span>
+            <span class="p">]</span>
+            <span class="n">sub_mode_comp_matrix_inv</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">pinv</span><span class="p">(</span>
+                <span class="n">mode_competition_matrix</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">ix_</span><span class="p">(</span><span class="n">lasing_mode_ids</span><span class="p">,</span> <span class="n">lasing_mode_ids</span><span class="p">)]</span>
+            <span class="p">)</span>
+            <span class="n">sub_mode_comp_matrix_mu_inv</span> <span class="o">=</span> <span class="n">sub_mode_comp_matrix_mu</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="p">:]</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span>
+                <span class="n">sub_mode_comp_matrix_inv</span>
+            <span class="p">)</span>
+
+            <span class="n">factor</span> <span class="o">=</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">-</span> <span class="n">sub_mode_comp_matrix_mu_inv</span><span class="o">.</span><span class="n">sum</span><span class="p">())</span> <span class="o">/</span> <span class="p">(</span>
+                <span class="mf">1.0</span>
+                <span class="o">-</span> <span class="n">lasing_thresholds</span><span class="p">[</span><span class="n">mu</span><span class="p">]</span>
+                <span class="o">*</span> <span class="n">sub_mode_comp_matrix_mu_inv</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="mf">1.0</span> <span class="o">/</span> <span class="n">lasing_thresholds</span><span class="p">[</span><span class="n">lasing_mode_ids</span><span class="p">])</span>
+            <span class="p">)</span>
+            <span class="n">_int_thresh</span> <span class="o">=</span> <span class="n">lasing_thresholds</span><span class="p">[</span><span class="n">mu</span><span class="p">]</span> <span class="o">*</span> <span class="n">factor</span>
+            <span class="k">if</span> <span class="p">(</span>
+                <span class="n">_int_thresh</span> <span class="o">&gt;</span> <span class="n">pump_intensity</span>
+                <span class="ow">and</span> <span class="n">_int_thresh</span> <span class="o">&gt;</span> <span class="n">modes_df</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="n">mu</span><span class="p">,</span> <span class="s2">&quot;lasing_thresholds&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">to_list</span><span class="p">()[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="p">):</span>
+                <span class="n">interacting_lasing_thresholds</span><span class="p">[</span><span class="n">mu</span><span class="p">]</span> <span class="o">=</span> <span class="n">_int_thresh</span>
+
+    <span class="n">next_lasing_mode_id</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">argmin</span><span class="p">(</span><span class="n">interacting_lasing_thresholds</span><span class="p">)</span>
+    <span class="n">next_lasing_threshold</span> <span class="o">=</span> <span class="n">interacting_lasing_thresholds</span><span class="p">[</span><span class="n">next_lasing_mode_id</span><span class="p">]</span>
+    <span class="k">return</span> <span class="n">next_lasing_mode_id</span><span class="p">,</span> <span class="n">next_lasing_threshold</span>
+
+
+<span class="c1"># pylint: disable=too-many-statements</span>
+<div class="viewcode-block" id="compute_modal_intensities"><a class="viewcode-back" href="../../modes.html#netsalt.modes.compute_modal_intensities">[docs]</a><span class="k">def</span> <span class="nf">compute_modal_intensities</span><span class="p">(</span><span class="n">modes_df</span><span class="p">,</span> <span class="n">max_pump_intensity</span><span class="p">,</span> <span class="n">mode_competition_matrix</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Compute the modal intensities of the modes up to D0, with D0_steps.&quot;&quot;&quot;</span>
+    <span class="n">lasing_thresholds</span> <span class="o">=</span> <span class="n">modes_df</span><span class="p">[</span><span class="s2">&quot;lasing_thresholds&quot;</span><span class="p">]</span>
+
+    <span class="n">next_lasing_mode_id</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">argmin</span><span class="p">(</span><span class="n">lasing_thresholds</span><span class="p">)</span>
+    <span class="n">next_lasing_threshold</span> <span class="o">=</span> <span class="n">lasing_thresholds</span><span class="p">[</span><span class="n">next_lasing_mode_id</span><span class="p">]</span>
+    <span class="n">L</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;First lasing mode id: </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">next_lasing_mode_id</span><span class="p">)</span>
+
+    <span class="n">modal_intensities</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">index</span><span class="o">=</span><span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">modes_df</span><span class="p">)))</span>
+
+    <span class="n">lasing_mode_ids</span> <span class="o">=</span> <span class="p">[</span><span class="n">next_lasing_mode_id</span><span class="p">]</span>
+    <span class="n">interacting_lasing_thresholds</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">inf</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">modes_df</span><span class="p">))</span>
+    <span class="n">interacting_lasing_thresholds</span><span class="p">[</span><span class="n">next_lasing_mode_id</span><span class="p">]</span> <span class="o">=</span> <span class="n">next_lasing_threshold</span>
+    <span class="n">modal_intensities</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="n">next_lasing_mode_id</span><span class="p">,</span> <span class="n">next_lasing_threshold</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span>
+
+    <span class="n">pump_intensity</span> <span class="o">=</span> <span class="n">next_lasing_threshold</span>
+    <span class="n">L</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;Max pump intensity </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">max_pump_intensity</span><span class="p">)</span>
+    <span class="k">while</span> <span class="n">pump_intensity</span> <span class="o">&lt;=</span> <span class="n">max_pump_intensity</span><span class="p">:</span>
+        <span class="n">L</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;Current pump intensity </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">pump_intensity</span><span class="p">)</span>
+
+        <span class="c1"># 1) compute the current mode intensities</span>
+        <span class="n">mode_competition_matrix_inv</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">pinv</span><span class="p">(</span>
+            <span class="n">mode_competition_matrix</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">ix_</span><span class="p">(</span><span class="n">lasing_mode_ids</span><span class="p">,</span> <span class="n">lasing_mode_ids</span><span class="p">)]</span>
+        <span class="p">)</span>
+        <span class="n">slopes</span> <span class="o">=</span> <span class="n">mode_competition_matrix_inv</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="mf">1.0</span> <span class="o">/</span> <span class="n">lasing_thresholds</span><span class="p">[</span><span class="n">lasing_mode_ids</span><span class="p">])</span>
+        <span class="n">shifts</span> <span class="o">=</span> <span class="n">mode_competition_matrix_inv</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+
+        <span class="c1"># if we hit the max intensity, we add last points and stop</span>
+        <span class="k">if</span> <span class="n">pump_intensity</span> <span class="o">&gt;=</span> <span class="n">max_pump_intensity</span><span class="p">:</span>
+            <span class="n">L</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;Max pump intensity reached.&quot;</span><span class="p">)</span>
+            <span class="n">modal_intensities</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="n">lasing_mode_ids</span><span class="p">,</span> <span class="n">max_pump_intensity</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="n">slopes</span> <span class="o">*</span> <span class="n">max_pump_intensity</span> <span class="o">-</span> <span class="n">shifts</span>
+            <span class="p">)</span>
+            <span class="k">break</span>
+
+        <span class="n">modal_intensities</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="n">lasing_mode_ids</span><span class="p">,</span> <span class="n">pump_intensity</span><span class="p">]</span> <span class="o">=</span> <span class="n">slopes</span> <span class="o">*</span> <span class="n">pump_intensity</span> <span class="o">-</span> <span class="n">shifts</span>
+
+        <span class="c1"># 2) search for next lasing mode</span>
+        <span class="n">next_lasing_mode_id</span><span class="p">,</span> <span class="n">next_lasing_threshold</span> <span class="o">=</span> <span class="n">_find_next_lasing_mode</span><span class="p">(</span>
+            <span class="n">pump_intensity</span><span class="p">,</span>
+            <span class="n">modes_df</span><span class="p">,</span>
+            <span class="n">lasing_thresholds</span><span class="p">,</span>
+            <span class="n">lasing_mode_ids</span><span class="p">,</span>
+            <span class="n">mode_competition_matrix</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="n">L</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;Next lasing threshold </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">next_lasing_threshold</span><span class="p">)</span>
+
+        <span class="c1"># 3) deal with vanishing modes before next lasing mode</span>
+        <span class="n">vanishing_mode_id</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="k">if</span> <span class="nb">any</span><span class="p">(</span><span class="n">slopes</span> <span class="o">&lt;</span> <span class="o">-</span><span class="mf">1e-10</span><span class="p">):</span>
+            <span class="n">vanishing_pump_intensities</span> <span class="o">=</span> <span class="n">shifts</span> <span class="o">/</span> <span class="n">slopes</span>
+            <span class="n">vanishing_pump_intensities</span><span class="p">[</span><span class="n">slopes</span> <span class="o">&gt;</span> <span class="o">-</span><span class="mf">1e-10</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">inf</span>
+
+            <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">vanishing_pump_intensities</span><span class="p">)</span> <span class="o">&lt;</span> <span class="n">next_lasing_threshold</span><span class="p">:</span>
+                <span class="n">vanishing_mode_id</span> <span class="o">=</span> <span class="n">lasing_mode_ids</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">argmin</span><span class="p">(</span><span class="n">vanishing_pump_intensities</span><span class="p">)]</span>
+
+        <span class="c1"># 4) prepare for the next step</span>
+        <span class="k">if</span> <span class="n">vanishing_mode_id</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">next_lasing_threshold</span> <span class="o">&lt;</span> <span class="n">max_pump_intensity</span><span class="p">:</span>
+                <span class="n">interacting_lasing_thresholds</span><span class="p">[</span><span class="n">next_lasing_mode_id</span><span class="p">]</span> <span class="o">=</span> <span class="n">next_lasing_threshold</span>
+                <span class="n">pump_intensity</span> <span class="o">=</span> <span class="n">next_lasing_threshold</span>
+
+                <span class="n">L</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;New lasing mode id: </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">next_lasing_mode_id</span><span class="p">)</span>
+                <span class="n">lasing_mode_ids</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">next_lasing_mode_id</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">pump_intensity</span> <span class="o">=</span> <span class="n">max_pump_intensity</span>
+
+        <span class="k">elif</span> <span class="n">np</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">vanishing_pump_intensities</span><span class="p">)</span> <span class="o">+</span> <span class="mf">1e-10</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">L</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;Vanishing mode id: </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">vanishing_mode_id</span><span class="p">)</span>
+
+            <span class="n">mode_id</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">lasing_mode_ids</span><span class="p">)</span> <span class="o">==</span> <span class="n">vanishing_mode_id</span><span class="p">)[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span>
+            <span class="n">pump_intensity</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">vanishing_pump_intensities</span><span class="p">)</span> <span class="o">+</span> <span class="mf">1e-10</span>
+
+            <span class="c1"># if it vanishes after max pump, we compute the modal amp at that pump</span>
+            <span class="k">if</span> <span class="n">pump_intensity</span> <span class="o">&gt;</span> <span class="n">max_pump_intensity</span><span class="p">:</span>
+                <span class="n">pump_intensity</span> <span class="o">=</span> <span class="n">max_pump_intensity</span>
+                <span class="n">modal_intensities</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="n">vanishing_mode_id</span><span class="p">,</span> <span class="n">max_pump_intensity</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+                    <span class="n">slopes</span><span class="p">[</span><span class="n">mode_id</span><span class="p">]</span> <span class="o">*</span> <span class="n">max_pump_intensity</span> <span class="o">-</span> <span class="n">shifts</span><span class="p">[</span><span class="n">mode_id</span><span class="p">]</span>
+                <span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">modal_intensities</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="n">vanishing_mode_id</span><span class="p">,</span> <span class="n">pump_intensity</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span>
+            <span class="k">del</span> <span class="n">lasing_mode_ids</span><span class="p">[</span><span class="n">mode_id</span><span class="p">]</span>
+
+    <span class="n">modes_df</span><span class="p">[</span><span class="s2">&quot;interacting_lasing_thresholds&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">interacting_lasing_thresholds</span>
+
+    <span class="k">if</span> <span class="s2">&quot;modal_intensities&quot;</span> <span class="ow">in</span> <span class="n">modes_df</span><span class="p">:</span>
+        <span class="k">del</span> <span class="n">modes_df</span><span class="p">[</span><span class="s2">&quot;modal_intensities&quot;</span><span class="p">]</span>
+
+    <span class="k">for</span> <span class="n">pump_intensity</span> <span class="ow">in</span> <span class="n">modal_intensities</span><span class="p">:</span>
+        <span class="c1"># we force to be of given precision for stability</span>
+        <span class="n">modes_df</span><span class="p">[</span><span class="s2">&quot;modal_intensities&quot;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">around</span><span class="p">(</span><span class="n">pump_intensity</span><span class="p">,</span> <span class="mi">8</span><span class="p">)]</span> <span class="o">=</span> <span class="n">modal_intensities</span><span class="p">[</span>
+            <span class="n">pump_intensity</span>
+        <span class="p">]</span>
+    <span class="n">L</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+        <span class="s2">&quot;</span><span class="si">%s</span><span class="s2"> lasing modes out of </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span>
+        <span class="nb">len</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">modal_intensities</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">()[:,</span> <span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">)[</span><span class="mi">0</span><span class="p">]),</span>
+        <span class="nb">len</span><span class="p">(</span><span class="n">modal_intensities</span><span class="o">.</span><span class="n">index</span><span class="p">),</span>
+    <span class="p">)</span>
+    <span class="k">return</span> <span class="n">modes_df</span></div>
+
+
+<div class="viewcode-block" id="pump_trajectories"><a class="viewcode-back" href="../../modes.html#netsalt.modes.pump_trajectories">[docs]</a><span class="k">def</span> <span class="nf">pump_trajectories</span><span class="p">(</span><span class="n">modes_df</span><span class="p">,</span> <span class="n">graph</span><span class="p">,</span> <span class="n">return_approx</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;For a sequence of D0s, find the mode positions of the modes modes.&quot;&quot;&quot;</span>
+
+    <span class="n">D0s</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span>
+        <span class="mi">0</span><span class="p">,</span>
+        <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">][</span><span class="s2">&quot;D0_max&quot;</span><span class="p">],</span>
+        <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">][</span><span class="s2">&quot;D0_steps&quot;</span><span class="p">],</span>
+    <span class="p">)</span>
+
+    <span class="n">n_modes</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">modes_df</span><span class="p">)</span>
+
+    <span class="n">pumped_modes</span> <span class="o">=</span> <span class="p">[[</span><span class="n">from_complex</span><span class="p">(</span><span class="n">mode</span><span class="p">)</span> <span class="k">for</span> <span class="n">mode</span> <span class="ow">in</span> <span class="n">modes_df</span><span class="p">[</span><span class="s2">&quot;passive&quot;</span><span class="p">]]]</span>
+    <span class="n">pumped_modes_approx</span> <span class="o">=</span> <span class="n">pumped_modes</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">D0s</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span><span class="p">):</span>
+        <span class="n">L</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+            <span class="s2">&quot;Step </span><span class="si">%s</span><span class="s2"> / </span><span class="si">%s</span><span class="s2">, computing for D0= </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span>
+            <span class="nb">str</span><span class="p">(</span><span class="n">d</span> <span class="o">+</span> <span class="mi">1</span><span class="p">),</span>
+            <span class="nb">str</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">D0s</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span><span class="p">),</span>
+            <span class="nb">str</span><span class="p">(</span><span class="n">D0s</span><span class="p">[</span><span class="n">d</span> <span class="o">+</span> <span class="mi">1</span><span class="p">]),</span>
+        <span class="p">)</span>
+        <span class="n">pumped_modes_approx</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">pumped_modes</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">copy</span><span class="p">())</span>
+        <span class="k">for</span> <span class="n">m</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n_modes</span><span class="p">):</span>
+            <span class="n">pumped_modes_approx</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">][</span><span class="n">m</span><span class="p">]</span> <span class="o">=</span> <span class="n">pump_linear</span><span class="p">(</span><span class="n">pumped_modes</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">][</span><span class="n">m</span><span class="p">],</span> <span class="n">graph</span><span class="p">,</span> <span class="n">D0s</span><span class="p">[</span><span class="n">d</span><span class="p">],</span> <span class="n">D0s</span><span class="p">[</span><span class="n">d</span> <span class="o">+</span> <span class="mi">1</span><span class="p">])</span>
+
+        <span class="n">worker_modes</span> <span class="o">=</span> <span class="n">WorkerModes</span><span class="p">(</span><span class="n">pumped_modes_approx</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">],</span> <span class="n">graph</span><span class="p">,</span> <span class="n">D0s</span><span class="o">=</span><span class="n">n_modes</span> <span class="o">*</span> <span class="p">[</span><span class="n">D0s</span><span class="p">[</span><span class="n">d</span> <span class="o">+</span> <span class="mi">1</span><span class="p">]])</span>
+        <span class="k">with</span> <span class="n">multiprocessing</span><span class="o">.</span><span class="n">Pool</span><span class="p">(</span><span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">][</span><span class="s2">&quot;n_workers&quot;</span><span class="p">])</span> <span class="k">as</span> <span class="n">pool</span><span class="p">:</span>
+            <span class="n">pumped_modes</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">list</span><span class="p">(</span><span class="n">tqdm</span><span class="p">(</span><span class="n">pool</span><span class="o">.</span><span class="n">imap</span><span class="p">(</span><span class="n">worker_modes</span><span class="p">,</span> <span class="nb">range</span><span class="p">(</span><span class="n">n_modes</span><span class="p">)),</span> <span class="n">total</span><span class="o">=</span><span class="n">n_modes</span><span class="p">)))</span>
+        <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">mode</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">pumped_modes</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]):</span>
+            <span class="k">if</span> <span class="n">mode</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">L</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Mode not be updated, consider changing the search parameters.&quot;</span><span class="p">)</span>
+                <span class="n">pumped_modes</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">][</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">pumped_modes</span><span class="p">[</span><span class="o">-</span><span class="mi">2</span><span class="p">][</span><span class="n">i</span><span class="p">]</span>
+
+    <span class="k">if</span> <span class="s2">&quot;mode_trajectories&quot;</span> <span class="ow">in</span> <span class="n">modes_df</span><span class="p">:</span>
+        <span class="k">del</span> <span class="n">modes_df</span><span class="p">[</span><span class="s2">&quot;mode_trajectories&quot;</span><span class="p">]</span>
+    <span class="k">for</span> <span class="n">D0</span><span class="p">,</span> <span class="n">pumped_mode</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">D0s</span><span class="p">,</span> <span class="n">pumped_modes</span><span class="p">):</span>
+        <span class="n">modes_df</span><span class="p">[</span><span class="s2">&quot;mode_trajectories&quot;</span><span class="p">,</span> <span class="n">D0</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">to_complex</span><span class="p">(</span><span class="n">mode</span><span class="p">)</span> <span class="k">for</span> <span class="n">mode</span> <span class="ow">in</span> <span class="n">pumped_mode</span><span class="p">]</span>
+
+    <span class="k">if</span> <span class="n">return_approx</span><span class="p">:</span>
+        <span class="k">if</span> <span class="s2">&quot;mode_trajectories_approx&quot;</span> <span class="ow">in</span> <span class="n">modes_df</span><span class="p">:</span>
+            <span class="k">del</span> <span class="n">modes_df</span><span class="p">[</span><span class="s2">&quot;mode_trajectories_approx&quot;</span><span class="p">]</span>
+        <span class="k">for</span> <span class="n">D0</span><span class="p">,</span> <span class="n">pumped_mode_approx</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">D0s</span><span class="p">,</span> <span class="n">pumped_modes_approx</span><span class="p">):</span>
+            <span class="n">modes_df</span><span class="p">[</span><span class="s2">&quot;mode_trajectories_approx&quot;</span><span class="p">,</span> <span class="n">D0</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span>
+                <span class="n">to_complex</span><span class="p">(</span><span class="n">mode</span><span class="p">)</span> <span class="k">for</span> <span class="n">mode</span> <span class="ow">in</span> <span class="n">pumped_mode_approx</span>
+            <span class="p">]</span>
+
+    <span class="k">return</span> <span class="n">modes_df</span></div>
+
+
+<span class="k">def</span> <span class="nf">_get_new_D0</span><span class="p">(</span><span class="n">arg</span><span class="p">,</span> <span class="n">graph</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">D0_steps</span><span class="o">=</span><span class="mf">0.1</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Internal function for multiprocessing.&quot;&quot;&quot;</span>
+    <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">seed</span><span class="p">(</span><span class="mi">42</span><span class="p">)</span>
+    <span class="n">mode_id</span><span class="p">,</span> <span class="n">new_mode</span><span class="p">,</span> <span class="n">D0</span> <span class="o">=</span> <span class="n">arg</span>
+    <span class="n">increment</span> <span class="o">=</span> <span class="n">lasing_threshold_linear</span><span class="p">(</span><span class="n">new_mode</span><span class="p">,</span> <span class="n">graph</span><span class="p">,</span> <span class="n">D0</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">increment</span> <span class="o">&gt;</span> <span class="o">-</span><span class="n">D0_steps</span><span class="p">:</span>
+        <span class="n">new_D0</span> <span class="o">=</span> <span class="nb">abs</span><span class="p">(</span><span class="n">D0</span> <span class="o">+</span> <span class="n">increment</span><span class="p">)</span>
+        <span class="n">new_D0</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="n">new_D0</span><span class="p">,</span> <span class="n">D0_steps</span> <span class="o">+</span> <span class="n">D0</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">L</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;Intensity increment is negative, we set step to half max step.&quot;</span><span class="p">)</span>
+        <span class="n">new_D0</span> <span class="o">=</span> <span class="n">D0</span> <span class="o">+</span> <span class="mf">0.5</span> <span class="o">*</span> <span class="n">D0_steps</span>
+
+    <span class="n">L</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;Mode </span><span class="si">%s</span><span class="s2"> at intensity </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">mode_id</span><span class="p">,</span> <span class="n">new_D0</span><span class="p">)</span>
+    <span class="n">new_modes_approx</span> <span class="o">=</span> <span class="n">pump_linear</span><span class="p">(</span><span class="n">new_mode</span><span class="p">,</span> <span class="n">graph</span><span class="p">,</span> <span class="n">D0</span><span class="p">,</span> <span class="n">new_D0</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">mode_id</span><span class="p">,</span> <span class="n">new_D0</span><span class="p">,</span> <span class="n">new_modes_approx</span>
+
+
+<div class="viewcode-block" id="find_threshold_lasing_modes"><a class="viewcode-back" href="../../modes.html#netsalt.modes.find_threshold_lasing_modes">[docs]</a><span class="k">def</span> <span class="nf">find_threshold_lasing_modes</span><span class="p">(</span><span class="n">modes_df</span><span class="p">,</span> <span class="n">graph</span><span class="p">):</span>  <span class="c1"># pylint:disable=too-many-statements</span>
+    <span class="sd">&quot;&quot;&quot;Find the threshold lasing modes and associated lasing thresholds.&quot;&quot;&quot;</span>
+    <span class="n">stepsize</span> <span class="o">=</span> <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">][</span><span class="s2">&quot;search_stepsize&quot;</span><span class="p">]</span>
+    <span class="n">D0_steps</span> <span class="o">=</span> <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">][</span><span class="s2">&quot;D0_max&quot;</span><span class="p">]</span> <span class="o">/</span> <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">][</span><span class="s2">&quot;D0_steps&quot;</span><span class="p">]</span>
+    <span class="n">new_modes</span> <span class="o">=</span> <span class="n">modes_df</span><span class="p">[</span><span class="s2">&quot;passive&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">()</span>
+
+    <span class="n">threshold_lasing_modes</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">([</span><span class="nb">len</span><span class="p">(</span><span class="n">modes_df</span><span class="p">),</span> <span class="mi">2</span><span class="p">])</span>
+    <span class="n">lasing_thresholds</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">inf</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">modes_df</span><span class="p">))</span>
+    <span class="n">D0s</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">modes_df</span><span class="p">))</span>
+    <span class="n">current_modes</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">modes_df</span><span class="p">))</span>
+    <span class="n">stuck_modes_count</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">max_modes</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">current_modes</span><span class="p">)</span>
+    <span class="n">prev_n_modes</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="k">while</span> <span class="nb">len</span><span class="p">(</span><span class="n">current_modes</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">current_modes</span><span class="p">)</span> <span class="o">==</span> <span class="n">prev_n_modes</span><span class="p">:</span>
+            <span class="n">stuck_modes_count</span> <span class="o">+=</span> <span class="mi">1</span>
+        <span class="n">prev_n_modes</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">current_modes</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">max_modes</span> <span class="o">&gt;</span> <span class="n">stuck_modes_count</span> <span class="o">&gt;</span> <span class="mi">100</span><span class="p">:</span>
+            <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span><span class="s2">&quot;We stop here, some modes got stuck.&quot;</span><span class="p">)</span>
+            <span class="n">current_modes</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="k">continue</span>
+        <span class="n">L</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;</span><span class="si">%s</span><span class="s2"> modes left to find&quot;</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">current_modes</span><span class="p">))</span>
+
+        <span class="n">new_D0s</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">modes_df</span><span class="p">))</span>
+        <span class="n">new_modes_approx</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">empty</span><span class="p">([</span><span class="nb">len</span><span class="p">(</span><span class="n">new_modes</span><span class="p">),</span> <span class="mi">2</span><span class="p">])</span>
+        <span class="n">args</span> <span class="o">=</span> <span class="p">((</span><span class="n">mode_id</span><span class="p">,</span> <span class="n">new_modes</span><span class="p">[</span><span class="n">mode_id</span><span class="p">],</span> <span class="n">D0s</span><span class="p">[</span><span class="n">mode_id</span><span class="p">])</span> <span class="k">for</span> <span class="n">mode_id</span> <span class="ow">in</span> <span class="n">current_modes</span><span class="p">)</span>
+        <span class="k">with</span> <span class="n">multiprocessing</span><span class="o">.</span><span class="n">Pool</span><span class="p">(</span><span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">][</span><span class="s2">&quot;n_workers&quot;</span><span class="p">])</span> <span class="k">as</span> <span class="n">pool</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">mode_id</span><span class="p">,</span> <span class="n">new_D0</span><span class="p">,</span> <span class="n">new_mode_approx</span> <span class="ow">in</span> <span class="n">pool</span><span class="o">.</span><span class="n">imap</span><span class="p">(</span>
+                <span class="n">partial</span><span class="p">(</span><span class="n">_get_new_D0</span><span class="p">,</span> <span class="n">graph</span><span class="o">=</span><span class="n">graph</span><span class="p">,</span> <span class="n">D0_steps</span><span class="o">=</span><span class="n">D0_steps</span><span class="p">),</span> <span class="n">args</span>
+            <span class="p">):</span>
+                <span class="n">new_D0s</span><span class="p">[</span><span class="n">mode_id</span><span class="p">]</span> <span class="o">=</span> <span class="n">new_D0</span>
+                <span class="n">new_modes_approx</span><span class="p">[</span><span class="n">mode_id</span><span class="p">]</span> <span class="o">=</span> <span class="n">new_mode_approx</span>
+
+        <span class="c1"># this is a trick to reduce the stepsizes as we are near the solution</span>
+        <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">][</span><span class="s2">&quot;search_stepsize&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="n">stepsize</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="nb">abs</span><span class="p">(</span><span class="n">new_D0s</span><span class="p">[</span><span class="n">new_D0s</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">]</span> <span class="o">-</span> <span class="n">D0s</span><span class="p">[</span><span class="n">new_D0s</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">]))</span> <span class="o">/</span> <span class="n">D0_steps</span>
+        <span class="p">)</span>
+
+        <span class="n">L</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;Current search_stepsize: </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">][</span><span class="s2">&quot;search_stepsize&quot;</span><span class="p">])</span>
+        <span class="n">worker_modes</span> <span class="o">=</span> <span class="n">WorkerModes</span><span class="p">(</span><span class="n">new_modes_approx</span><span class="p">,</span> <span class="n">graph</span><span class="p">,</span> <span class="n">D0s</span><span class="o">=</span><span class="n">new_D0s</span><span class="p">)</span>
+        <span class="n">new_modes_tmp</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">([</span><span class="nb">len</span><span class="p">(</span><span class="n">modes_df</span><span class="p">),</span> <span class="mi">2</span><span class="p">])</span>
+
+        <span class="k">with</span> <span class="n">multiprocessing</span><span class="o">.</span><span class="n">Pool</span><span class="p">(</span><span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">][</span><span class="s2">&quot;n_workers&quot;</span><span class="p">])</span> <span class="k">as</span> <span class="n">pool</span><span class="p">:</span>
+            <span class="n">new_modes_tmp</span><span class="p">[</span><span class="n">current_modes</span><span class="p">]</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span>
+                <span class="n">tqdm</span><span class="p">(</span><span class="n">pool</span><span class="o">.</span><span class="n">imap</span><span class="p">(</span><span class="n">worker_modes</span><span class="p">,</span> <span class="n">current_modes</span><span class="p">),</span> <span class="n">total</span><span class="o">=</span><span class="nb">len</span><span class="p">(</span><span class="n">current_modes</span><span class="p">))</span>
+            <span class="p">)</span>
+
+        <span class="n">to_delete</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">mode_index</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">current_modes</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">new_modes_tmp</span><span class="p">[</span><span class="n">mode_index</span><span class="p">]</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">L</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;A mode could not be updated, consider modifying the search parameters.&quot;</span><span class="p">)</span>
+                <span class="n">new_modes_tmp</span><span class="p">[</span><span class="n">mode_index</span><span class="p">]</span> <span class="o">=</span> <span class="n">new_modes</span><span class="p">[</span><span class="n">mode_index</span><span class="p">]</span>
+            <span class="k">elif</span> <span class="nb">abs</span><span class="p">(</span><span class="n">new_modes_tmp</span><span class="p">[</span><span class="n">mode_index</span><span class="p">][</span><span class="mi">1</span><span class="p">])</span> <span class="o">&lt;</span> <span class="mf">1e-6</span><span class="p">:</span>
+                <span class="n">to_delete</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">i</span><span class="p">)</span>
+                <span class="n">threshold_lasing_modes</span><span class="p">[</span><span class="n">mode_index</span><span class="p">]</span> <span class="o">=</span> <span class="n">new_modes_tmp</span><span class="p">[</span><span class="n">mode_index</span><span class="p">]</span>
+                <span class="n">lasing_thresholds</span><span class="p">[</span><span class="n">mode_index</span><span class="p">]</span> <span class="o">=</span> <span class="n">new_D0s</span><span class="p">[</span><span class="n">mode_index</span><span class="p">]</span>
+
+            <span class="k">elif</span> <span class="n">new_D0s</span><span class="p">[</span><span class="n">mode_index</span><span class="p">]</span> <span class="o">&gt;</span> <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">][</span><span class="s2">&quot;D0_max&quot;</span><span class="p">]:</span>
+                <span class="n">to_delete</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">i</span><span class="p">)</span>
+
+        <span class="n">current_modes</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">delete</span><span class="p">(</span><span class="n">current_modes</span><span class="p">,</span> <span class="n">to_delete</span><span class="p">)</span>
+        <span class="n">D0s</span> <span class="o">=</span> <span class="n">new_D0s</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+        <span class="n">new_modes</span> <span class="o">=</span> <span class="n">new_modes_tmp</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+
+    <span class="n">modes_df</span><span class="p">[</span><span class="s2">&quot;threshold_lasing_modes&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">to_complex</span><span class="p">(</span><span class="n">mode</span><span class="p">)</span> <span class="k">for</span> <span class="n">mode</span> <span class="ow">in</span> <span class="n">threshold_lasing_modes</span><span class="p">]</span>
+    <span class="n">modes_df</span><span class="p">[</span><span class="s2">&quot;lasing_thresholds&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">lasing_thresholds</span>
+
+    <span class="c1"># we remove duplicated threshold lasing modes (we keep first appearance)</span>
+    <span class="n">prec</span> <span class="o">=</span> <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">][</span><span class="s2">&quot;quality_threshold&quot;</span><span class="p">]</span>
+    <span class="n">modes_df</span><span class="p">[</span><span class="s2">&quot;th&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">prec</span> <span class="o">*</span> <span class="p">(</span><span class="nb">abs</span><span class="p">(</span><span class="n">modes_df</span><span class="p">[</span><span class="s2">&quot;threshold_lasing_modes&quot;</span><span class="p">])</span> <span class="o">/</span> <span class="n">prec</span><span class="p">)</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+    <span class="n">val</span><span class="p">,</span> <span class="n">count</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">unique</span><span class="p">(</span><span class="n">modes_df</span><span class="p">[</span><span class="s2">&quot;th&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">(),</span> <span class="n">return_counts</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">val</span><span class="p">[</span><span class="n">count</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">]:</span>
+        <span class="n">mask</span> <span class="o">=</span> <span class="n">modes_df</span><span class="p">[</span><span class="n">modes_df</span><span class="p">[</span><span class="s2">&quot;th&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="n">v</span><span class="p">]</span><span class="o">.</span><span class="n">index</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">mask</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="n">modes_df</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="n">mask</span><span class="p">[</span><span class="mi">1</span><span class="p">:],</span> <span class="s2">&quot;threshold_lasing_modes&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.0</span>
+            <span class="n">modes_df</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="n">mask</span><span class="p">[</span><span class="mi">1</span><span class="p">:],</span> <span class="s2">&quot;lasing_thresholds&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">inf</span>
+
+    <span class="k">return</span> <span class="n">modes_df</span><span class="o">.</span><span class="n">drop</span><span class="p">(</span><span class="n">columns</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;th&quot;</span><span class="p">])</span></div>
+
+
+<div class="viewcode-block" id="lasing_threshold_linear"><a class="viewcode-back" href="../../modes.html#netsalt.modes.lasing_threshold_linear">[docs]</a><span class="k">def</span> <span class="nf">lasing_threshold_linear</span><span class="p">(</span><span class="n">mode</span><span class="p">,</span> <span class="n">graph</span><span class="p">,</span> <span class="n">D0</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Find the linear approximation of the new wavenumber.&quot;&quot;&quot;</span>
+    <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">][</span><span class="s2">&quot;D0&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">D0</span>
+    <span class="k">return</span> <span class="mf">1.0</span> <span class="o">/</span> <span class="p">(</span>
+        <span class="n">q_value</span><span class="p">(</span><span class="n">mode</span><span class="p">)</span>
+        <span class="o">*</span> <span class="o">-</span><span class="n">np</span><span class="o">.</span><span class="n">imag</span><span class="p">(</span><span class="n">gamma</span><span class="p">(</span><span class="n">to_complex</span><span class="p">(</span><span class="n">mode</span><span class="p">),</span> <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">]))</span>
+        <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">real</span><span class="p">(</span><span class="n">compute_overlapping_factor</span><span class="p">(</span><span class="n">mode</span><span class="p">,</span> <span class="n">graph</span><span class="p">))</span>
+    <span class="p">)</span></div>
+</pre></div>
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="../../index.html">netSALT</a></h1>
+
+
+
+
+
+
+
+
+<h3>Navigation</h3>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../modes.html">The modes module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../physics.html">The physics module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../quantum_graph.html">The quantum graph module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../algorithm.html">The algorithm module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../pump.html">The pump module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../plotting.html">The plotting module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../io.html">The io module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../utils.html">The utils module</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../../index.html">Documentation overview</a><ul>
+  <li><a href="../index.html">Module code</a><ul>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
+<div id="searchbox" style="display: none" role="search">
+  <h3 id="searchlabel">Quick search</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" />
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</div>
+<script>$('#searchbox').show(0);</script>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2020, Alexis Arnaudon.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 3.5.4</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.12</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

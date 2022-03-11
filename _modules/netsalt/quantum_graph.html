@@ -1,0 +1,544 @@
+
+<!DOCTYPE html>
+
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>netsalt.quantum_graph &#8212; netSALT  documentation</title>
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/alabaster.css" type="text/css" />
+    <script id="documentation_options" data-url_root="../../" src="../../_static/documentation_options.js"></script>
+    <script src="../../_static/jquery.js"></script>
+    <script src="../../_static/underscore.js"></script>
+    <script src="../../_static/doctools.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+   
+  <link rel="stylesheet" href="../../_static/custom.css" type="text/css" />
+  
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9" />
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <h1>Source code for netsalt.quantum_graph</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;Quantum graph construction module.</span>
+
+<span class="sd">A quantum graph is a networkx graph with additional parameters in graph.graph[&#39;param&#39;]</span>
+<span class="sd">and specific node/edges attributes.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="kn">import</span> <span class="nn">logging</span>
+
+<span class="kn">import</span> <span class="nn">networkx</span> <span class="k">as</span> <span class="nn">nx</span>
+<span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
+<span class="kn">import</span> <span class="nn">scipy</span> <span class="k">as</span> <span class="nn">sc</span>
+
+<span class="kn">from</span> <span class="nn">.physics</span> <span class="kn">import</span> <span class="n">update_params_dielectric_constant</span>
+<span class="kn">from</span> <span class="nn">.utils</span> <span class="kn">import</span> <span class="n">to_complex</span>
+
+<span class="n">L</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="create_quantum_graph"><a class="viewcode-back" href="../../quantum_graph.html#netsalt.quantum_graph.create_quantum_graph">[docs]</a><span class="k">def</span> <span class="nf">create_quantum_graph</span><span class="p">(</span>
+    <span class="n">graph</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">positions</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">lengths</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">seed</span><span class="o">=</span><span class="mi">42</span><span class="p">,</span> <span class="n">noise_level</span><span class="o">=</span><span class="mf">0.001</span>
+<span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Extend a networkx graph with necessary attributes for being a quantum graph.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        graph (networkx graph): pure networkx graph to consider as a quantum graph</span>
+<span class="sd">        params (dict): specific parameters to setup the quantum graph (depends on use cases)</span>
+<span class="sd">        positions (list): node positions, if Non networkx.spring_layout is used</span>
+<span class="sd">        lengths (list) node lengths, if not None, it will override the lengths from positions</span>
+<span class="sd">        seed (int): seed for rng</span>
+<span class="sd">        noise_level (float): adds some noise if too manuy edges of equal lengths are found</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">_set_node_positions</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">positions</span><span class="p">)</span>
+    <span class="n">_set_edge_lengths</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">lengths</span><span class="o">=</span><span class="n">lengths</span><span class="p">)</span>
+    <span class="n">_verify_lengths</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">seed</span><span class="o">=</span><span class="n">seed</span><span class="p">,</span> <span class="n">noise_level</span><span class="o">=</span><span class="n">noise_level</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">params</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">params</span> <span class="o">=</span> <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">]</span>
+    <span class="n">set_inner_edges</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">params</span><span class="p">)</span>
+    <span class="n">update_parameters</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">params</span><span class="p">)</span></div>
+
+
+<span class="k">def</span> <span class="nf">_verify_lengths</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">seed</span><span class="o">=</span><span class="mi">42</span><span class="p">,</span> <span class="n">noise_level</span><span class="o">=</span><span class="mf">0.001</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Add noise to lengths if many edges have equal.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">noise_level</span> <span class="o">&gt;</span> <span class="mf">0.0</span><span class="p">:</span>
+        <span class="n">lengths</span> <span class="o">=</span> <span class="p">[</span><span class="n">graph</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">v</span><span class="p">][</span><span class="s2">&quot;length&quot;</span><span class="p">]</span> <span class="k">for</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">graph</span><span class="o">.</span><span class="n">edges</span><span class="p">]</span>
+        <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">seed</span><span class="p">(</span><span class="n">seed</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">unique</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">around</span><span class="p">(</span><span class="n">lengths</span><span class="p">,</span> <span class="mi">5</span><span class="p">),</span> <span class="n">return_counts</span><span class="o">=</span><span class="kc">True</span><span class="p">))</span> <span class="o">&gt;</span> <span class="mf">0.2</span> <span class="o">*</span> <span class="nb">len</span><span class="p">(</span><span class="n">graph</span><span class="o">.</span><span class="n">edges</span><span class="p">):</span>
+            <span class="n">L</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+                <span class="sd">&quot;&quot;&quot;You have more than 20% of edges of the same length,</span>
+<span class="sd">                so we add some small noise for safety for the numerics.&quot;&quot;&quot;</span>
+            <span class="p">)</span>
+            <span class="k">for</span> <span class="n">u</span> <span class="ow">in</span> <span class="n">graph</span><span class="p">:</span>
+                <span class="n">graph</span><span class="o">.</span><span class="n">nodes</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="s2">&quot;position&quot;</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span> <span class="o">+=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">normal</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">noise_level</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">lengths</span><span class="p">))</span>
+            <span class="n">_set_edge_lengths</span><span class="p">(</span><span class="n">graph</span><span class="p">)</span>
+
+
+<span class="k">def</span> <span class="nf">_not_equal</span><span class="p">(</span><span class="n">data1</span><span class="p">,</span> <span class="n">data2</span><span class="p">,</span> <span class="n">force</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Check if datasets are the same.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">force</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">True</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">data1</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">):</span>
+        <span class="k">return</span> <span class="nb">all</span><span class="p">(</span><span class="n">data1</span> <span class="o">!=</span> <span class="n">data2</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">data1</span> <span class="o">!=</span> <span class="n">data2</span>
+
+
+<div class="viewcode-block" id="update_parameters"><a class="viewcode-back" href="../../quantum_graph.html#netsalt.quantum_graph.update_parameters">[docs]</a><span class="k">def</span> <span class="nf">update_parameters</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">params</span><span class="p">,</span> <span class="n">force</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Set the parameter dictionary to the graph.</span>
+
+<span class="sd">    TODO: improve this implementation</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        graph (graph): quantum graph</span>
+<span class="sd">        params (dict): specific parameters to setup the quantum graph (depends on use cases)</span>
+<span class="sd">        force (bool): I forgot</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">warning_params</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="s2">&quot;k_min&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;k_max&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;k_n&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;alpha_min&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;alpha_max&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;alpha_n&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;k_a&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;gamma_perp&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;dielectric_params&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;edgelabel&quot;</span><span class="p">,</span>
+    <span class="p">]</span>
+    <span class="k">if</span> <span class="s2">&quot;params&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">:</span>
+        <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">params</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">param</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">params</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="k">if</span> <span class="n">param</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">]:</span>
+                <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">][</span><span class="n">param</span><span class="p">]</span> <span class="o">=</span> <span class="n">value</span>
+            <span class="k">elif</span> <span class="n">_not_equal</span><span class="p">(</span><span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">][</span><span class="n">param</span><span class="p">],</span> <span class="n">value</span><span class="p">,</span> <span class="n">force</span><span class="o">=</span><span class="n">force</span><span class="p">):</span>
+                <span class="k">if</span> <span class="n">param</span> <span class="ow">in</span> <span class="n">warning_params</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="n">force</span><span class="p">:</span>
+                        <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">][</span><span class="n">param</span><span class="p">]</span> <span class="o">=</span> <span class="n">value</span>
+                    <span class="k">else</span><span class="p">:</span>
+                        <span class="k">pass</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">][</span><span class="n">param</span><span class="p">]</span> <span class="o">=</span> <span class="n">value</span></div>
+
+
+<div class="viewcode-block" id="get_total_length"><a class="viewcode-back" href="../../quantum_graph.html#netsalt.quantum_graph.get_total_length">[docs]</a><span class="k">def</span> <span class="nf">get_total_length</span><span class="p">(</span><span class="n">graph</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Get the total length of a quantum graph.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        graph (graph): quantum graph</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="nb">sum</span><span class="p">([</span><span class="n">graph</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">v</span><span class="p">][</span><span class="s2">&quot;length&quot;</span><span class="p">]</span> <span class="k">for</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">graph</span><span class="o">.</span><span class="n">edges</span><span class="p">()])</span></div>
+
+
+<div class="viewcode-block" id="get_total_inner_length"><a class="viewcode-back" href="../../quantum_graph.html#netsalt.quantum_graph.get_total_inner_length">[docs]</a><span class="k">def</span> <span class="nf">get_total_inner_length</span><span class="p">(</span><span class="n">graph</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Get the total inner length of the graph (considering inner edges only).</span>
+
+<span class="sd">    Inner edges are defined as edges without degree one nodes.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        graph (graph): quantum graph</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="nb">sum</span><span class="p">([</span><span class="n">graph</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">v</span><span class="p">][</span><span class="s2">&quot;length&quot;</span><span class="p">]</span> <span class="k">for</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">graph</span><span class="o">.</span><span class="n">edges</span><span class="p">()</span> <span class="k">if</span> <span class="n">graph</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">v</span><span class="p">][</span><span class="s2">&quot;inner&quot;</span><span class="p">]])</span></div>
+
+
+<div class="viewcode-block" id="set_total_length"><a class="viewcode-back" href="../../quantum_graph.html#netsalt.quantum_graph.set_total_length">[docs]</a><span class="k">def</span> <span class="nf">set_total_length</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">total_length</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">max_extent</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">inner</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">with_position</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Set the (inner) total lengths of the graph to a given value.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        graph (graph): quantum graph</span>
+<span class="sd">        total_length (float): total length to set</span>
+<span class="sd">        max_extent (float): only if total_length is None, set the maximal extent</span>
+<span class="sd">        inner (bool): if True, only consider inner edges</span>
+<span class="sd">        with_position (bool): if True, also rescale node positions</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">total_length</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">max_extent</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s2">&quot;only one of total_length or max_extent is allowed&quot;</span><span class="p">)</span>
+    <span class="n">length_ratio</span> <span class="o">=</span> <span class="mf">1.0</span>
+    <span class="k">if</span> <span class="n">total_length</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">inner</span><span class="p">:</span>
+            <span class="n">original_total_length</span> <span class="o">=</span> <span class="n">get_total_inner_length</span><span class="p">(</span><span class="n">graph</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">original_total_length</span> <span class="o">=</span> <span class="n">get_total_length</span><span class="p">(</span><span class="n">graph</span><span class="p">)</span>
+        <span class="n">length_ratio</span> <span class="o">=</span> <span class="n">total_length</span> <span class="o">/</span> <span class="n">original_total_length</span>
+
+    <span class="k">if</span> <span class="n">max_extent</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">_min_pos</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">graph</span><span class="o">.</span><span class="n">nodes</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="s2">&quot;position&quot;</span><span class="p">]</span> <span class="k">for</span> <span class="n">u</span> <span class="ow">in</span> <span class="n">graph</span><span class="o">.</span><span class="n">nodes</span><span class="p">()])</span><span class="o">.</span><span class="n">flatten</span><span class="p">())</span>
+        <span class="n">_max_pos</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">graph</span><span class="o">.</span><span class="n">nodes</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="s2">&quot;position&quot;</span><span class="p">]</span> <span class="k">for</span> <span class="n">u</span> <span class="ow">in</span> <span class="n">graph</span><span class="o">.</span><span class="n">nodes</span><span class="p">()])</span><span class="o">.</span><span class="n">flatten</span><span class="p">())</span>
+        <span class="n">_extent</span> <span class="o">=</span> <span class="n">_max_pos</span> <span class="o">-</span> <span class="n">_min_pos</span>
+        <span class="n">length_ratio</span> <span class="o">=</span> <span class="n">max_extent</span> <span class="o">/</span> <span class="n">_extent</span>
+
+    <span class="k">for</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">graph</span><span class="o">.</span><span class="n">edges</span><span class="p">:</span>
+        <span class="n">graph</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">v</span><span class="p">][</span><span class="s2">&quot;length&quot;</span><span class="p">]</span> <span class="o">*=</span> <span class="n">length_ratio</span>
+    <span class="k">if</span> <span class="n">with_position</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">u</span> <span class="ow">in</span> <span class="n">graph</span><span class="p">:</span>
+            <span class="n">graph</span><span class="o">.</span><span class="n">nodes</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="s2">&quot;position&quot;</span><span class="p">]</span> <span class="o">*=</span> <span class="n">length_ratio</span>
+
+    <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;lengths&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">graph</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">v</span><span class="p">][</span><span class="s2">&quot;length&quot;</span><span class="p">]</span> <span class="k">for</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">graph</span><span class="o">.</span><span class="n">edges</span><span class="p">])</span></div>
+
+
+<span class="k">def</span> <span class="nf">_set_pump_on_graph</span><span class="p">(</span><span class="n">graph</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Set the pump values on the graph from params.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="s2">&quot;pump&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">]:</span>
+        <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">][</span><span class="s2">&quot;pump&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">graph</span><span class="o">.</span><span class="n">edges</span><span class="p">))</span>
+    <span class="k">for</span> <span class="n">ei</span><span class="p">,</span> <span class="n">e</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">graph</span><span class="o">.</span><span class="n">edges</span><span class="p">):</span>
+        <span class="n">graph</span><span class="p">[</span><span class="n">e</span><span class="p">[</span><span class="mi">0</span><span class="p">]][</span><span class="n">e</span><span class="p">[</span><span class="mi">1</span><span class="p">]][</span><span class="s2">&quot;pump&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">][</span><span class="s2">&quot;pump&quot;</span><span class="p">][</span><span class="n">ei</span><span class="p">]</span>
+
+
+<span class="k">def</span> <span class="nf">_set_pump_on_params</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">params</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Set the pump values on the graph from params.&quot;&quot;&quot;</span>
+    <span class="n">params</span><span class="p">[</span><span class="s2">&quot;pump&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">graph</span><span class="o">.</span><span class="n">edges</span><span class="p">))</span>
+    <span class="k">for</span> <span class="n">ei</span><span class="p">,</span> <span class="n">e</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">graph</span><span class="o">.</span><span class="n">edges</span><span class="p">):</span>
+        <span class="n">params</span><span class="p">[</span><span class="s2">&quot;pump&quot;</span><span class="p">][</span><span class="n">ei</span><span class="p">]</span> <span class="o">=</span> <span class="n">graph</span><span class="p">[</span><span class="n">e</span><span class="p">[</span><span class="mi">0</span><span class="p">]][</span><span class="n">e</span><span class="p">[</span><span class="mi">1</span><span class="p">]][</span><span class="s2">&quot;pump&quot;</span><span class="p">]</span>
+
+
+<div class="viewcode-block" id="simplify_graph"><a class="viewcode-back" href="../../quantum_graph.html#netsalt.quantum_graph.simplify_graph">[docs]</a><span class="k">def</span> <span class="nf">simplify_graph</span><span class="p">(</span><span class="n">graph</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Remove degree 2 nodes.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        graph (graph): quantum graph</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">nodes_to_remove</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">edges_to_add</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">if</span> <span class="nb">all</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">graph</span><span class="p">[</span><span class="n">u</span><span class="p">])</span> <span class="o">==</span> <span class="mi">2</span> <span class="k">for</span> <span class="n">u</span> <span class="ow">in</span> <span class="n">graph</span><span class="o">.</span><span class="n">nodes</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">graph</span>
+    <span class="k">for</span> <span class="n">u</span> <span class="ow">in</span> <span class="n">graph</span><span class="o">.</span><span class="n">nodes</span><span class="p">:</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">graph</span><span class="p">[</span><span class="n">u</span><span class="p">])</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+            <span class="n">neighs</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">graph</span><span class="p">[</span><span class="n">u</span><span class="p">]</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
+            <span class="n">edges_to_add</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">neighs</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">neighs</span><span class="p">[</span><span class="mi">1</span><span class="p">]))</span>
+            <span class="n">nodes_to_remove</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">u</span><span class="p">)</span>
+    <span class="n">graph</span><span class="o">.</span><span class="n">add_edges_from</span><span class="p">(</span><span class="n">edges_to_add</span><span class="p">)</span>
+    <span class="n">graph</span><span class="o">.</span><span class="n">remove_nodes_from</span><span class="p">(</span><span class="n">nodes_to_remove</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">nx</span><span class="o">.</span><span class="n">convert_node_labels_to_integers</span><span class="p">(</span><span class="n">graph</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="oversample_graph"><a class="viewcode-back" href="../../quantum_graph.html#netsalt.quantum_graph.oversample_graph">[docs]</a><span class="k">def</span> <span class="nf">oversample_graph</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">edge_size</span><span class="p">):</span>  <span class="c1"># pylint: disable=too-many-locals</span>
+    <span class="sd">&quot;&quot;&quot;Oversample a graph by adding points on edges.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        graph (graph): quantum graph</span>
+<span class="sd">        edge_size (float):  edge size to sample the graph</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">_set_pump_on_graph</span><span class="p">(</span><span class="n">graph</span><span class="p">)</span>
+    <span class="n">oversampled_graph</span> <span class="o">=</span> <span class="n">graph</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">ei</span><span class="p">,</span> <span class="p">(</span><span class="n">u</span><span class="p">,</span> <span class="n">v</span><span class="p">)</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">graph</span><span class="o">.</span><span class="n">edges</span><span class="p">):</span>
+        <span class="n">last_node</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">oversampled_graph</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">graph</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">v</span><span class="p">][</span><span class="s2">&quot;inner&quot;</span><span class="p">]:</span>
+            <span class="n">n_nodes</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">graph</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">v</span><span class="p">][</span><span class="s2">&quot;length&quot;</span><span class="p">]</span> <span class="o">/</span> <span class="n">edge_size</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">n_nodes</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="n">dielectric_constant</span> <span class="o">=</span> <span class="n">graph</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">v</span><span class="p">][</span><span class="s2">&quot;dielectric_constant&quot;</span><span class="p">]</span>
+                <span class="n">pump</span> <span class="o">=</span> <span class="n">graph</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">v</span><span class="p">][</span><span class="s2">&quot;pump&quot;</span><span class="p">]</span>
+                <span class="n">oversampled_graph</span><span class="o">.</span><span class="n">remove_edge</span><span class="p">(</span><span class="n">u</span><span class="p">,</span> <span class="n">v</span><span class="p">)</span>
+
+                <span class="k">for</span> <span class="n">node_index</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n_nodes</span> <span class="o">-</span> <span class="mi">1</span><span class="p">):</span>
+                    <span class="n">node_position_x</span> <span class="o">=</span> <span class="n">graph</span><span class="o">.</span><span class="n">nodes</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="s2">&quot;position&quot;</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span> <span class="o">+</span> <span class="p">(</span><span class="n">node_index</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">/</span> <span class="n">n_nodes</span> <span class="o">*</span> <span class="p">(</span>
+                        <span class="n">graph</span><span class="o">.</span><span class="n">nodes</span><span class="p">[</span><span class="n">v</span><span class="p">][</span><span class="s2">&quot;position&quot;</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span> <span class="o">-</span> <span class="n">graph</span><span class="o">.</span><span class="n">nodes</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="s2">&quot;position&quot;</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span>
+                    <span class="p">)</span>
+                    <span class="n">node_position_y</span> <span class="o">=</span> <span class="n">graph</span><span class="o">.</span><span class="n">nodes</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="s2">&quot;position&quot;</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span> <span class="o">+</span> <span class="p">(</span><span class="n">node_index</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">/</span> <span class="n">n_nodes</span> <span class="o">*</span> <span class="p">(</span>
+                        <span class="n">graph</span><span class="o">.</span><span class="n">nodes</span><span class="p">[</span><span class="n">v</span><span class="p">][</span><span class="s2">&quot;position&quot;</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span> <span class="o">-</span> <span class="n">graph</span><span class="o">.</span><span class="n">nodes</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="s2">&quot;position&quot;</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span>
+                    <span class="p">)</span>
+                    <span class="n">node_position</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">node_position_x</span><span class="p">,</span> <span class="n">node_position_y</span><span class="p">])</span>
+
+                    <span class="k">if</span> <span class="n">node_index</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                        <span class="n">first</span><span class="p">,</span> <span class="n">last</span> <span class="o">=</span> <span class="n">u</span><span class="p">,</span> <span class="n">last_node</span>
+                    <span class="k">else</span><span class="p">:</span>
+                        <span class="n">first</span><span class="p">,</span> <span class="n">last</span> <span class="o">=</span> <span class="n">last_node</span> <span class="o">+</span> <span class="n">node_index</span> <span class="o">-</span> <span class="mi">1</span><span class="p">,</span> <span class="n">last_node</span> <span class="o">+</span> <span class="n">node_index</span>
+
+                    <span class="n">oversampled_graph</span><span class="o">.</span><span class="n">add_node</span><span class="p">(</span><span class="n">last</span><span class="p">,</span> <span class="n">position</span><span class="o">=</span><span class="n">node_position</span><span class="p">)</span>
+                    <span class="n">oversampled_graph</span><span class="o">.</span><span class="n">add_edge</span><span class="p">(</span>
+                        <span class="n">first</span><span class="p">,</span>
+                        <span class="n">last</span><span class="p">,</span>
+                        <span class="n">inner</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+                        <span class="n">dielectric_constant</span><span class="o">=</span><span class="n">dielectric_constant</span><span class="p">,</span>
+                        <span class="n">pump</span><span class="o">=</span><span class="n">pump</span><span class="p">,</span>
+                        <span class="n">edgelabel</span><span class="o">=</span><span class="n">ei</span><span class="p">,</span>
+                    <span class="p">)</span>
+
+                <span class="n">oversampled_graph</span><span class="o">.</span><span class="n">add_edge</span><span class="p">(</span>
+                    <span class="n">last_node</span> <span class="o">+</span> <span class="n">node_index</span><span class="p">,</span>
+                    <span class="n">v</span><span class="p">,</span>
+                    <span class="n">inner</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+                    <span class="n">dielectric_constant</span><span class="o">=</span><span class="n">dielectric_constant</span><span class="p">,</span>
+                    <span class="n">pump</span><span class="o">=</span><span class="n">pump</span><span class="p">,</span>
+                    <span class="n">edgelabel</span><span class="o">=</span><span class="n">ei</span><span class="p">,</span>
+                <span class="p">)</span>
+
+    <span class="n">oversampled_graph</span> <span class="o">=</span> <span class="n">nx</span><span class="o">.</span><span class="n">convert_node_labels_to_integers</span><span class="p">(</span><span class="n">oversampled_graph</span><span class="p">)</span>
+    <span class="n">_set_edge_lengths</span><span class="p">(</span><span class="n">oversampled_graph</span><span class="p">)</span>
+    <span class="n">params</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;inner&quot;</span><span class="p">:</span> <span class="p">[</span><span class="n">oversampled_graph</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">v</span><span class="p">][</span><span class="s2">&quot;inner&quot;</span><span class="p">]</span> <span class="k">for</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">oversampled_graph</span><span class="o">.</span><span class="n">edges</span><span class="p">]}</span>
+    <span class="n">update_params_dielectric_constant</span><span class="p">(</span><span class="n">oversampled_graph</span><span class="p">,</span> <span class="n">params</span><span class="p">)</span>
+    <span class="n">_set_pump_on_params</span><span class="p">(</span><span class="n">oversampled_graph</span><span class="p">,</span> <span class="n">params</span><span class="p">)</span>
+    <span class="n">update_parameters</span><span class="p">(</span><span class="n">oversampled_graph</span><span class="p">,</span> <span class="n">params</span><span class="p">,</span> <span class="n">force</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">oversampled_graph</span></div>
+
+
+<div class="viewcode-block" id="construct_laplacian"><a class="viewcode-back" href="../../quantum_graph.html#netsalt.quantum_graph.construct_laplacian">[docs]</a><span class="k">def</span> <span class="nf">construct_laplacian</span><span class="p">(</span><span class="n">wavenumber</span><span class="p">,</span> <span class="n">graph</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Construct quantum laplacian from a graph.</span>
+
+<span class="sd">    The quantum laplacian is L(k) = B^T(k) W^{-1}(k) B(k), with quantum incidence and weight matrix.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        wavenumber (complex): wavenumber</span>
+<span class="sd">        graph (graph): quantum graph</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">set_wavenumber</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">wavenumber</span><span class="p">)</span>
+    <span class="n">BT</span><span class="p">,</span> <span class="n">Bout</span> <span class="o">=</span> <span class="n">construct_incidence_matrix</span><span class="p">(</span><span class="n">graph</span><span class="p">)</span>
+    <span class="n">Winv</span> <span class="o">=</span> <span class="n">construct_weight_matrix</span><span class="p">(</span><span class="n">graph</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">BT</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">Winv</span><span class="p">)</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">Bout</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="set_wavenumber"><a class="viewcode-back" href="../../quantum_graph.html#netsalt.quantum_graph.set_wavenumber">[docs]</a><span class="k">def</span> <span class="nf">set_wavenumber</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">wavenumber</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Set edge wavenumbers with dispersion relation defined in graph[&#39;dispersion_relation&#39;].</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        wavenumber (complex): wavenumber</span>
+<span class="sd">        graph (graph): quantum graph</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;ks&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;dispersion_relation&quot;</span><span class="p">](</span><span class="n">wavenumber</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">])</span></div>
+
+
+<div class="viewcode-block" id="construct_incidence_matrix"><a class="viewcode-back" href="../../quantum_graph.html#netsalt.quantum_graph.construct_incidence_matrix">[docs]</a><span class="k">def</span> <span class="nf">construct_incidence_matrix</span><span class="p">(</span><span class="n">graph</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Construct the quantum incidence matrix B(k).</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        graph (graph): quantum graph</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">row</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">repeat</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">graph</span><span class="o">.</span><span class="n">edges</span><span class="p">)</span> <span class="o">*</span> <span class="mi">2</span><span class="p">),</span> <span class="mi">2</span><span class="p">)</span>
+    <span class="n">col</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">repeat</span><span class="p">(</span><span class="n">graph</span><span class="o">.</span><span class="n">edges</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">flatten</span><span class="p">()</span>
+    <span class="n">expl</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="mf">1.0</span><span class="n">j</span> <span class="o">*</span> <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;lengths&quot;</span><span class="p">]</span> <span class="o">*</span> <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;ks&quot;</span><span class="p">])</span>
+    <span class="n">ones</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">graph</span><span class="o">.</span><span class="n">edges</span><span class="p">))</span>
+
+    <span class="n">data</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">dstack</span><span class="p">([</span><span class="o">-</span><span class="n">ones</span><span class="p">,</span> <span class="n">expl</span><span class="p">,</span> <span class="n">expl</span><span class="p">,</span> <span class="o">-</span><span class="n">ones</span><span class="p">])[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">flatten</span><span class="p">()</span>
+
+    <span class="n">deg_u</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="nb">len</span><span class="p">(</span><span class="n">graph</span><span class="p">[</span><span class="n">e</span><span class="p">[</span><span class="mi">0</span><span class="p">]])</span> <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">graph</span><span class="o">.</span><span class="n">edges</span><span class="p">])</span>
+    <span class="n">deg_v</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="nb">len</span><span class="p">(</span><span class="n">graph</span><span class="p">[</span><span class="n">e</span><span class="p">[</span><span class="mi">1</span><span class="p">]])</span> <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">graph</span><span class="o">.</span><span class="n">edges</span><span class="p">])</span>
+
+    <span class="n">data_out</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+    <span class="n">mask</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">logical_or</span><span class="p">(</span><span class="n">deg_u</span> <span class="o">==</span> <span class="mi">1</span><span class="p">,</span> <span class="n">deg_v</span> <span class="o">==</span> <span class="mi">1</span><span class="p">)</span>
+    <span class="n">data_out</span><span class="p">[</span><span class="mi">1</span><span class="p">::</span><span class="mi">4</span><span class="p">][</span><span class="n">mask</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">data_out</span><span class="p">[</span><span class="mi">2</span><span class="p">::</span><span class="mi">4</span><span class="p">][</span><span class="n">mask</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span>
+
+    <span class="n">m</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">graph</span><span class="o">.</span><span class="n">edges</span><span class="p">)</span>
+    <span class="n">n</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">graph</span><span class="o">.</span><span class="n">nodes</span><span class="p">)</span>
+    <span class="n">BT</span> <span class="o">=</span> <span class="n">sc</span><span class="o">.</span><span class="n">sparse</span><span class="o">.</span><span class="n">csr_matrix</span><span class="p">((</span><span class="n">data</span><span class="p">,</span> <span class="p">(</span><span class="n">col</span><span class="p">,</span> <span class="n">row</span><span class="p">)),</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">n</span><span class="p">,</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">m</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">complex128</span><span class="p">)</span>
+    <span class="n">Bout</span> <span class="o">=</span> <span class="n">sc</span><span class="o">.</span><span class="n">sparse</span><span class="o">.</span><span class="n">csr_matrix</span><span class="p">((</span><span class="n">data_out</span><span class="p">,</span> <span class="p">(</span><span class="n">row</span><span class="p">,</span> <span class="n">col</span><span class="p">)),</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="mi">2</span> <span class="o">*</span> <span class="n">m</span><span class="p">,</span> <span class="n">n</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">complex128</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">BT</span><span class="p">,</span> <span class="n">Bout</span></div>
+
+
+<div class="viewcode-block" id="construct_weight_matrix"><a class="viewcode-back" href="../../quantum_graph.html#netsalt.quantum_graph.construct_weight_matrix">[docs]</a><span class="k">def</span> <span class="nf">construct_weight_matrix</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">with_k</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Construct the quantum matrix W^{-1}(k).</span>
+
+<span class="sd">    The with_k argument is needed for the graph laplcian, not for computing the edge amplitudes.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        graph (graph): quantum graph</span>
+<span class="sd">        with_k (bool): multiplies or not the laplacian by k</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">mask</span> <span class="o">=</span> <span class="nb">abs</span><span class="p">(</span><span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;ks&quot;</span><span class="p">])</span> <span class="o">&gt;</span> <span class="mi">0</span>
+    <span class="n">data_tmp</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">graph</span><span class="o">.</span><span class="n">edges</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">complex128</span><span class="p">)</span>
+    <span class="n">data_tmp</span><span class="p">[</span><span class="n">mask</span><span class="p">]</span> <span class="o">=</span> <span class="mf">1.0</span> <span class="o">/</span> <span class="p">(</span>
+        <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="mf">2.0</span><span class="n">j</span> <span class="o">*</span> <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;lengths&quot;</span><span class="p">][</span><span class="n">mask</span><span class="p">]</span> <span class="o">*</span> <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;ks&quot;</span><span class="p">][</span><span class="n">mask</span><span class="p">])</span> <span class="o">-</span> <span class="mf">1.0</span>
+    <span class="p">)</span>
+    <span class="k">if</span> <span class="nb">any</span><span class="p">(</span><span class="n">data_tmp</span> <span class="o">&gt;</span> <span class="mf">1e5</span><span class="p">):</span>
+        <span class="n">L</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Large values in Winv, it may not work!&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">with_k</span><span class="p">:</span>
+        <span class="n">data_tmp</span><span class="p">[</span><span class="n">mask</span><span class="p">]</span> <span class="o">*=</span> <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;ks&quot;</span><span class="p">][</span><span class="n">mask</span><span class="p">]</span>
+    <span class="n">data_tmp</span><span class="p">[</span><span class="o">~</span><span class="n">mask</span><span class="p">]</span> <span class="o">=</span> <span class="o">-</span><span class="mf">0.5</span> <span class="o">*</span> <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;lengths&quot;</span><span class="p">][</span><span class="o">~</span><span class="n">mask</span><span class="p">]</span>
+
+    <span class="n">row</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">graph</span><span class="o">.</span><span class="n">edges</span><span class="p">)</span> <span class="o">*</span> <span class="mi">2</span><span class="p">)</span>
+    <span class="n">data</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">repeat</span><span class="p">(</span><span class="n">data_tmp</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+
+    <span class="n">m</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">graph</span><span class="o">.</span><span class="n">edges</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">sc</span><span class="o">.</span><span class="n">sparse</span><span class="o">.</span><span class="n">csc_matrix</span><span class="p">((</span><span class="n">data</span><span class="p">,</span> <span class="p">(</span><span class="n">row</span><span class="p">,</span> <span class="n">row</span><span class="p">)),</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="mi">2</span> <span class="o">*</span> <span class="n">m</span><span class="p">,</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">m</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">complex128</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="set_inner_edges"><a class="viewcode-back" href="../../quantum_graph.html#netsalt.quantum_graph.set_inner_edges">[docs]</a><span class="k">def</span> <span class="nf">set_inner_edges</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">outer_edges</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Set the inner edges to True, according to a given model in params[&#39;open_model&#39;].</span>
+
+<span class="sd">    WARNING: this modifies params, which has to be set to graph with update_parameters</span>
+<span class="sd">    TODO: improve implementation along with update_parameters</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        graph (graph): quantum graph</span>
+<span class="sd">        params (dict): has to contain &#39;open_model&#39; of the form open, closed, custom</span>
+<span class="sd">        outer_edges (list): if open_model == custom, pass the list of outer edges.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">params</span><span class="p">[</span><span class="s2">&quot;open_model&quot;</span><span class="p">]</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">[</span><span class="s2">&quot;open&quot;</span><span class="p">,</span> <span class="s2">&quot;closed&quot;</span><span class="p">,</span> <span class="s2">&quot;custom&quot;</span><span class="p">]:</span>
+        <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;open_model value not understood:</span><span class="si">{</span><span class="n">params</span><span class="p">[</span><span class="s1">&#39;open_model&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+    <span class="n">params</span><span class="p">[</span><span class="s2">&quot;inner&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">ei</span><span class="p">,</span> <span class="p">(</span><span class="n">u</span><span class="p">,</span> <span class="n">v</span><span class="p">)</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">graph</span><span class="o">.</span><span class="n">edges</span><span class="p">()):</span>
+        <span class="k">if</span> <span class="n">params</span><span class="p">[</span><span class="s2">&quot;open_model&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;open&quot;</span> <span class="ow">and</span> <span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">graph</span><span class="p">[</span><span class="n">u</span><span class="p">])</span> <span class="o">==</span> <span class="mi">1</span> <span class="ow">or</span> <span class="nb">len</span><span class="p">(</span><span class="n">graph</span><span class="p">[</span><span class="n">v</span><span class="p">])</span> <span class="o">==</span> <span class="mi">1</span><span class="p">):</span>
+            <span class="n">graph</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">v</span><span class="p">][</span><span class="s2">&quot;inner&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">False</span>
+            <span class="n">params</span><span class="p">[</span><span class="s2">&quot;inner&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">params</span><span class="p">[</span><span class="s2">&quot;open_model&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;custom&quot;</span> <span class="ow">and</span> <span class="p">(</span><span class="n">u</span><span class="p">,</span> <span class="n">v</span><span class="p">)</span> <span class="ow">in</span> <span class="n">outer_edges</span><span class="p">:</span>
+            <span class="n">graph</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">v</span><span class="p">][</span><span class="s2">&quot;inner&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">False</span>
+            <span class="n">params</span><span class="p">[</span><span class="s2">&quot;inner&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">graph</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">v</span><span class="p">][</span><span class="s2">&quot;inner&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">True</span>
+            <span class="n">params</span><span class="p">[</span><span class="s2">&quot;inner&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="kc">True</span><span class="p">)</span>
+        <span class="n">graph</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">v</span><span class="p">][</span><span class="s2">&quot;edgelabel&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">ei</span>
+    <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;edgelabel&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">graph</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">v</span><span class="p">][</span><span class="s2">&quot;edgelabel&quot;</span><span class="p">]</span> <span class="k">for</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">graph</span><span class="o">.</span><span class="n">edges</span><span class="p">])</span></div>
+
+
+<span class="k">def</span> <span class="nf">_set_node_positions</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">positions</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Set the position to the networkx graph.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">positions</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">positions</span> <span class="o">=</span> <span class="n">nx</span><span class="o">.</span><span class="n">spring_layout</span><span class="p">(</span><span class="n">graph</span><span class="p">)</span>
+        <span class="ne">Warning</span><span class="p">(</span><span class="s2">&quot;No node positions given, plots will have random positions from spring_layout&quot;</span><span class="p">)</span>
+
+    <span class="k">for</span> <span class="n">u</span> <span class="ow">in</span> <span class="n">graph</span><span class="o">.</span><span class="n">nodes</span><span class="p">():</span>
+        <span class="n">graph</span><span class="o">.</span><span class="n">nodes</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="s2">&quot;position&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">positions</span><span class="p">[</span><span class="n">u</span><span class="p">]</span>
+
+
+<span class="k">def</span> <span class="nf">_set_edge_lengths</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">lengths</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Set lengths of edges.&quot;&quot;&quot;</span>
+    <span class="k">for</span> <span class="n">ei</span><span class="p">,</span> <span class="n">e</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="nb">list</span><span class="p">(</span><span class="n">graph</span><span class="o">.</span><span class="n">edges</span><span class="p">())):</span>
+        <span class="p">(</span><span class="n">u</span><span class="p">,</span> <span class="n">v</span><span class="p">)</span> <span class="o">=</span> <span class="n">e</span><span class="p">[:</span><span class="mi">2</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">lengths</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">graph</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">v</span><span class="p">][</span><span class="s2">&quot;length&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">norm</span><span class="p">(</span>
+                <span class="n">graph</span><span class="o">.</span><span class="n">nodes</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="s2">&quot;position&quot;</span><span class="p">]</span> <span class="o">-</span> <span class="n">graph</span><span class="o">.</span><span class="n">nodes</span><span class="p">[</span><span class="n">v</span><span class="p">][</span><span class="s2">&quot;position&quot;</span><span class="p">]</span>
+            <span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">graph</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">v</span><span class="p">][</span><span class="s2">&quot;length&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">lengths</span><span class="p">[</span><span class="n">ei</span><span class="p">]</span>
+
+    <span class="n">graph</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s2">&quot;lengths&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">graph</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">v</span><span class="p">][</span><span class="s2">&quot;length&quot;</span><span class="p">]</span> <span class="k">for</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">graph</span><span class="o">.</span><span class="n">edges</span><span class="p">])</span>
+
+
+<div class="viewcode-block" id="laplacian_quality"><a class="viewcode-back" href="../../quantum_graph.html#netsalt.quantum_graph.laplacian_quality">[docs]</a><span class="k">def</span> <span class="nf">laplacian_quality</span><span class="p">(</span><span class="n">laplacian</span><span class="p">,</span> <span class="n">method</span><span class="o">=</span><span class="s2">&quot;eigenvalue&quot;</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Return the quality of a mode encoded in the quantum laplacian.</span>
+
+<span class="sd">    If quality is low, the wavenumber of the laplacian is close to a solution of the quantum graph.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        laplacian (sparse matrix): laplacian matrix</span>
+<span class="sd">        method (str): either eigenvalue or singular value</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">v0</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">random</span><span class="p">(</span><span class="n">laplacian</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+    <span class="k">if</span> <span class="n">method</span> <span class="o">==</span> <span class="s2">&quot;eigenvalue&quot;</span><span class="p">:</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">return</span> <span class="nb">abs</span><span class="p">(</span>
+                <span class="n">sc</span><span class="o">.</span><span class="n">sparse</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">eigs</span><span class="p">(</span>
+                    <span class="n">laplacian</span><span class="p">,</span> <span class="n">k</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">sigma</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">return_eigenvectors</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">which</span><span class="o">=</span><span class="s2">&quot;LM&quot;</span><span class="p">,</span> <span class="n">v0</span><span class="o">=</span><span class="n">v0</span>
+                <span class="p">)</span>
+            <span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="k">except</span> <span class="n">sc</span><span class="o">.</span><span class="n">sparse</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">ArpackNoConvergence</span><span class="p">:</span>
+            <span class="c1"># If eigenvalue solver did not converge, set to 1.0,</span>
+            <span class="k">return</span> <span class="mf">1.0</span>
+        <span class="k">except</span> <span class="ne">RuntimeError</span><span class="p">:</span>
+            <span class="n">L</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Runtime error, we add a small diagonal to laplacian, but things may be bad!&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="nb">abs</span><span class="p">(</span>
+                <span class="n">sc</span><span class="o">.</span><span class="n">sparse</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">eigs</span><span class="p">(</span>
+                    <span class="n">laplacian</span> <span class="o">+</span> <span class="mf">1e-6</span> <span class="o">*</span> <span class="n">sc</span><span class="o">.</span><span class="n">sparse</span><span class="o">.</span><span class="n">eye</span><span class="p">(</span><span class="n">laplacian</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]),</span>
+                    <span class="n">k</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+                    <span class="n">sigma</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+                    <span class="n">return_eigenvectors</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+                    <span class="n">which</span><span class="o">=</span><span class="s2">&quot;LM&quot;</span><span class="p">,</span>
+                    <span class="n">v0</span><span class="o">=</span><span class="n">v0</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+
+    <span class="k">if</span> <span class="n">method</span> <span class="o">==</span> <span class="s2">&quot;singularvalue&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">sc</span><span class="o">.</span><span class="n">sparse</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">svds</span><span class="p">(</span>
+            <span class="n">laplacian</span><span class="p">,</span>
+            <span class="n">k</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+            <span class="n">which</span><span class="o">=</span><span class="s2">&quot;SM&quot;</span><span class="p">,</span>
+            <span class="n">return_singular_vectors</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+            <span class="n">v0</span><span class="o">=</span><span class="n">v0</span><span class="p">,</span>
+        <span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="k">return</span> <span class="mf">1.0</span></div>
+
+
+<div class="viewcode-block" id="mode_quality"><a class="viewcode-back" href="../../quantum_graph.html#netsalt.quantum_graph.mode_quality">[docs]</a><span class="k">def</span> <span class="nf">mode_quality</span><span class="p">(</span><span class="n">mode</span><span class="p">,</span> <span class="n">graph</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Quality of a mode, small means good quality, thus the mode is close to a correct mode.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        mode (complex): complex mode</span>
+<span class="sd">        graph (graph): quantum graph</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">laplacian</span> <span class="o">=</span> <span class="n">construct_laplacian</span><span class="p">(</span><span class="n">to_complex</span><span class="p">(</span><span class="n">mode</span><span class="p">),</span> <span class="n">graph</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">laplacian_quality</span><span class="p">(</span><span class="n">laplacian</span><span class="p">)</span></div>
+</pre></div>
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="../../index.html">netSALT</a></h1>
+
+
+
+
+
+
+
+
+<h3>Navigation</h3>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../modes.html">The modes module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../physics.html">The physics module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../quantum_graph.html">The quantum graph module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../algorithm.html">The algorithm module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../pump.html">The pump module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../plotting.html">The plotting module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../io.html">The io module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../utils.html">The utils module</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../../index.html">Documentation overview</a><ul>
+  <li><a href="../index.html">Module code</a><ul>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
+<div id="searchbox" style="display: none" role="search">
+  <h3 id="searchlabel">Quick search</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" />
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</div>
+<script>$('#searchbox').show(0);</script>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2020, Alexis Arnaudon.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 3.5.4</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.12</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

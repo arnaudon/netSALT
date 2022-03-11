@@ -1,0 +1,317 @@
+
+<!DOCTYPE html>
+
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>The quantum graph module &#8212; netSALT  documentation</title>
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    <link rel="stylesheet" href="_static/alabaster.css" type="text/css" />
+    <script id="documentation_options" data-url_root="./" src="_static/documentation_options.js"></script>
+    <script src="_static/jquery.js"></script>
+    <script src="_static/underscore.js"></script>
+    <script src="_static/doctools.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="The algorithm module" href="algorithm.html" />
+    <link rel="prev" title="The physics module" href="physics.html" />
+   
+  <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+  
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9" />
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <div class="section" id="module-netsalt.quantum_graph">
+<span id="the-quantum-graph-module"></span><h1>The quantum graph module<a class="headerlink" href="#module-netsalt.quantum_graph" title="Permalink to this headline">¶</a></h1>
+<p>Quantum graph construction module.</p>
+<p>A quantum graph is a networkx graph with additional parameters in graph.graph[‘param’]
+and specific node/edges attributes.</p>
+<dl class="py function">
+<dt id="netsalt.quantum_graph.construct_incidence_matrix">
+<code class="sig-prename descclassname"><span class="pre">netsalt.quantum_graph.</span></code><code class="sig-name descname"><span class="pre">construct_incidence_matrix</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">graph</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/netsalt/quantum_graph.html#construct_incidence_matrix"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#netsalt.quantum_graph.construct_incidence_matrix" title="Permalink to this definition">¶</a></dt>
+<dd><p>Construct the quantum incidence matrix B(k).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>graph</strong> (<em>graph</em>) – quantum graph</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt id="netsalt.quantum_graph.construct_laplacian">
+<code class="sig-prename descclassname"><span class="pre">netsalt.quantum_graph.</span></code><code class="sig-name descname"><span class="pre">construct_laplacian</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">wavenumber</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">graph</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/netsalt/quantum_graph.html#construct_laplacian"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#netsalt.quantum_graph.construct_laplacian" title="Permalink to this definition">¶</a></dt>
+<dd><p>Construct quantum laplacian from a graph.</p>
+<p>The quantum laplacian is L(k) = B^T(k) W^{-1}(k) B(k), with quantum incidence and weight matrix.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>wavenumber</strong> (<em>complex</em>) – wavenumber</p></li>
+<li><p><strong>graph</strong> (<em>graph</em>) – quantum graph</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt id="netsalt.quantum_graph.construct_weight_matrix">
+<code class="sig-prename descclassname"><span class="pre">netsalt.quantum_graph.</span></code><code class="sig-name descname"><span class="pre">construct_weight_matrix</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">graph</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">with_k</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/netsalt/quantum_graph.html#construct_weight_matrix"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#netsalt.quantum_graph.construct_weight_matrix" title="Permalink to this definition">¶</a></dt>
+<dd><p>Construct the quantum matrix W^{-1}(k).</p>
+<p>The with_k argument is needed for the graph laplcian, not for computing the edge amplitudes.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>graph</strong> (<em>graph</em>) – quantum graph</p></li>
+<li><p><strong>with_k</strong> (<em>bool</em>) – multiplies or not the laplacian by k</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt id="netsalt.quantum_graph.create_quantum_graph">
+<code class="sig-prename descclassname"><span class="pre">netsalt.quantum_graph.</span></code><code class="sig-name descname"><span class="pre">create_quantum_graph</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">graph</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">params</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">positions</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lengths</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">seed</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">42</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">noise_level</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.001</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/netsalt/quantum_graph.html#create_quantum_graph"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#netsalt.quantum_graph.create_quantum_graph" title="Permalink to this definition">¶</a></dt>
+<dd><p>Extend a networkx graph with necessary attributes for being a quantum graph.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>graph</strong> (<em>networkx graph</em>) – pure networkx graph to consider as a quantum graph</p></li>
+<li><p><strong>params</strong> (<em>dict</em>) – specific parameters to setup the quantum graph (depends on use cases)</p></li>
+<li><p><strong>positions</strong> (<em>list</em>) – node positions, if Non networkx.spring_layout is used</p></li>
+<li><p><strong>lengths</strong> (<em>list</em>) – </p></li>
+<li><p><strong>seed</strong> (<em>int</em>) – seed for rng</p></li>
+<li><p><strong>noise_level</strong> (<em>float</em>) – adds some noise if too manuy edges of equal lengths are found</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt id="netsalt.quantum_graph.get_total_inner_length">
+<code class="sig-prename descclassname"><span class="pre">netsalt.quantum_graph.</span></code><code class="sig-name descname"><span class="pre">get_total_inner_length</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">graph</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/netsalt/quantum_graph.html#get_total_inner_length"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#netsalt.quantum_graph.get_total_inner_length" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get the total inner length of the graph (considering inner edges only).</p>
+<p>Inner edges are defined as edges without degree one nodes.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>graph</strong> (<em>graph</em>) – quantum graph</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt id="netsalt.quantum_graph.get_total_length">
+<code class="sig-prename descclassname"><span class="pre">netsalt.quantum_graph.</span></code><code class="sig-name descname"><span class="pre">get_total_length</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">graph</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/netsalt/quantum_graph.html#get_total_length"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#netsalt.quantum_graph.get_total_length" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get the total length of a quantum graph.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>graph</strong> (<em>graph</em>) – quantum graph</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt id="netsalt.quantum_graph.laplacian_quality">
+<code class="sig-prename descclassname"><span class="pre">netsalt.quantum_graph.</span></code><code class="sig-name descname"><span class="pre">laplacian_quality</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">laplacian</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">method</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'eigenvalue'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/netsalt/quantum_graph.html#laplacian_quality"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#netsalt.quantum_graph.laplacian_quality" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return the quality of a mode encoded in the quantum laplacian.</p>
+<p>If quality is low, the wavenumber of the laplacian is close to a solution of the quantum graph.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>laplacian</strong> (<em>sparse matrix</em>) – laplacian matrix</p></li>
+<li><p><strong>method</strong> (<em>str</em>) – either eigenvalue or singular value</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt id="netsalt.quantum_graph.mode_quality">
+<code class="sig-prename descclassname"><span class="pre">netsalt.quantum_graph.</span></code><code class="sig-name descname"><span class="pre">mode_quality</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mode</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">graph</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/netsalt/quantum_graph.html#mode_quality"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#netsalt.quantum_graph.mode_quality" title="Permalink to this definition">¶</a></dt>
+<dd><p>Quality of a mode, small means good quality, thus the mode is close to a correct mode.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>mode</strong> (<em>complex</em>) – complex mode</p></li>
+<li><p><strong>graph</strong> (<em>graph</em>) – quantum graph</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt id="netsalt.quantum_graph.oversample_graph">
+<code class="sig-prename descclassname"><span class="pre">netsalt.quantum_graph.</span></code><code class="sig-name descname"><span class="pre">oversample_graph</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">graph</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">edge_size</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/netsalt/quantum_graph.html#oversample_graph"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#netsalt.quantum_graph.oversample_graph" title="Permalink to this definition">¶</a></dt>
+<dd><p>Oversample a graph by adding points on edges.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>graph</strong> (<em>graph</em>) – quantum graph</p></li>
+<li><p><strong>edge_size</strong> (<em>float</em>) – edge size to sample the graph</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt id="netsalt.quantum_graph.set_inner_edges">
+<code class="sig-prename descclassname"><span class="pre">netsalt.quantum_graph.</span></code><code class="sig-name descname"><span class="pre">set_inner_edges</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">graph</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">params</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">outer_edges</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/netsalt/quantum_graph.html#set_inner_edges"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#netsalt.quantum_graph.set_inner_edges" title="Permalink to this definition">¶</a></dt>
+<dd><p>Set the inner edges to True, according to a given model in params[‘open_model’].</p>
+<p>WARNING: this modifies params, which has to be set to graph with update_parameters
+TODO: improve implementation along with update_parameters</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>graph</strong> (<em>graph</em>) – quantum graph</p></li>
+<li><p><strong>params</strong> (<em>dict</em>) – has to contain ‘open_model’ of the form open, closed, custom</p></li>
+<li><p><strong>outer_edges</strong> (<em>list</em>) – if open_model == custom, pass the list of outer edges.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt id="netsalt.quantum_graph.set_total_length">
+<code class="sig-prename descclassname"><span class="pre">netsalt.quantum_graph.</span></code><code class="sig-name descname"><span class="pre">set_total_length</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">graph</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">total_length</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_extent</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">inner</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">with_position</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/netsalt/quantum_graph.html#set_total_length"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#netsalt.quantum_graph.set_total_length" title="Permalink to this definition">¶</a></dt>
+<dd><p>Set the (inner) total lengths of the graph to a given value.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>graph</strong> (<em>graph</em>) – quantum graph</p></li>
+<li><p><strong>total_length</strong> (<em>float</em>) – total length to set</p></li>
+<li><p><strong>max_extent</strong> (<em>float</em>) – only if total_length is None, set the maximal extent</p></li>
+<li><p><strong>inner</strong> (<em>bool</em>) – if True, only consider inner edges</p></li>
+<li><p><strong>with_position</strong> (<em>bool</em>) – if True, also rescale node positions</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt id="netsalt.quantum_graph.set_wavenumber">
+<code class="sig-prename descclassname"><span class="pre">netsalt.quantum_graph.</span></code><code class="sig-name descname"><span class="pre">set_wavenumber</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">graph</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">wavenumber</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/netsalt/quantum_graph.html#set_wavenumber"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#netsalt.quantum_graph.set_wavenumber" title="Permalink to this definition">¶</a></dt>
+<dd><p>Set edge wavenumbers with dispersion relation defined in graph[‘dispersion_relation’].</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>wavenumber</strong> (<em>complex</em>) – wavenumber</p></li>
+<li><p><strong>graph</strong> (<em>graph</em>) – quantum graph</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt id="netsalt.quantum_graph.simplify_graph">
+<code class="sig-prename descclassname"><span class="pre">netsalt.quantum_graph.</span></code><code class="sig-name descname"><span class="pre">simplify_graph</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">graph</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/netsalt/quantum_graph.html#simplify_graph"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#netsalt.quantum_graph.simplify_graph" title="Permalink to this definition">¶</a></dt>
+<dd><p>Remove degree 2 nodes.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>graph</strong> (<em>graph</em>) – quantum graph</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt id="netsalt.quantum_graph.update_parameters">
+<code class="sig-prename descclassname"><span class="pre">netsalt.quantum_graph.</span></code><code class="sig-name descname"><span class="pre">update_parameters</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">graph</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">params</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">force</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/netsalt/quantum_graph.html#update_parameters"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#netsalt.quantum_graph.update_parameters" title="Permalink to this definition">¶</a></dt>
+<dd><p>Set the parameter dictionary to the graph.</p>
+<p>TODO: improve this implementation</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>graph</strong> (<em>graph</em>) – quantum graph</p></li>
+<li><p><strong>params</strong> (<em>dict</em>) – specific parameters to setup the quantum graph (depends on use cases)</p></li>
+<li><p><strong>force</strong> (<em>bool</em>) – I forgot</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+</div>
+
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="index.html">netSALT</a></h1>
+
+
+
+
+
+
+
+
+<h3>Navigation</h3>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="modes.html">The modes module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="physics.html">The physics module</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">The quantum graph module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="algorithm.html">The algorithm module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="pump.html">The pump module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="plotting.html">The plotting module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="io.html">The io module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="utils.html">The utils module</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="index.html">Documentation overview</a><ul>
+      <li>Previous: <a href="physics.html" title="previous chapter">The physics module</a></li>
+      <li>Next: <a href="algorithm.html" title="next chapter">The algorithm module</a></li>
+  </ul></li>
+</ul>
+</div>
+<div id="searchbox" style="display: none" role="search">
+  <h3 id="searchlabel">Quick search</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" />
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</div>
+<script>$('#searchbox').show(0);</script>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2020, Alexis Arnaudon.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 3.5.4</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.12</a>
+      
+      |
+      <a href="_sources/quantum_graph.rst.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>
