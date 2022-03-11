@@ -1,9 +1,7 @@
-This folder contains examples of how to use luigi workflow with netSALT
+This folder contains examples of netSALT runs found in the accompanying paper.
 
 In each, run 
 ```
 ./run.sh
 ``` 
-to run the workflow, and adjust parameters in `luigi.cfg` for the simulatoin parameters, or in `create_graph.py` for the underlying graph.
-
-There are two options in `run.sh`, one for passive mode computations only, the other for modal interactions.
+to run the workflow, and adjust parameters in `luigi.cfg` for the simulatoin parameters.
