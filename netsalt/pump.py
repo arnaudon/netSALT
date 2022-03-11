@@ -7,12 +7,15 @@ import pulp
 import numpy as np
 from scipy import optimize
 from tqdm import tqdm
+import matplotlib.pyplot as plt
 
 from netsalt.modes import compute_overlapping_single_edges, mean_mode_on_edges
 from netsalt.physics import gamma, q_value
 from netsalt.utils import to_complex
 
 L = logging.getLogger(__name__)
+
+# pylint: disable=too-many-locals,too-many-statements
 
 
 def pump_cost(pump, modes_to_optimise, pump_overlapps, pump_min_size=None, epsilon=0):
@@ -23,7 +26,7 @@ def pump_cost(pump, modes_to_optimise, pump_overlapps, pump_min_size=None, epsil
         mode_mask = np.array(len(pump_overlapps) * [False])
         mode_mask[np.array(modes_to_optimise)] = True
     else:
-        mode_mask = modes_to_optimise
+        mode_mask = np.array(modes_to_optimise)
 
     if pump_min_size is not None and pump.sum() < pump_min_size:
         return 1e10
@@ -189,7 +192,7 @@ def optimize_pump_linear_programming(
         prob = pulp.LpProblem("pump optimisation", pulp.LpMinimize)
         prob += m + epsilon * t
 
-        prob += pulp.lpSum([o * Y for o, Y in zip(over_opt, Ys)]) == 1, f"constant"
+        prob += pulp.lpSum([o * Y for o, Y in zip(over_opt, Ys)]) == 1, "constant"
         for i, over in enumerate(over_others):
             prob += pulp.lpSum([o * Y for o, Y in zip(over, Ys)]) <= m, f"maximum_{i}"
 
@@ -221,7 +224,7 @@ def optimize_pump_linear_programming(
 
         c0 = _costf(pump, epsilon=epsilon)
         ids = []
-        for i in range(len(pump)):
+        for i, _ in enumerate(pump):
             if pump[i] == 1:
                 _pump = pump.copy()
                 _pump[i] = 0
@@ -244,7 +247,6 @@ def optimize_pump_linear_programming(
     final_cost = min(cs)
 
     if plot_debug:
-        import matplotlib.pyplot as plt
 
         plt.figure(figsize=(5, 4))
         plt.plot(epsilons, cs)
