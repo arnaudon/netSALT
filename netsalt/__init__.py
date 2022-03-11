@@ -19,7 +19,6 @@ from .modes import (
     scan_frequencies,
 )
 from .physics import set_dielectric_constant, set_dispersion_relation
-from .pump import optimize_pump
 from .quantum_graph import (
     create_quantum_graph,
     oversample_graph,

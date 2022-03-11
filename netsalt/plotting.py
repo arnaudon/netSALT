@@ -90,7 +90,7 @@ def plot_stem_spectra(
     ks, _ = get_scan_grid(graph)
 
     if ax is None:
-        fig = plt.figure(figsize=(5, 2))
+        fig = plt.figure(figsize=(5, 3))
         ax = plt.gca()
     else:
         fig = None
@@ -147,7 +147,7 @@ def plot_ll_curve(
         ascending=False,
     )
     if ax is None:
-        fig = plt.figure(figsize=(6, 6))
+        fig = plt.figure(figsize=(5, 3))
         ax = plt.gca()
     else:
         fig = None
@@ -262,7 +262,7 @@ def plot_scan(
     return ax
 
 
-def plot_pump_profile(graph, pump, figsize=(5, 4), ax=None, node_size=1.0, c='0.8'):
+def plot_pump_profile(graph, pump, figsize=(5, 4), ax=None, node_size=1.0, c="0.8"):
     """Plot the pump profile on top of the graph structure."""
     if ax is None:
         plt.figure(figsize=figsize)

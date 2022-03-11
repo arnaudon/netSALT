@@ -364,7 +364,7 @@ def compute_mode_IPR(graph, modes_df, index, df_entry="passive"):
             integral_E4 += mode_E4_mean[ei] * edge_length[ei]
 
     tot_length = np.sum(edge_length)  # total inner length
-    IPR = tot_length * integral_E4 / integral_E2 ** 2
+    IPR = tot_length * integral_E4 / integral_E2**2
 
     return IPR
 
@@ -485,10 +485,10 @@ def _compute_mode_competition_element(lengths, params, data, with_gamma=True):
             flux_mu_minus = edge_flux_mu[2 * ei + 1]
             right_vector = np.array(
                 [
-                    flux_mu_plus ** 2,
+                    flux_mu_plus**2,
                     flux_mu_plus * flux_mu_minus,
                     flux_mu_plus * flux_mu_minus,
-                    flux_mu_minus ** 2,
+                    flux_mu_minus**2,
                 ]
             )
 

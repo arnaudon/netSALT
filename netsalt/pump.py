@@ -28,10 +28,10 @@ def pump_cost(pump, modes_to_optimise, pump_overlapps, pump_min_size=None, epsil
     if pump_min_size is not None and pump.sum() < pump_min_size:
         return 1e10
 
-    pump = np.round(pump, 0)
+    pump = np.round(pump, 0)  # binarize the pump if it is not already
     pump_without_opt_modes = pump_overlapps[~mode_mask].dot(pump)
     pump_with_opt_modes = pump_overlapps[mode_mask].dot(pump)
-    return (epsilon + np.max(pump_without_opt_modes)) / np.min(pump_with_opt_modes)
+    return (epsilon + np.max(pump_without_opt_modes)) / pump_with_opt_modes.sum()
 
 
 def _optimise_diff_evolution(seed, costf=None, bounds=None, disp=False, maxiter=1000, popsize=5):
@@ -71,7 +71,7 @@ def compute_pump_overlapping_matrix(graph, modes_df):
     return pump_overlapps
 
 
-def optimize_pump_diff_evolution(  # pylint: disable=too-many-locals
+def optimize_pump_diff_evolution(
     modes_df,
     graph,
     lasing_modes_id,
@@ -81,7 +81,6 @@ def optimize_pump_diff_evolution(  # pylint: disable=too-many-locals
     seed=42,
     n_seeds=24,
     disp=False,
-    use_modes=False,
 ):
     """Optimise the pump for lasing a set of modes.
 
@@ -95,7 +94,6 @@ def optimize_pump_diff_evolution(  # pylint: disable=too-many-locals
         seed (int): seed for random number generator
         n_seeds (int): number of run with different seends in parallel
         disp (bool): if True, display the optimisation iterations
-        use_modes (bool): if True, use passive mode profiles to design pump (experimental)
 
     Returns:
         optimal_pump, pump_overlapps, costs: best pump, overlapping matrix, all costs from seeds
@@ -144,20 +142,6 @@ def optimize_pump_diff_evolution(  # pylint: disable=too-many-locals
 
     costs = [result.fun for result in results]
     optimal_pump = np.round(results[np.argmin(costs)].x, 0)
-    """
-    # find threshold to binarize
-    cs = []
-    ts = np.linspace(0.00, 1.0, 100)
-    for t in ts:
-        p = optimal_pump.copy()
-        p[optimal_pump < t] = 0
-        p[optimal_pump > t] = 1
-        c = _costf(p)
-        cs.append(c if not np.isnan(c) else 1e10)
-    t = ts[np.argmin(cs)]
-    optimal_pump[optimal_pump < t] = 0
-    optimal_pump[optimal_pump > t] = 1
-    """
     final_cost = _costf(optimal_pump)
 
     L.info("Final cost is: %s", final_cost)
@@ -167,8 +151,15 @@ def optimize_pump_diff_evolution(  # pylint: disable=too-many-locals
     return optimal_pump, pump_overlapps, costs, final_cost
 
 
-def optimize_pump(
-    modes_df, graph, lasing_modes_id, eps_min=5., eps_max=10, eps_n=10, cost_diff_min=1e-4
+def optimize_pump_linear_programming(
+    modes_df,
+    graph,
+    lasing_modes_id,
+    eps_min=5.0,
+    eps_max=10,
+    eps_n=10,
+    cost_diff_min=1e-4,
+    plot_debug=False,
 ):
     """Optimizes a pump profile using linear programming with regularisation.
 
@@ -185,7 +176,7 @@ def optimize_pump(
     lasing_modes_id = np.array(lasing_modes_id)
     mode_mask[lasing_modes_id] = True
     _costf = partial(pump_cost, modes_to_optimise=mode_mask, pump_overlapps=pump_overlapps)
-    over_opt = pump_overlapps[mode_mask]
+    over_opt = pump_overlapps[mode_mask].sum(0)  # we sum the contribution of each mode
     over_others = pump_overlapps[~mode_mask]
     n_edges = len(graph.edges)
 
@@ -198,8 +189,7 @@ def optimize_pump(
         prob = pulp.LpProblem("pump optimisation", pulp.LpMinimize)
         prob += m + epsilon * t
 
-        for i, over in enumerate(over_opt):
-            prob += pulp.lpSum([o * Y for o, Y in zip(over, Ys)]) == 1, f"constant_{i}"
+        prob += pulp.lpSum([o * Y for o, Y in zip(over_opt, Ys)]) == 1, f"constant"
         for i, over in enumerate(over_others):
             prob += pulp.lpSum([o * Y for o, Y in zip(over, Ys)]) <= m, f"maximum_{i}"
 
@@ -253,14 +243,15 @@ def optimize_pump(
     optimal_pump = ps[np.argmin(cs)]
     final_cost = min(cs)
 
-    import matplotlib.pyplot as plt
+    if plot_debug:
+        import matplotlib.pyplot as plt
 
-    plt.figure(figsize=(5, 4))
-    plt.plot(epsilons, cs)
-    plt.axvline(epsilons[np.argmin(cs)], c="k")
-    plt.xlabel("epsilon")
-    plt.ylabel("cost")
-    plt.savefig(f"cost_opt_{lasing_modes_id[0]}.pdf")
+        plt.figure(figsize=(5, 4))
+        plt.plot(epsilons, cs)
+        plt.axvline(epsilons[np.argmin(cs)], c="k")
+        plt.xlabel("epsilon")
+        plt.ylabel("cost")
+        plt.savefig(f"cost_opt_{lasing_modes_id[0]}.pdf")
 
     return optimal_pump, pump_overlapps, [final_cost], final_cost
 

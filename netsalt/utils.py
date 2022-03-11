@@ -11,7 +11,7 @@ def linewidth(k, k_center, width):
         k_center (float): wavenumber for center of linewidth
         width (float): width of linewidth
     """
-    return width ** 2 / ((k - k_center) ** 2 + width ** 2)
+    return width**2 / ((k - k_center) ** 2 + width**2)
 
 
 def lorentzian(k, graph):
