@@ -1,21 +1,35 @@
-"""Utils functions."""
+"""Some utils functions."""
 import numpy as np
-
 import networkx as nx
 
 
 def linewidth(k, k_center, width):
-    """Linewidth function."""
-    return width ** 2 / ((k - k_center) ** 2 + width ** 2)
+    """Linewidth function.
+
+    Args:
+        k (float): wavenumber
+        k_center (float): wavenumber for center of linewidth
+        width (float): width of linewidth
+    """
+    return width**2 / ((k - k_center) ** 2 + width**2)
 
 
 def lorentzian(k, graph):
-    """Lorentzian function."""
+    """Lorentzian function using linewidth.
+
+    Args:
+        k (float): wavenumber
+        graph (graph): graph with linewidth parameters k_a and gamma_perp
+    """
+
     return linewidth(k, graph.graph["params"]["k_a"], graph.graph["params"]["gamma_perp"])
 
 
 def get_scan_grid(graph):
-    """Return arrays of values to scan in complex plane."""
+    """Return arrays of values to scan in complex plane from graph parameters.
+
+    graph (graph): graph with wavenumber scan parameters
+    """
     ks = np.linspace(
         graph.graph["params"]["k_min"],
         graph.graph["params"]["k_max"],

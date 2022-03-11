@@ -67,6 +67,7 @@ class WorkerScan:
 
     def __init__(self, graph):
         self.graph = graph
+        np.random.seed(42)
 
     def __call__(self, freq):
         return mode_quality(to_complex(freq), self.graph)
@@ -149,7 +150,7 @@ def find_modes(graph, qualities):
 
 def _convert_edges(vector):
     """Convert single edge values to double edges."""
-    edge_vector = np.zeros(2 * len(vector), dtype=np.complex)
+    edge_vector = np.zeros(2 * len(vector), dtype=np.complex128)
     edge_vector[::2] = vector
     edge_vector[1::2] = vector
     return edge_vector
@@ -207,7 +208,7 @@ def compute_overlapping_single_edges(passive_mode, graph):
 
     inner_norm = _graph_norm(BT, Bout, Winv, z_matrix, node_solution, inner_dielectric_constants)
 
-    pump_norm = np.zeros(len(graph.edges), dtype=np.complex)
+    pump_norm = np.zeros(len(graph.edges), dtype=np.complex128)
     for pump_edge, inner in enumerate(graph.graph["params"]["inner"]):
         if inner:
             mask = np.zeros(len(graph.edges))
@@ -252,13 +253,13 @@ def mode_on_nodes(mode, graph):
     min_eigenvalue, node_solution = sc.sparse.linalg.eigs(
         laplacian, k=1, sigma=0, v0=np.ones(len(graph)), which="LM"
     )
-
-    if abs(min_eigenvalue[0]) > graph.graph["params"]["quality_threshold"]:
+    quality_thresh = graph.graph["params"].get("quality_threshold", 1e-4)
+    if abs(min_eigenvalue[0]) > quality_thresh:
         raise Exception(
             "Not a mode, as quality is too high: "
             + str(abs(min_eigenvalue[0]))
             + " > "
-            + str(graph.graph["params"]["quality_threshold"])
+            + str(quality_thresh)
             + ", mode: "
             + str(mode)
         )
@@ -283,16 +284,12 @@ def mean_mode_on_edges(mode, graph):
 
     mean_edge_solution = np.zeros(len(graph.edges))
     for ei in range(len(graph.edges)):
-        k = graph.graph["ks"][ei]
+        k = 1.0j * graph.graph["ks"][ei]
         length = graph.graph["lengths"][ei]
-        z = np.zeros([2, 2], dtype=np.complex)
+        z = np.zeros([2, 2], dtype=np.complex128)
 
-        z[0, 0] = (np.exp(1.0j * length * (k - np.conj(k))) - 1.0) / (
-            1.0j * length * (k - np.conj(k))
-        )
-        z[0, 1] = (np.exp(1.0j * length * k) - np.exp(-1.0j * length * np.conj(k))) / (
-            1.0j * length * (k + np.conj(k))
-        )
+        z[0, 0] = (np.exp(length * (k + np.conj(k))) - 1.0) / (length * (k + np.conj(k)))
+        z[0, 1] = (np.exp(length * k) - np.exp(length * np.conj(k))) / (length * (k - np.conj(k)))
 
         z[1, 0] = z[0, 1]
         z[1, 1] = z[0, 0]
@@ -312,7 +309,7 @@ def mean_mode_E4_on_edges(mode, graph):
     for ei in range(len(graph.edges)):
         k = graph.graph["ks"][ei]
         length = graph.graph["lengths"][ei]
-        z = np.zeros([4, 4], dtype=np.complex)
+        z = np.zeros([4, 4], dtype=np.complex128)
 
         z[0, 0] = (np.exp(2.0j * length * (k - np.conj(k))) - 1.0) / (
             2.0j * length * (k - np.conj(k))
@@ -367,7 +364,7 @@ def compute_mode_IPR(graph, modes_df, index, df_entry="passive"):
             integral_E4 += mode_E4_mean[ei] * edge_length[ei]
 
     tot_length = np.sum(edge_length)  # total inner length
-    IPR = tot_length * integral_E4 / integral_E2 ** 2
+    IPR = tot_length * integral_E4 / integral_E2**2
 
     return IPR
 
@@ -403,7 +400,7 @@ def compute_gamma_q_values(graph, modes_df, df_entry="passive"):
 
 
 def _precomputations_mode_competition(graph, pump_mask, mode_threshold):
-    """precompute some quantities for a mode for mode competitiion matrix"""
+    """precompute some quantities for a mode for mode competition matrix"""
     mode, threshold = mode_threshold
 
     graph.graph["params"]["D0"] = threshold
@@ -488,10 +485,10 @@ def _compute_mode_competition_element(lengths, params, data, with_gamma=True):
             flux_mu_minus = edge_flux_mu[2 * ei + 1]
             right_vector = np.array(
                 [
-                    flux_mu_plus ** 2,
+                    flux_mu_plus**2,
                     flux_mu_plus * flux_mu_minus,
                     flux_mu_plus * flux_mu_minus,
-                    flux_mu_minus ** 2,
+                    flux_mu_minus**2,
                 ]
             )
 
@@ -579,14 +576,14 @@ def compute_mode_competition_matrix(graph, modes_df, with_gamma=True):
 
 def _find_next_lasing_mode(
     pump_intensity,
-    threshold_modes,
+    modes_df,
     lasing_thresholds,
     lasing_mode_ids,
     mode_competition_matrix,
 ):
     """Find next interacting lasing mode."""
-    interacting_lasing_thresholds = np.ones(len(threshold_modes)) * np.inf
-    for mu in range(len(threshold_modes)):
+    interacting_lasing_thresholds = np.ones(len(modes_df)) * np.inf
+    for mu in modes_df.index:
         if mu not in lasing_mode_ids:
             sub_mode_comp_matrix_mu = mode_competition_matrix[
                 np.ix_(lasing_mode_ids + [mu], lasing_mode_ids)
@@ -603,24 +600,28 @@ def _find_next_lasing_mode(
                 - lasing_thresholds[mu]
                 * sub_mode_comp_matrix_mu_inv.dot(1.0 / lasing_thresholds[lasing_mode_ids])
             )
-            if lasing_thresholds[mu] * factor > pump_intensity:
-                interacting_lasing_thresholds[mu] = lasing_thresholds[mu] * factor
+            _int_thresh = lasing_thresholds[mu] * factor
+            if (
+                _int_thresh > pump_intensity
+                and _int_thresh > modes_df.loc[mu, "lasing_thresholds"].to_list()[0]
+            ):
+                interacting_lasing_thresholds[mu] = _int_thresh
 
     next_lasing_mode_id = np.argmin(interacting_lasing_thresholds)
     next_lasing_threshold = interacting_lasing_thresholds[next_lasing_mode_id]
     return next_lasing_mode_id, next_lasing_threshold
 
 
+# pylint: disable=too-many-statements
 def compute_modal_intensities(modes_df, max_pump_intensity, mode_competition_matrix):
     """Compute the modal intensities of the modes up to D0, with D0_steps."""
-    threshold_modes = modes_df["threshold_lasing_modes"]
     lasing_thresholds = modes_df["lasing_thresholds"]
 
     next_lasing_mode_id = np.argmin(lasing_thresholds)
     next_lasing_threshold = lasing_thresholds[next_lasing_mode_id]
     L.debug("First lasing mode id: %s", next_lasing_mode_id)
 
-    modal_intensities = pd.DataFrame(index=range(len(threshold_modes)))
+    modal_intensities = pd.DataFrame(index=range(len(modes_df)))
 
     lasing_mode_ids = [next_lasing_mode_id]
     interacting_lasing_thresholds = np.inf * np.ones(len(modes_df))
@@ -631,6 +632,7 @@ def compute_modal_intensities(modes_df, max_pump_intensity, mode_competition_mat
     L.debug("Max pump intensity %s", max_pump_intensity)
     while pump_intensity <= max_pump_intensity:
         L.debug("Current pump intensity %s", pump_intensity)
+
         # 1) compute the current mode intensities
         mode_competition_matrix_inv = np.linalg.pinv(
             mode_competition_matrix[np.ix_(lasing_mode_ids, lasing_mode_ids)]
@@ -638,17 +640,20 @@ def compute_modal_intensities(modes_df, max_pump_intensity, mode_competition_mat
         slopes = mode_competition_matrix_inv.dot(1.0 / lasing_thresholds[lasing_mode_ids])
         shifts = mode_competition_matrix_inv.sum(1)
 
-        modal_intensities.loc[lasing_mode_ids, pump_intensity] = slopes * pump_intensity - shifts
-
+        # if we hit the max intensity, we add last points and stop
         if pump_intensity >= max_pump_intensity:
-            # we stop here if we hit the max intensity, to get the final point
             L.debug("Max pump intensity reached.")
+            modal_intensities.loc[lasing_mode_ids, max_pump_intensity] = (
+                slopes * max_pump_intensity - shifts
+            )
             break
+
+        modal_intensities.loc[lasing_mode_ids, pump_intensity] = slopes * pump_intensity - shifts
 
         # 2) search for next lasing mode
         next_lasing_mode_id, next_lasing_threshold = _find_next_lasing_mode(
             pump_intensity,
-            threshold_modes,
+            modes_df,
             lasing_thresholds,
             lasing_mode_ids,
             mode_competition_matrix,
@@ -658,11 +663,11 @@ def compute_modal_intensities(modes_df, max_pump_intensity, mode_competition_mat
         # 3) deal with vanishing modes before next lasing mode
         vanishing_mode_id = None
         if any(slopes < -1e-10):
-            vanishing_intensities = shifts / slopes
-            vanishing_intensities[slopes > -1e-10] = np.inf
+            vanishing_pump_intensities = shifts / slopes
+            vanishing_pump_intensities[slopes > -1e-10] = np.inf
 
-            if np.min(vanishing_intensities) < next_lasing_threshold:
-                vanishing_mode_id = lasing_mode_ids[np.argmin(vanishing_intensities)]
+            if np.min(vanishing_pump_intensities) < next_lasing_threshold:
+                vanishing_mode_id = lasing_mode_ids[np.argmin(vanishing_pump_intensities)]
 
         # 4) prepare for the next step
         if vanishing_mode_id is None:
@@ -675,12 +680,21 @@ def compute_modal_intensities(modes_df, max_pump_intensity, mode_competition_mat
             else:
                 pump_intensity = max_pump_intensity
 
-        elif np.min(vanishing_intensities) + 1e-10 > 0:
+        elif np.min(vanishing_pump_intensities) + 1e-10 > 0:
             L.debug("Vanishing mode id: %s", vanishing_mode_id)
 
-            pump_intensity = np.min(vanishing_intensities) + 1e-10
-            modal_intensities.loc[vanishing_mode_id, pump_intensity] = 0
-            del lasing_mode_ids[np.where(np.array(lasing_mode_ids) == vanishing_mode_id)[0][0]]
+            mode_id = np.where(np.array(lasing_mode_ids) == vanishing_mode_id)[0][0]
+            pump_intensity = np.min(vanishing_pump_intensities) + 1e-10
+
+            # if it vanishes after max pump, we compute the modal amp at that pump
+            if pump_intensity > max_pump_intensity:
+                pump_intensity = max_pump_intensity
+                modal_intensities.loc[vanishing_mode_id, max_pump_intensity] = (
+                    slopes[mode_id] * max_pump_intensity - shifts[mode_id]
+                )
+            else:
+                modal_intensities.loc[vanishing_mode_id, pump_intensity] = 0
+            del lasing_mode_ids[mode_id]
 
     modes_df["interacting_lasing_thresholds"] = interacting_lasing_thresholds
 
@@ -688,13 +702,15 @@ def compute_modal_intensities(modes_df, max_pump_intensity, mode_competition_mat
         del modes_df["modal_intensities"]
 
     for pump_intensity in modal_intensities:
-        modes_df["modal_intensities", pump_intensity] = modal_intensities[pump_intensity]
+        # we force to be of given precision for stability
+        modes_df["modal_intensities", np.around(pump_intensity, 8)] = modal_intensities[
+            pump_intensity
+        ]
     L.info(
         "%s lasing modes out of %s",
         len(np.where(modal_intensities.to_numpy()[:, -1] > 0)[0]),
         len(modal_intensities.index),
     )
-
     return modes_df
 
 
@@ -748,6 +764,7 @@ def pump_trajectories(modes_df, graph, return_approx=False):
 
 def _get_new_D0(arg, graph=None, D0_steps=0.1):
     """Internal function for multiprocessing."""
+    np.random.seed(42)
     mode_id, new_mode, D0 = arg
     increment = lasing_threshold_linear(new_mode, graph, D0)
     if increment > -D0_steps:
@@ -762,7 +779,7 @@ def _get_new_D0(arg, graph=None, D0_steps=0.1):
     return mode_id, new_D0, new_modes_approx
 
 
-def find_threshold_lasing_modes(modes_df, graph):
+def find_threshold_lasing_modes(modes_df, graph):  # pylint:disable=too-many-statements
     """Find the threshold lasing modes and associated lasing thresholds."""
     stepsize = graph.graph["params"]["search_stepsize"]
     D0_steps = graph.graph["params"]["D0_max"] / graph.graph["params"]["D0_steps"]
@@ -772,7 +789,17 @@ def find_threshold_lasing_modes(modes_df, graph):
     lasing_thresholds = np.inf * np.ones(len(modes_df))
     D0s = np.zeros(len(modes_df))
     current_modes = np.arange(len(modes_df))
+    stuck_modes_count = 0
+    max_modes = len(current_modes)
+    prev_n_modes = 0
     while len(current_modes) > 0:
+        if len(current_modes) == prev_n_modes:
+            stuck_modes_count += 1
+        prev_n_modes = len(current_modes)
+        if max_modes > stuck_modes_count > 100:
+            warnings.warn("We stop here, some modes got stuck.")
+            current_modes = []
+            continue
         L.info("%s modes left to find", len(current_modes))
 
         new_D0s = np.zeros(len(modes_df))

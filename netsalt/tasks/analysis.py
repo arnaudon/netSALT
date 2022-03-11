@@ -14,7 +14,7 @@ from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.cm import get_cmap
 from matplotlib.colors import ListedColormap
 
-from netsalt.io import load_graph, load_mode_competition_matrix, load_modes, load_qualities
+from netsalt.io import load_graph, load_modes, load_qualities
 from netsalt.plotting import (
     plot_ll_curve,
     plot_modes,
@@ -34,13 +34,12 @@ from .lasing import (
 )
 from .netsalt_task import NetSaltTask
 from .passive import CreateQuantumGraph, FindPassiveModes, ScanFrequencies
-from .pump import OptimizePump
 
 matplotlib.use("Agg")
 
 
 class PlotQuantumGraph(NetSaltTask):
-    """Plot a quantum graph and print some informations."""
+    """Plot a quantum graph and print some information."""
 
     plot_path = luigi.Parameter(default="figures/quantum_graph.pdf")
 
@@ -97,7 +96,7 @@ class PlotScan(NetSaltTask):
 
     def run(self):
         """ """
-        qg = ScanFrequencies().get_graph(self.input()["graph"].path)
+        qg = self.get_graph(self.input()["graph"].path)
         qualities = load_qualities(filename=self.input()["qualities"].path)
         plot_scan(qg, qualities, filename=self.output().path)
         plt.savefig(self.output().path, bbox_inches="tight")
@@ -118,6 +117,7 @@ class PlotPassiveModes(NetSaltTask):
     ext = luigi.Parameter(default=".pdf")
     n_modes = luigi.IntParameter(default=10)
     edge_size = luigi.FloatParameter(default=1.0)
+    mode_ids = luigi.ListParameter(default=[])
     plot_path = luigi.Parameter(default="figures/passive_modes")
 
     def requires(self):
@@ -126,11 +126,13 @@ class PlotPassiveModes(NetSaltTask):
 
     def run(self):
         """ """
-        qg = FindPassiveModes().get_graph(self.input()["graph"].path)
-        qg.graph["params"]["plot_edgesize"] = self.edge_size
+        qg = self.get_graph(self.input()["graph"].path)
+        qg = oversample_graph(qg, self.edge_size)
 
-        qg = oversample_graph(qg, qg.graph["params"])
-        modes_df = load_modes(self.input()["modes"].path).head(self.n_modes)
+        if self.mode_ids:
+            modes_df = load_modes(self.input()["modes"].path).loc[list(self.mode_ids)]
+        else:
+            modes_df = load_modes(self.input()["modes"].path).head(self.n_modes)
 
         if not Path(self.output().path).exists():
             Path(self.output().path).mkdir()
@@ -156,7 +158,7 @@ class PlotScanWithModes(NetSaltTask):
 
     def run(self):
         """ """
-        qg = ScanFrequencies().get_graph(self.input()["graph"].path)
+        qg = self.get_graph(self.input()["graph"].path)
         qualities = load_qualities(filename=self.input()["qualities"].path)
         modes_df = load_modes(self.input()["modes"].path)
         plot_scan(qg, qualities, modes_df, filename=self.output().path)
@@ -183,7 +185,7 @@ class PlotScanWithModeTrajectories(NetSaltTask):
 
     def run(self):
         """ """
-        qg = ScanFrequencies().get_graph(self.input()["graph"].path)
+        qg = self.get_graph(self.input()["graph"].path)
         qualities = load_qualities(filename=self.input()["qualities"].path)
         modes_df = load_modes(self.input()["trajectories"].path)
 
@@ -211,9 +213,7 @@ class PlotScanWithThresholdModes(NetSaltTask):
 
     def run(self):
         """ """
-        qg = ComputeModeTrajectories(lasing_modes_id=self.lasing_modes_id).get_graph(
-            self.input()["graph"].path
-        )
+        qg = self.get_graph(self.input()["graph"].path)
         qualities = load_qualities(filename=self.input()["qualities"].path)
         modes_df = load_modes(self.input()["thresholds"].path)
 
@@ -252,7 +252,7 @@ class PlotThresholdModes(NetSaltTask):
         """ """
         qg = self.get_graph_with_pump(self.input()["graph"].path)
         qg.graph["params"]["plot_edgesize"] = self.edge_size
-        qg = oversample_graph(qg, qg.graph["params"])
+        qg = oversample_graph(qg, qg.graph["params"]["plot_edgesize"])
 
         if self.mode_ids:
             modes_df = load_modes(self.input()["modes"].path).loc[list(self.mode_ids)]
@@ -290,9 +290,7 @@ class PlotLLCurve(NetSaltTask):
 
     def run(self):
         """ """
-        qg = ComputeModeTrajectories(lasing_modes_id=self.lasing_modes_id).get_graph(
-            self.input()["graph"].path
-        )
+        qg = self.get_graph(self.input()["graph"].path)
         modes_df = load_modes(self.input()["modes"].path)
         plot_ll_curve(qg, modes_df, with_legend=True)
         plt.savefig(self.output().path, bbox_inches="tight")
@@ -317,9 +315,7 @@ class PlotStemSpectra(NetSaltTask):
 
     def run(self):
         """ """
-        qg = ComputeModeTrajectories(lasing_modes_id=self.lasing_modes_id).get_graph(
-            self.input()["graph"].path
-        )
+        qg = self.get_graph(self.input()["graph"].path)
         modes_df = load_modes(self.input()["modes"].path)
         plot_stem_spectra(qg, modes_df)
         plt.savefig(self.output().path, bbox_inches="tight")
@@ -338,33 +334,37 @@ class PlotOptimizedPump(NetSaltTask):
     def requires(self):
         """ """
         return {
-            "pump": OptimizePump(lasing_modes_id=self.lasing_modes_id),
+            "pump": CreatePumpProfile(lasing_modes_id=self.lasing_modes_id),
             "graph": CreateQuantumGraph(),
         }
 
     def run(self):
         """ """
-        with open(self.input()["pump"].path, "rb") as pkl:
-            results = pickle.load(pkl)
         qg = load_graph(self.input()["graph"].path)
+        if Path(self.input()["pump"].path).suffix == ".yaml":
+            pump = yaml.safe_load(self.input()["pump"].open())
+            plot_pump_profile(qg, pump)
+            plt.savefig(self.output().path, bbox_inches="tight")
+        else:
+            with open(self.input()["pump"].path, "rb") as pkl:
+                results = pickle.load(pkl)
 
-        with PdfPages(self.output().path) as pdf:
+            with PdfPages(self.output().path) as pdf:
+                plot_pump_profile(qg, results["optimal_pump"])
+                pdf.savefig(bbox_inches="tight")
 
-            plot_pump_profile(qg, results["optimal_pump"])
-            pdf.savefig(bbox_inches="tight")
+                plt.figure()
+                plt.hist(results["costs"], bins=20)
+                pdf.savefig(bbox_inches="tight")
 
-            plt.figure()
-            plt.hist(results["costs"], bins=20)
-            pdf.savefig(bbox_inches="tight")
+                plt.figure(figsize=(20, 5))
+                for lasing_mode in results["lasing_modes_id"]:
+                    plt.plot(results["pump_overlapps"][lasing_mode])
 
-            plt.figure(figsize=(20, 5))
-            for lasing_mode in results["lasing_modes_id"]:
-                plt.plot(results["pump_overlapps"][lasing_mode])
-
-            plt.twinx()
-            plt.plot(results["optimal_pump"], "r+")
-            plt.gca().set_ylim(0.5, 1.5)
-            pdf.savefig(bbox_inches="tight")
+                plt.twinx()
+                plt.plot(results["optimal_pump"], "r+")
+                plt.gca().set_ylim(0.5, 1.5)
+                pdf.savefig(bbox_inches="tight")
 
     def output(self):
         """ """
@@ -383,7 +383,7 @@ class PlotModeCompetitionMatrix(NetSaltTask):
 
     def run(self):
         """ """
-        competition_matrix = load_mode_competition_matrix(filename=self.input().path)
+        competition_matrix = pd.read_hdf(self.input().path, "mode_competition_matrix").to_numpy()
         plt.figure(figsize=0.5 * np.array(np.shape(competition_matrix)))
         sns.heatmap(competition_matrix, ax=plt.gca(), square=True)
         plt.savefig(self.output().path)
@@ -408,7 +408,7 @@ class PlotPumpProfile(NetSaltTask):
 
     def run(self):
         """ """
-        qg = ScanFrequencies().get_graph(self.input()["graph"].path)
+        qg = self.get_graph(self.input()["graph"].path)
         pump = yaml.safe_load(self.input()["pump"].open())
         plot_pump_profile(qg, pump, node_size=5)
         plt.savefig(self.output().path, bbox_inches="tight")

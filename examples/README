@@ -1,0 +1,7 @@
+This folder contains examples of netSALT runs found in the accompanying paper.
+
+In each, run 
+```
+./run.sh
+``` 
+to run the workflow, and adjust parameters in `luigi.cfg` for the simulation parameters.

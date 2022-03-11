@@ -1,4 +1,4 @@
-"""All algorithms."""
+"""Search algorighms for mode detections."""
 import logging
 
 import numpy as np
@@ -10,7 +10,15 @@ L = logging.getLogger(__name__)
 
 
 def find_rough_modes_from_scan(ks, alphas, qualities, min_distance=2, threshold_abs=10):
-    """Use scipy.ndimage algorithms to detect minima in the scan."""
+    """Use scipy.ndimage algorithms to detect minima in the scan.
+
+    Args:
+        ks (list): list of real part of wavenumbers from the scan
+        alphas (list): list of imaginary part of wavenumbers from the scan
+        qualities (array): matrix with mode qualities for each pair of k/alpha
+        min_distance (int): smallest distance between peaks (for skimage.feature.peak_local_max)
+        threshold_abs (float): minimal intensity between peaks (for skimage.feature.peak_local_max)
+    """
     data = 1.0 / (1e-10 + qualities)
     rough_mode_ids = peak_local_max(data, min_distance=min_distance, threshold_abs=threshold_abs)
     return [[ks[rough_mode_id[0]], alphas[rough_mode_id[1]]] for rough_mode_id in rough_mode_ids]
@@ -24,7 +32,22 @@ def refine_mode_brownian_ratchet(
     save_mode_trajectories=False,
     seed=42,
 ):
-    """Accurately find a mode from an initial guess, using brownian ratchet algorithm."""
+    """Accurately find a mode from an initial guess, using brownian ratchet algorithm.
+
+    This algorithm is quite complex, but generally randomly propose a move to a new mode location,
+    and accept if the quality decreases.
+
+    TODO: get rid of params, or better handling of them, and complete the doc on the small details
+
+    Args:
+        initial_mode (complex): initial gues for a mode
+        graph (graph): quantum graph
+        params (dict): includes search_stepsize, max_steps, quality_threhsold, max_tries_reduction
+            reduction_factor
+        disp (bool): to print some state of the search for debuing
+        save_mode_trajectories (bool): true to save intermediate modes
+        seed (int): seed for rng
+    """
     np.random.seed(seed)
 
     current_mode = initial_mode.copy()
@@ -95,7 +118,13 @@ def refine_mode_brownian_ratchet(
 
 
 def clean_duplicate_modes(all_modes, k_size, alpha_size):
-    """Clean duplicate modes."""
+    """Remave duplicate modes from a list of modes with a threshold in real/imag(k).
+
+    Args:
+        all_modes (list): list of modes
+        k_size (float): minimal distance in real(k)
+        alpha_size (float): minimal distance in imag(k)
+    """
     duplicate_mode_ids = []
     for mode_id_0, mode_0 in enumerate(all_modes):
         for mode_id_1, mode_1 in enumerate(all_modes[mode_id_0 + 1 :]):

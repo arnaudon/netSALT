@@ -1,4 +1,8 @@
-"""graph construction methods"""
+"""Quantum graph construction module.
+
+A quantum graph is a networkx graph with additional parameters in graph.graph['param']
+and specific node/edges attributes.
+"""
 import logging
 
 import networkx as nx
@@ -11,17 +15,30 @@ from .utils import to_complex
 L = logging.getLogger(__name__)
 
 
-def create_quantum_graph(graph, params, positions=None, lengths=None, seed=42, noise_level=0.001):
-    """append a networkx graph with necessary attributes for being a NAQ graph"""
-    set_node_positions(graph, positions)
-    set_edge_lengths(graph, lengths=lengths)
+def create_quantum_graph(
+    graph, params=None, positions=None, lengths=None, seed=42, noise_level=0.001
+):
+    """Extend a networkx graph with necessary attributes for being a quantum graph.
+
+    Args:
+        graph (networkx graph): pure networkx graph to consider as a quantum graph
+        params (dict): specific parameters to setup the quantum graph (depends on use cases)
+        positions (list): node positions, if Non networkx.spring_layout is used
+        lengths (list) node lengths, if not None, it will override the lengths from positions
+        seed (int): seed for rng
+        noise_level (float): adds some noise if too manuy edges of equal lengths are found
+    """
+    _set_node_positions(graph, positions)
+    _set_edge_lengths(graph, lengths=lengths)
     _verify_lengths(graph, seed=seed, noise_level=noise_level)
+    if params is None:
+        params = graph.graph["params"]
     set_inner_edges(graph, params)
     update_parameters(graph, params)
 
 
 def _verify_lengths(graph, seed=42, noise_level=0.001):
-    """Add noise to lenghts if many are equal."""
+    """Add noise to lengths if many edges have equal."""
     if noise_level > 0.0:
         lengths = [graph[u][v]["length"] for u, v in graph.edges]
         np.random.seed(seed)
@@ -32,7 +49,7 @@ def _verify_lengths(graph, seed=42, noise_level=0.001):
             )
             for u in graph:
                 graph.nodes[u]["position"][0] += np.random.normal(0, noise_level * np.min(lengths))
-            set_edge_lengths(graph)
+            _set_edge_lengths(graph)
 
 
 def _not_equal(data1, data2, force=False):
@@ -45,7 +62,15 @@ def _not_equal(data1, data2, force=False):
 
 
 def update_parameters(graph, params, force=False):
-    """Set the parameter dictionary to the graph."""
+    """Set the parameter dictionary to the graph.
+
+    TODO: improve this implementation
+
+    Args:
+        graph (graph): quantum graph
+        params (dict): specific parameters to setup the quantum graph (depends on use cases)
+        force (bool): I forgot
+    """
     warning_params = [
         "k_min",
         "k_max",
@@ -75,26 +100,44 @@ def update_parameters(graph, params, force=False):
 
 
 def get_total_length(graph):
-    """Get the total lenght of the graph."""
+    """Get the total length of a quantum graph.
+
+    Args:
+        graph (graph): quantum graph
+    """
     return sum([graph[u][v]["length"] for u, v in graph.edges()])
 
 
 def get_total_inner_length(graph):
-    """Get the total lenght of the graph."""
+    """Get the total inner length of the graph (considering inner edges only).
+
+    Inner edges are defined as edges without degree one nodes.
+
+    Args:
+        graph (graph): quantum graph
+    """
     return sum([graph[u][v]["length"] for u, v in graph.edges() if graph[u][v]["inner"]])
 
 
 def set_total_length(graph, total_length=None, max_extent=None, inner=True, with_position=True):
-    """Set the inner total lenghts of the graph to a given value."""
+    """Set the (inner) total lengths of the graph to a given value.
+
+    Args:
+        graph (graph): quantum graph
+        total_length (float): total length to set
+        max_extent (float): only if total_length is None, set the maximal extent
+        inner (bool): if True, only consider inner edges
+        with_position (bool): if True, also rescale node positions
+    """
     if total_length is not None and max_extent is not None:
         raise Exception("only one of total_length or max_extent is allowed")
     length_ratio = 1.0
     if total_length is not None:
         if inner:
-            original_total_lenght = get_total_inner_length(graph)
+            original_total_length = get_total_inner_length(graph)
         else:
-            original_total_lenght = get_total_length(graph)
-        length_ratio = total_length / original_total_lenght
+            original_total_length = get_total_length(graph)
+        length_ratio = total_length / original_total_length
 
     if max_extent is not None:
         _min_pos = min(np.array([graph.nodes[u]["position"] for u in graph.nodes()]).flatten())
@@ -112,28 +155,53 @@ def set_total_length(graph, total_length=None, max_extent=None, inner=True, with
 
 
 def _set_pump_on_graph(graph):
-    """set the pump values on the graph from params"""
+    """Set the pump values on the graph from params."""
     if "pump" not in graph.graph["params"]:
-        graph.graph["params"]["pump"] = np.zeros(len(graph.edges))
+        graph.graph["params"]["pump"] = np.ones(len(graph.edges))
     for ei, e in enumerate(graph.edges):
         graph[e[0]][e[1]]["pump"] = graph.graph["params"]["pump"][ei]
 
 
 def _set_pump_on_params(graph, params):
-    """set the pump values on the graph from params"""
-    params["pump"] = np.zeros(len(graph.edges))
+    """Set the pump values on the graph from params."""
+    params["pump"] = np.ones(len(graph.edges))
     for ei, e in enumerate(graph.edges):
         params["pump"][ei] = graph[e[0]][e[1]]["pump"]
 
 
-def oversample_graph(graph, params):  # pylint: disable=too-many-locals
-    """oversample a graph by adding points on edges"""
+def simplify_graph(graph):
+    """Remove degree 2 nodes.
+
+    Args:
+        graph (graph): quantum graph
+    """
+    nodes_to_remove = []
+    edges_to_add = []
+    if all(len(graph[u]) == 2 for u in graph.nodes):
+        return graph
+    for u in graph.nodes:
+        if len(graph[u]) == 2:
+            neighs = list(graph[u].keys())
+            edges_to_add.append((neighs[0], neighs[1]))
+            nodes_to_remove.append(u)
+    graph.add_edges_from(edges_to_add)
+    graph.remove_nodes_from(nodes_to_remove)
+    return nx.convert_node_labels_to_integers(graph)
+
+
+def oversample_graph(graph, edge_size):  # pylint: disable=too-many-locals
+    """Oversample a graph by adding points on edges.
+
+    Args:
+        graph (graph): quantum graph
+        edge_size (float):  edge size to sample the graph
+    """
     _set_pump_on_graph(graph)
     oversampled_graph = graph.copy()
     for ei, (u, v) in enumerate(graph.edges):
         last_node = len(oversampled_graph)
         if graph[u][v]["inner"]:
-            n_nodes = int(graph[u][v]["length"] / params["plot_edgesize"])
+            n_nodes = int(graph[u][v]["length"] / edge_size)
             if n_nodes > 1:
                 dielectric_constant = graph[u][v]["dielectric_constant"]
                 pump = graph[u][v]["pump"]
@@ -173,29 +241,45 @@ def oversample_graph(graph, params):  # pylint: disable=too-many-locals
                 )
 
     oversampled_graph = nx.convert_node_labels_to_integers(oversampled_graph)
-    set_edge_lengths(oversampled_graph)
-    params["inner"] = [oversampled_graph[u][v]["inner"] for u, v in oversampled_graph.edges]
+    _set_edge_lengths(oversampled_graph)
+    params = {"inner": [oversampled_graph[u][v]["inner"] for u, v in oversampled_graph.edges]}
     update_params_dielectric_constant(oversampled_graph, params)
     _set_pump_on_params(oversampled_graph, params)
     update_parameters(oversampled_graph, params, force=True)
     return oversampled_graph
 
 
-def construct_laplacian(freq, graph):
-    """construct quantum laplacian from a graph"""
-    set_wavenumber(graph, freq)
+def construct_laplacian(wavenumber, graph):
+    """Construct quantum laplacian from a graph.
+
+    The quantum laplacian is L(k) = B^T(k) W^{-1}(k) B(k), with quantum incidence and weight matrix.
+
+    Args:
+        wavenumber (complex): wavenumber
+        graph (graph): quantum graph
+    """
+    set_wavenumber(graph, wavenumber)
     BT, Bout = construct_incidence_matrix(graph)
     Winv = construct_weight_matrix(graph)
     return BT.dot(Winv).dot(Bout)
 
 
-def set_wavenumber(graph, freq):
-    """set edge wavenumbers from frequency and dispersion relation"""
-    graph.graph["ks"] = graph.graph["dispersion_relation"](freq, params=graph.graph["params"])
+def set_wavenumber(graph, wavenumber):
+    """Set edge wavenumbers with dispersion relation defined in graph['dispersion_relation'].
+
+    Args:
+        wavenumber (complex): wavenumber
+        graph (graph): quantum graph
+    """
+    graph.graph["ks"] = graph.graph["dispersion_relation"](wavenumber, params=graph.graph["params"])
 
 
 def construct_incidence_matrix(graph):
-    """Construct the incidence matrix B"""
+    """Construct the quantum incidence matrix B(k).
+
+    Args:
+        graph (graph): quantum graph
+    """
     row = np.repeat(np.arange(len(graph.edges) * 2), 2)
     col = np.repeat(graph.edges, 2, axis=0).flatten()
     expl = np.exp(1.0j * graph.graph["lengths"] * graph.graph["ks"])
@@ -219,8 +303,14 @@ def construct_incidence_matrix(graph):
 
 
 def construct_weight_matrix(graph, with_k=True):
-    """Construct the matrix W^{-1}
-    with_k: multiplies or not by k (needed for graph laplcian, not for edge flux)"""
+    """Construct the quantum matrix W^{-1}(k).
+
+    The with_k argument is needed for the graph laplcian, not for computing the edge amplitudes.
+
+    Args:
+        graph (graph): quantum graph
+        with_k (bool): multiplies or not the laplacian by k
+    """
     mask = abs(graph.graph["ks"]) > 0
     data_tmp = np.zeros(len(graph.edges), dtype=np.complex128)
     data_tmp[mask] = 1.0 / (
@@ -239,10 +329,19 @@ def construct_weight_matrix(graph, with_k=True):
     return sc.sparse.csc_matrix((data, (row, row)), shape=(2 * m, 2 * m), dtype=np.complex128)
 
 
-def set_inner_edges(graph, params, outer_edges=None):
-    """set the inner edges to True, according to a model"""
+def set_inner_edges(graph, params=None, outer_edges=None):
+    """Set the inner edges to True, according to a given model in params['open_model'].
+
+    WARNING: this modifies params, which has to be set to graph with update_parameters
+    TODO: improve implementation along with update_parameters
+
+    Args:
+        graph (graph): quantum graph
+        params (dict): has to contain 'open_model' of the form open, closed, custom
+        outer_edges (list): if open_model == custom, pass the list of outer edges.
+    """
     if params["open_model"] not in ["open", "closed", "custom"]:
-        raise Exception("open_model value not understood:{}".format(params["open_model"]))
+        raise Exception(f"open_model value not understood:{params['open_model']}")
 
     params["inner"] = []
     for ei, (u, v) in enumerate(graph.edges()):
@@ -259,8 +358,8 @@ def set_inner_edges(graph, params, outer_edges=None):
     graph.graph["edgelabel"] = np.array([graph[u][v]["edgelabel"] for u, v in graph.edges])
 
 
-def set_node_positions(graph, positions=None):
-    """set the position to the networkx graph"""
+def _set_node_positions(graph, positions=None):
+    """Set the position to the networkx graph."""
     if positions is None:
         positions = nx.spring_layout(graph)
         Warning("No node positions given, plots will have random positions from spring_layout")
@@ -269,8 +368,8 @@ def set_node_positions(graph, positions=None):
         graph.nodes[u]["position"] = positions[u]
 
 
-def set_edge_lengths(graph, lengths=None):
-    """set lengths of edges"""
+def _set_edge_lengths(graph, lengths=None):
+    """Set lengths of edges."""
     for ei, e in enumerate(list(graph.edges())):
         (u, v) = e[:2]
         if lengths is None:
@@ -284,7 +383,14 @@ def set_edge_lengths(graph, lengths=None):
 
 
 def laplacian_quality(laplacian, method="eigenvalue"):
-    """Return the quality of a mode encoded in the quantum laplacian."""
+    """Return the quality of a mode encoded in the quantum laplacian.
+
+    If quality is low, the wavenumber of the laplacian is close to a solution of the quantum graph.
+
+    Args:
+        laplacian (sparse matrix): laplacian matrix
+        method (str): either eigenvalue or singular value
+    """
     v0 = np.random.random(laplacian.shape[0])
     if method == "eigenvalue":
         try:
@@ -321,6 +427,11 @@ def laplacian_quality(laplacian, method="eigenvalue"):
 
 
 def mode_quality(mode, graph):
-    """Quality of a mode, small means good quality."""
+    """Quality of a mode, small means good quality, thus the mode is close to a correct mode.
+
+    Args:
+        mode (complex): complex mode
+        graph (graph): quantum graph
+    """
     laplacian = construct_laplacian(to_complex(mode), graph)
     return laplacian_quality(laplacian)

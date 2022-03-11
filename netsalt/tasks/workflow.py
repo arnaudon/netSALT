@@ -28,6 +28,7 @@ from .lasing import (
     ComputeModeCompetitionMatrix,
     CreatePumpProfile,
     FindThresholdModes,
+    ComputeModeTrajectories,
 )
 from .netsalt_task import NetSaltTask, NetSaltWrapperTask
 from .passive import FindPassiveModes
@@ -62,7 +63,8 @@ class ComputeLasingModes(NetSaltWrapperTask):
         if self.rerun_all:
             self.rerun = True
 
-        return [
+        tasks = [
+            CreatePumpProfile(lasing_modes_id=self.lasing_modes_id, rerun=self.rerun),
             PlotPumpProfile(lasing_modes_id=self.lasing_modes_id, rerun=self.rerun),
             PlotScanWithModeTrajectories(lasing_modes_id=self.lasing_modes_id, rerun=self.rerun),
             PlotScanWithThresholdModes(lasing_modes_id=self.lasing_modes_id, rerun=self.rerun),
@@ -71,16 +73,12 @@ class ComputeLasingModes(NetSaltWrapperTask):
             PlotLLCurve(lasing_modes_id=self.lasing_modes_id, rerun=self.rerun),
             PlotStemSpectra(lasing_modes_id=self.lasing_modes_id, rerun=self.rerun),
         ]
-
-
-def compute_controllability(spectra_matrix):
-    """Compute the controllability matrix and value from spectra."""
-    single_mode_matrix = spectra_matrix.copy()
-    single_mode_matrix[np.isnan(single_mode_matrix)] = 0
-    for i, _ in enumerate(single_mode_matrix):
-        single_mode_matrix[i] /= np.sum(single_mode_matrix[i])
-    controllability = np.trace(single_mode_matrix) / len(single_mode_matrix)
-    return single_mode_matrix, controllability
+        if (
+            CreatePumpProfile(lasing_modes_id=self.lasing_modes_id, rerun=self.rerun).mode
+            == "optimized"
+        ):
+            tasks.append(PlotOptimizedPump(lasing_modes_id=self.lasing_modes_id))
+        return tasks
 
 
 class ComputeControllability(NetSaltTask):
@@ -104,6 +102,7 @@ class ComputeControllability(NetSaltTask):
         for mode_id in lasing_modes_id:
             yield CreatePumpProfile(lasing_modes_id=[mode_id])
             yield PlotOptimizedPump(lasing_modes_id=[mode_id])
+            yield ComputeModeTrajectories(lasing_modes_id=[mode_id], skip=True)
             yield FindThresholdModes(lasing_modes_id=[mode_id])
             yield ComputeModeCompetitionMatrix(lasing_modes_id=[mode_id])
             intensities_task = yield ComputeModalIntensities(lasing_modes_id=[mode_id])
@@ -118,16 +117,8 @@ class ComputeControllability(NetSaltTask):
             spectra_matrix.append(spectra)
 
         spectra_matrix = np.array(spectra_matrix)
-        single_mode_matrix, controllability = compute_controllability(spectra_matrix)
         with open(self.output().path, "wb") as pkl:
-            pickle.dump(
-                {
-                    "spectra_matrix": spectra_matrix,
-                    "single_mode_matrix": single_mode_matrix,
-                    "controllability": controllability,
-                },
-                pkl,
-            )
+            pickle.dump(spectra_matrix, pkl)
 
     def output(self):
         """ """
@@ -148,11 +139,14 @@ class PlotControllability(NetSaltTask):
         with open(self.input().path, "rb") as pkl:
             data = pickle.load(pkl)
 
-        print(f"Controllability = {data['controllability']}")
-
         plt.figure(figsize=(6, 5))
-        sns.heatmap(data["single_mode_matrix"], annot=False, fmt=".1f", cmap="Reds")
-        plt.suptitle(f"Controllability = {data['controllability']}")
+        sns.heatmap(
+            data,
+            ax=plt.gca(),
+            cmap="Blues",
+            cbar_kws={"label": "modal amplitude", "shrink": 0.7},
+            vmin=0,
+        )
         plt.ylabel("Mode ids to single lase")
         plt.xlabel("Modal ids")
         plt.savefig(self.output().path, bbox_inches="tight")

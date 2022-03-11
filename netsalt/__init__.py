@@ -2,11 +2,9 @@
 
 from .io import (
     load_graph,
-    load_mode_competition_matrix,
     load_modes,
     load_qualities,
     save_graph,
-    save_mode_competition_matrix,
     save_modes,
     save_qualities,
 )
@@ -21,7 +19,6 @@ from .modes import (
     scan_frequencies,
 )
 from .physics import set_dielectric_constant, set_dispersion_relation
-from .pump import optimize_pump
 from .quantum_graph import (
     create_quantum_graph,
     oversample_graph,

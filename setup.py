@@ -29,6 +29,8 @@ setup(
         "luigi",
         "pyyaml",
         "seaborn",
+        "dir-content-diff",
+        "pulp",
     ],
     packages=find_packages(),
 )

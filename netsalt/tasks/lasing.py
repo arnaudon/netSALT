@@ -1,23 +1,18 @@
-"""Tasks for lasing modes."""
+"""Tasks related to lasing."""
 import pickle
-
+import pandas as pd
 import luigi
 import numpy as np
 import yaml
 
-from netsalt.io import (
-    load_mode_competition_matrix,
-    load_modes,
-    save_mode_competition_matrix,
-    save_modes,
-)
+from netsalt.io import load_modes, save_modes
 from netsalt.modes import (
     compute_modal_intensities,
     compute_mode_competition_matrix,
     find_threshold_lasing_modes,
     pump_trajectories,
 )
-
+from netsalt.pump import make_threshold_pump
 from .netsalt_task import NetSaltTask
 from .passive import CreateQuantumGraph, FindPassiveModes
 from .pump import OptimizePump
@@ -27,9 +22,12 @@ class CreatePumpProfile(NetSaltTask):
     """Create a pump profile."""
 
     lasing_modes_id = luigi.ListParameter()
-    mode = luigi.ChoiceParameter(default="uniform", choices=["uniform", "optimized", "custom"])
+    mode = luigi.ChoiceParameter(
+        default="uniform", choices=["uniform", "optimized", "threshold", "custom"]
+    )
     custom_pump_path = luigi.Parameter(default="pump_profile.yaml")
     pump_profile_path = luigi.Parameter(default="out/pump_profile.yaml")
+    threshold_target = luigi.FloatParameter(default=0.3)
 
     def requires(self):
         """ """
@@ -37,6 +35,8 @@ class CreatePumpProfile(NetSaltTask):
             return {"graph": CreateQuantumGraph()}
         if self.mode == "optimized":
             return {"optimize": OptimizePump(lasing_modes_id=self.lasing_modes_id)}
+        if self.mode == "threshold":
+            return {"modes": FindPassiveModes(), "graph": CreateQuantumGraph()}
         return None
 
     def run(self):
@@ -54,14 +54,19 @@ class CreatePumpProfile(NetSaltTask):
                 results = pickle.load(pkl)
             pump = results["optimal_pump"].tolist()
 
+        elif self.mode == "threshold":
+            qg = self.get_graph(self.input()["graph"].path)
+            modes_df = load_modes(self.input()["modes"].path)
+            pump = make_threshold_pump(qg, self.lasing_modes_id, modes_df)
+
         elif self.mode == "custom":
             with open(self.custom_pump_path, "r") as yml:
-                pump = yaml.load(yml)
+                pump = yaml.safe_load(yml)
         else:
             raise Exception("Mode not understood")
 
         with open(self.output().path, "w") as yml:
-            yaml.dump(pump, yml)
+            yaml.safe_dump(pump, yml)
 
     def output(self):
         """ """
@@ -73,6 +78,7 @@ class ComputeModeTrajectories(NetSaltTask):
 
     lasing_modes_id = luigi.ListParameter()
     modes_trajectories_path = luigi.Parameter(default="out/mode_trajectories.h5")
+    skip = luigi.BoolParameter(default=False)
 
     def requires(self):
         """ """
@@ -87,8 +93,8 @@ class ComputeModeTrajectories(NetSaltTask):
         """ """
         modes_df = load_modes(self.input()["modes"].path)
         qg = self.get_graph_with_pump(self.input()["graph"].path)
-
-        modes_df = pump_trajectories(modes_df, qg, return_approx=True)
+        if not self.skip:
+            modes_df = pump_trajectories(modes_df, qg, return_approx=True)
         save_modes(modes_df, filename=self.output().path)
 
     def output(self):
@@ -141,7 +147,9 @@ class ComputeModeCompetitionMatrix(NetSaltTask):
         qg = self.get_graph_with_pump(self.input()["graph"].path)
         modes_df = load_modes(self.input()["modes"].path)
         mode_competition_matrix = compute_mode_competition_matrix(qg, modes_df)
-        save_mode_competition_matrix(mode_competition_matrix, filename=self.output().path)
+        pd.DataFrame(data=mode_competition_matrix, index=None, columns=None).to_hdf(
+            self.output().path, key="mode_competition_matrix"
+        )
 
     def output(self):
         """ """
@@ -149,7 +157,7 @@ class ComputeModeCompetitionMatrix(NetSaltTask):
 
 
 class ComputeModalIntensities(NetSaltTask):
-    """Compute modal intensities as a function of pump strenght."""
+    """Compute modal intensities as a function of pump strength."""
 
     lasing_modes_id = luigi.ListParameter()
     D0_max = luigi.FloatParameter(default=0.1)
@@ -167,9 +175,9 @@ class ComputeModalIntensities(NetSaltTask):
     def run(self):
         """ """
         modes_df = load_modes(self.input()["modes"].path)
-        mode_competition_matrix = load_mode_competition_matrix(
-            self.input()["competition_matrix"].path
-        )
+        mode_competition_matrix = pd.read_hdf(
+            self.input()["competition_matrix"].path, "mode_competition_matrix"
+        ).to_numpy()
         modes_df = compute_modal_intensities(modes_df, self.D0_max, mode_competition_matrix)
 
         save_modes(modes_df, filename=self.output().path)

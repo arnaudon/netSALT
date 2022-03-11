@@ -4,7 +4,6 @@ import os
 from itertools import cycle
 from pathlib import Path
 
-import matplotlib
 import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
@@ -18,7 +17,6 @@ from .utils import get_scan_grid, linewidth, lorentzian, order_edges_by
 
 L = logging.getLogger(__name__)
 logging.getLogger("matplotlib").setLevel(logging.INFO)
-matplotlib.use("Agg")
 
 
 def _savefig(graph, fig, folder, filename):
@@ -52,6 +50,8 @@ def plot_spectra(
     folder="plots",
     filename="spectra",
     save_option=False,
+    with_lorenz=False,
+    plot_kwargs=None,
 ):
     """Plot spectra with linewidths."""
 
@@ -61,12 +61,13 @@ def plot_spectra(
     else:
         fig = None
     ks, spectra = get_spectra(graph, modes_df, pump_index=pump_index, width=width)
-    ax.plot(ks, spectra)
+    ax.plot(ks, spectra, **plot_kwargs)
 
-    ax2 = ax.twinx()
-    ax2.plot(ks, lorentzian(ks, graph), "r--")
-    ax2.set_xlabel(r"$\lambda$")
-    ax2.set_ylabel("Gain spectrum (a.u.)")
+    if with_lorenz:
+        ax2 = ax.twinx()
+        ax2.plot(ks, lorentzian(ks, graph), "r--")
+        ax2.set_xlabel(r"$\lambda$")
+        ax2.set_ylabel("Gain spectrum (a.u.)")
 
     if save_option:
         _savefig(graph, fig, folder, filename)
@@ -89,7 +90,7 @@ def plot_stem_spectra(
     ks, _ = get_scan_grid(graph)
 
     if ax is None:
-        fig = plt.figure(figsize=(5, 2))
+        fig = plt.figure(figsize=(5, 3))
         ax = plt.gca()
     else:
         fig = None
@@ -137,7 +138,7 @@ def plot_ll_curve(
     save_option=False,
 ):
     """Plot LL curves."""
-    colors = cycle(["C{}".format(i) for i in range(10)])
+    colors = cycle([f"C{i}" for i in range(10)])
     pump_intensities = modes_df["modal_intensities"].columns.values
     modes_df = modes_df.sort_values(
         by=[("modal_intensities", pump_intensities[-1])],
@@ -146,7 +147,7 @@ def plot_ll_curve(
         ascending=False,
     )
     if ax is None:
-        fig = plt.figure(figsize=(6, 6))
+        fig = plt.figure(figsize=(5, 3))
         ax = plt.gca()
     else:
         fig = None
@@ -161,7 +162,7 @@ def plot_ll_curve(
             color = next(colors)
         else:
             color = "grey"
-        ax.plot(pump_intensities, intens, label="mode " + str(index), c=color, lw=0.2)
+        ax.plot(pump_intensities, intens, label="mode " + str(index), c=color, lw=0.5)
 
         if with_thresholds:
             ax.axvline(
@@ -261,7 +262,7 @@ def plot_scan(
     return ax
 
 
-def plot_pump_profile(graph, pump, figsize=(5, 4), ax=None, node_size=1.0):
+def plot_pump_profile(graph, pump, figsize=(5, 4), ax=None, node_size=1.0, c="0.8"):
     """Plot the pump profile on top of the graph structure."""
     if ax is None:
         plt.figure(figsize=figsize)
@@ -273,7 +274,7 @@ def plot_pump_profile(graph, pump, figsize=(5, 4), ax=None, node_size=1.0):
         graph,
         pos=positions,
         edgelist=pumped_edges,
-        edge_color="0.8",
+        edge_color=c,
         width=10,
     )
     plot_quantum_graph(graph, ax=ax, node_size=node_size)
@@ -374,7 +375,7 @@ def plot_pump_traj(modes_df, with_scatter=True, with_approx=True, ax=None):
     if ax is None:
         ax = plt.gca()
 
-    colors = cycle(["C{}".format(i) for i in range(10)])
+    colors = cycle([f"C{i}" for i in range(10)])
 
     pumped_modes = modes_df["mode_trajectories"].to_numpy()
     for pumped_mode in pumped_modes:
@@ -394,12 +395,23 @@ def plot_pump_traj(modes_df, with_scatter=True, with_approx=True, ax=None):
             )
 
 
-def plot_single_mode(graph, modes_df, index, df_entry="passive", colorbar=True, ax=None):
+def plot_single_mode(
+    graph,
+    modes_df,
+    index,
+    df_entry="passive",
+    colorbar=True,
+    ax=None,
+    edge_vmin=None,
+    edge_vmax=None,
+):
     """Plot single mode on the graph."""
     mode = modes_df[df_entry][index]
     if df_entry == "threshold_lasing_modes":
         graph.graph["params"]["D0"] = modes_df["lasing_thresholds"][index]
-    ax = _plot_single_mode(graph, mode, ax=ax, colorbar=colorbar)
+    ax = _plot_single_mode(
+        graph, mode, ax=ax, colorbar=colorbar, edge_vmin=edge_vmin, edge_vmax=edge_vmax
+    )
     ax.set_title(
         "mode "
         + str(index)
@@ -408,34 +420,35 @@ def plot_single_mode(graph, modes_df, index, df_entry="passive", colorbar=True, 
     )
 
 
-def _plot_single_mode(graph, mode, ax=None, colorbar=True):
+def _plot_single_mode(graph, mode, ax=None, colorbar=True, edge_vmin=None, edge_vmax=None):
     positions = [graph.nodes[u]["position"] for u in graph]
-    node_solution = mode_on_nodes(mode, graph)
     edge_solution = mean_mode_on_edges(mode, graph)
 
     if ax is None:
         plt.figure(figsize=(5, 4))  # 14,3
         ax = plt.gca()
 
-    nodes = nx.draw_networkx_nodes(
-        graph,
-        pos=positions,
-        node_color=abs(node_solution) ** 2,
-        node_size=0,
-        cmap=plt.get_cmap("PuRd"),  # Blues
-        ax=ax,
-    )
+    nx.draw(graph, pos=positions, node_size=0, width=0, ax=ax)
 
-    if colorbar:
-        plt.colorbar(nodes, label=r"$|E|^2$ (a.u)")
+    cmap = plt.get_cmap("PuRd")
+    if edge_vmax is None:
+        edge_vmax = max(edge_solution)
+    if edge_vmin is None:
+        edge_vmin = min(edge_solution)
     nx.draw_networkx_edges(
         graph,
         pos=positions,
         edge_color=edge_solution,
-        width=2,  # 5
-        edge_cmap=plt.get_cmap("PuRd"),  # Blues
+        width=2,
+        edge_cmap=cmap,
+        edge_vmin=edge_vmin,
+        edge_vmax=edge_vmax,
         ax=ax,
     )
+    if colorbar:
+        sm = plt.cm.ScalarMappable(cmap=cmap, norm=plt.Normalize(vmin=edge_vmin, vmax=edge_vmax))
+        sm.set_array([])
+        plt.colorbar(sm, label=r"$|E|^2$ (a.u)", shrink=0.5)
     return ax
 
 

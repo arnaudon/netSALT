@@ -4,7 +4,8 @@ import pickle
 import luigi
 
 from netsalt.io import load_modes
-from netsalt.pump import optimize_pump
+from netsalt.pump import optimize_pump_linear_programming
+from netsalt.pump import optimize_pump_diff_evolution
 
 from .netsalt_task import NetSaltTask
 from .passive import CreateQuantumGraph, FindPassiveModes
@@ -14,14 +15,23 @@ class OptimizePump(NetSaltTask):
     """Optimise a pump profile to lase specific modes."""
 
     lasing_modes_id = luigi.ListParameter()
-    pump_min_frac = luigi.FloatParameter(default=0.1)
+    optimisation_mode = luigi.ChoiceParameter(
+        default="linear_programming", choices=["differential_evolution", "linear_programming"]
+    )
+    # params for differential evolution
+    pump_min_frac = luigi.FloatParameter(default=1.0)
     maxiter = luigi.IntParameter(default=1000)
     popsize = luigi.IntParameter(default=5)
     seed = luigi.IntParameter(default=42)
     n_seeds = luigi.IntParameter(default=10)
     disp = luigi.BoolParameter(default=False)
+
+    # params for linear programming
+    eps_min = luigi.FloatParameter(default=5.0)
+    eps_max = luigi.FloatParameter(default=10.0)
+    eps_n = luigi.IntParameter(default=10)
+    cost_diff_min = luigi.FloatParameter(default=1e-4)
     optimized_pump_path = luigi.Parameter(default="out/optimized_pump.pkl")
-    use_modes = luigi.BoolParameter(default=False)
 
     def requires(self):
         """ """
@@ -32,18 +42,30 @@ class OptimizePump(NetSaltTask):
         qg = self.get_graph(self.input()["graph"].path)
         modes_df = load_modes(self.input()["modes"].path)
 
-        optimal_pump, pump_overlapps, costs, final_cost = optimize_pump(
-            modes_df,
-            qg,
-            self.lasing_modes_id,
-            pump_min_frac=self.pump_min_frac,
-            maxiter=self.maxiter,
-            popsize=self.popsize,
-            seed=self.seed,
-            n_seeds=self.n_seeds,
-            disp=self.disp,
-            use_modes=self.use_modes,
-        )
+        if self.optimisation_mode == "differential_evolution":
+            optimal_pump, pump_overlapps, costs, final_cost = optimize_pump_diff_evolution(
+                modes_df,
+                qg,
+                self.lasing_modes_id,
+                pump_min_frac=self.pump_min_frac,
+                maxiter=self.maxiter,
+                popsize=self.popsize,
+                seed=self.seed,
+                n_seeds=self.n_seeds,
+                disp=self.disp,
+            )
+
+        if self.optimisation_mode == "linear_programming":
+            optimal_pump, pump_overlapps, costs, final_cost = optimize_pump_linear_programming(
+                modes_df,
+                qg,
+                self.lasing_modes_id,
+                eps_min=self.eps_min,
+                eps_max=self.eps_max,
+                eps_n=self.eps_n,
+                cost_diff_min=self.cost_diff_min,
+            )
+
         results = {
             "optimal_pump": optimal_pump,
             "pump_overlapps": pump_overlapps,

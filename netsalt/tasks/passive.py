@@ -15,6 +15,7 @@ from netsalt.quantum_graph import (
     oversample_graph,
     set_total_length,
     update_parameters,
+    simplify_graph,
 )
 
 from .config import ModeSearchConfig
@@ -38,6 +39,7 @@ class CreateQuantumGraph(NetSaltTask):
     edge_size = luigi.FloatParameter(default=0.1)
     k_a = luigi.FloatParameter(default=15.0)
     gamma_perp = luigi.FloatParameter(default=3.0)
+    keep_degree_two = luigi.BoolParameter(default=True)
 
     noise_level = luigi.FloatParameter(default=0.001)
 
@@ -60,6 +62,8 @@ class CreateQuantumGraph(NetSaltTask):
         }
 
         quantum_graph = load_graph(self.graph_path)
+        if self.method != "custom" and not self.keep_degree_two:
+            quantum_graph = simplify_graph(quantum_graph)
         positions = np.array([quantum_graph.nodes[u]["position"] for u in quantum_graph.nodes])
         create_quantum_graph(
             quantum_graph, params, positions=positions, noise_level=self.noise_level
@@ -71,12 +75,12 @@ class CreateQuantumGraph(NetSaltTask):
         custom_index = None
         if self.method == "custom":
             with open(self.custom_index, "r") as yml:
-                custom_index = yaml.load(yml)
+                custom_index = yaml.safe_load(yml)
 
         set_dielectric_constant(quantum_graph, params, custom_values=custom_index)
         set_dispersion_relation(quantum_graph, dispersion_relation_pump)
 
-        quantum_graph = oversample_graph(quantum_graph, params)
+        quantum_graph = oversample_graph(quantum_graph, params["plot_edgesize"])
         update_parameters(quantum_graph, params)
         save_graph(quantum_graph, self.output().path)
 
