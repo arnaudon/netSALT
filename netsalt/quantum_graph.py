@@ -140,8 +140,16 @@ def set_total_length(graph, total_length=None, max_extent=None, inner=True, with
         length_ratio = total_length / original_total_length
 
     if max_extent is not None:
-        _min_pos = min(np.array([graph.nodes[u]["position"] for u in graph.nodes()]).flatten())
-        _max_pos = max(np.array([graph.nodes[u]["position"] for u in graph.nodes()]).flatten())
+        _min_pos = min(
+            np.array(
+                [graph.nodes[u]["position"] for u in graph.nodes() if len(graph[u]) > 1]
+            ).flatten()
+        )
+        _max_pos = max(
+            np.array(
+                [graph.nodes[u]["position"] for u in graph.nodes() if len(graph[u]) > 1]
+            ).flatten()
+        )
         _extent = _max_pos - _min_pos
         length_ratio = max_extent / _extent
 
