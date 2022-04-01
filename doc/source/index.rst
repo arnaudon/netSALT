@@ -28,7 +28,12 @@ See the folder `example` with the sequence of scripts, from 0 to 0.
 Citing
 ******
 
-To cite *netSALT*, please use [paper]_. 
+To cite *netSALT*, please use 
+```Sensitivity and spectral control of network lasers
+Dhruv Saxena, Alexis Arnaudon, Oscar Cipolato, Michele Gaio, Alain Quentel, Sophia Yaliraki, Dario Pisignano, Andrea Camposeo, Mauricio Barahona, Riccardo Sapienza
+```
+
+avaialble on arxiv: https://arxiv.org/abs/2203.16974
 
 Credits
 *******

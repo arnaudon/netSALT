@@ -269,7 +269,7 @@ def plot_pump_profile(graph, pump, figsize=(5, 4), ax=None, node_size=1.0, c="0.
         ax = plt.gca()
 
     positions = [graph.nodes[u]["position"] for u in graph]
-    pumped_edges = [e for e, pump in zip(graph.edges, pump) if pump > 0.0]
+    pumped_edges = [e for e, _pump in zip(graph.edges, pump) if _pump > 0.0]
     nx.draw_networkx_edges(
         graph,
         pos=positions,
