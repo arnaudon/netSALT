@@ -7,6 +7,6 @@ mkdir -p figures
 
 python create_graph.py
 
-#luigi --module netsalt.tasks ComputePassiveModes --local-scheduler --log-level INFO --rerun
+#luigi --module netsalt.tasks.workflow ComputePassiveModes --local-scheduler --log-level INFO --rerun
 luigi --module netsalt.tasks.workflow ComputeLasingModes --local-scheduler --log-level INFO  --rerun 
 
