@@ -146,7 +146,9 @@ def set_dielectric_constant(graph, params, custom_values=None):
 
     if params["dielectric_params"]["method"] == "custom":
         for ei, e in enumerate(graph.edges):
-            graph[e[0]][e[1]]["dielectric_constant"] = custom_values[ei]
+            graph[e[0]][e[1]]["dielectric_constant"] = (
+                custom_values["constant"][ei] + 1.0j * custom_values["loss"][ei]
+            )
 
     update_params_dielectric_constant(graph, params)
 
