@@ -13,16 +13,17 @@ if __name__ == "__main__":
     netsalt.save_graph(graph, "graph.pkl")
 
     # create the index of refraction profile
-    custom_index = len(graph.edges) * [3.0 ** 2]
-    custom_index[0] = 1.0 ** 2
-    custom_index[-1] = 1.0 ** 2
+    custom_index = len(graph.edges) * [3.0**2]
+    custom_loss = len(graph.edges) * [0.0]
+    custom_index[0] = 1.0**2
+    custom_index[-1] = 1.0**2
 
     count_inedges = len(graph.edges) - 2.0
     if count_inedges % 4 == 0:
         for i in range(round(count_inedges / 4)):
-            custom_index[i + 1] = 1.5 ** 2
+            custom_index[i + 1] = 1.5**2
 
-    yaml.dump(custom_index, open("index.yaml", "w"))
+    yaml.dump({"constant": custom_index, "loss": custom_loss}, open("index.yaml", "w"))
 
     # create the pump profile
     pump_edges = round(len(graph.edges()) / 2)

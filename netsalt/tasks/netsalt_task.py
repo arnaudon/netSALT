@@ -35,7 +35,7 @@ class NetSaltTask(luigi.Task):
                 if target.exists() and isinstance(target, luigi.target.FileSystemTarget):
                     target.fs.remove(target.path, recursive=True)
 
-    def get_graph(self, graph_path):  # pylint: disable=no-self-use
+    def get_graph(self, graph_path):
         """To ensure we get all parameters."""
         qg = load_graph(graph_path)
         config = ModeSearchConfig()

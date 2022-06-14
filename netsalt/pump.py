@@ -224,8 +224,8 @@ def optimize_pump_linear_programming(
 
         c0 = _costf(pump, epsilon=epsilon)
         ids = []
-        for i, _ in enumerate(pump):
-            if pump[i] == 1:
+        for i, p in enumerate(pump):
+            if p == 1:
                 _pump = pump.copy()
                 _pump[i] = 0
                 if _costf(_pump, epsilon=epsilon) - c0 < cost_diff_min:
