@@ -105,7 +105,7 @@ def get_total_length(graph):
     Args:
         graph (graph): quantum graph
     """
-    return sum([graph[u][v]["length"] for u, v in graph.edges()])
+    return sum(graph[u][v]["length"] for u, v in graph.edges())
 
 
 def get_total_inner_length(graph):
@@ -116,7 +116,7 @@ def get_total_inner_length(graph):
     Args:
         graph (graph): quantum graph
     """
-    return sum([graph[u][v]["length"] for u, v in graph.edges() if graph[u][v]["inner"]])
+    return sum(graph[u][v]["length"] for u, v in graph.edges() if graph[u][v]["inner"])
 
 
 def set_total_length(graph, total_length=None, max_extent=None, inner=True, with_position=True):
