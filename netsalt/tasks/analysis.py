@@ -217,7 +217,7 @@ class PlotScanWithThresholdModes(NetSaltTask):
         qualities = load_qualities(filename=self.input()["qualities"].path)
         modes_df = load_modes(self.input()["thresholds"].path)
 
-        plot_scan(qg, qualities, modes_df, relax_upper=True)
+        plot_scan(qg, qualities, modes_df, relax_upper=True, with_approx=False)
         plt.savefig(self.output().path, bbox_inches="tight")
 
     def output(self):
