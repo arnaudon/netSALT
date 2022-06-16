@@ -148,9 +148,16 @@ def find_modes(graph, qualities):
     return modes_df
 
 
-def _convert_edges(vector):
+def _convert_edges(vector, D0=None):
     """Convert single edge values to double edges."""
     edge_vector = np.zeros(2 * len(vector), dtype=np.complex128)
+    print(np.shape(vector))
+    if D0 is not None and len(np.shape(vector)) == 2:
+        # vector = np.array(vector)
+        vector = vector[:, 0] + D0 * vector[:, 1]
+    if D0 is None and len(np.shape(vector)) == 2:
+        vector = vector[:, 0] + vector[:, 1]
+        vector[vector > 0] = 1
     edge_vector[::2] = vector
     edge_vector[1::2] = vector
     return edge_vector
@@ -161,10 +168,10 @@ def _get_dielectric_constant_matrix(params):
     return sc.sparse.diags(_convert_edges(params["dielectric_constant"]))
 
 
-def _get_mask_matrices(params):
+def _get_mask_matrices(params, D0=None):
     """Return sparse diagonal matrices of pump and inner edge masks."""
     in_mask = sc.sparse.diags(_convert_edges(np.array(params["inner"])))
-    pump_mask = sc.sparse.diags(_convert_edges(params["pump"])).dot(in_mask)
+    pump_mask = sc.sparse.diags(_convert_edges(params["pump"], D0)).dot(in_mask)
     return in_mask, pump_mask
 
 
@@ -219,10 +226,10 @@ def compute_overlapping_single_edges(passive_mode, graph):
     return np.real(pump_norm / inner_norm)
 
 
-def compute_overlapping_factor(passive_mode, graph):
+def compute_overlapping_factor(passive_mode, graph, D0):
     """Compute the overlapping factor of a mode with the pump."""
     dielectric_constant = _get_dielectric_constant_matrix(graph.graph["params"])
-    in_mask, pump_mask = _get_mask_matrices(graph.graph["params"])
+    in_mask, pump_mask = _get_mask_matrices(graph.graph["params"], D0)
     inner_dielectric_constants = dielectric_constant.dot(in_mask)
 
     node_solution = mode_on_nodes(passive_mode, graph)
@@ -241,7 +248,7 @@ def compute_overlapping_factor(passive_mode, graph):
 def pump_linear(mode_0, graph, D0_0, D0_1):
     """Find the linear approximation of the new wavenumber."""
     graph.graph["params"]["D0"] = D0_0
-    overlapping_factor = compute_overlapping_factor(mode_0, graph)
+    overlapping_factor = compute_overlapping_factor(mode_0, graph, D0_0)
     freq = to_complex(mode_0)
     gamma_overlap = gamma(freq, graph.graph["params"]) * overlapping_factor
     return from_complex(freq * np.sqrt((1.0 + gamma_overlap * D0_0) / (1.0 + gamma_overlap * D0_1)))
@@ -426,7 +433,7 @@ def _compute_mode_competition_element(lengths, params, data, with_gamma=True):
 
     matrix_element = 0
     for ei, length in enumerate(lengths):
-        if params["pump"][ei] > 0.0 and params["inner"][ei]:
+        if sum(params["pump"][ei]) > 0.0 and params["inner"][ei]:
             k_mu = k_mus[ei]
             k_nu = k_nus[ei]
 
@@ -865,5 +872,5 @@ def lasing_threshold_linear(mode, graph, D0):
     return 1.0 / (
         q_value(mode)
         * -np.imag(gamma(to_complex(mode), graph.graph["params"]))
-        * np.real(compute_overlapping_factor(mode, graph))
+        * np.real(compute_overlapping_factor(mode, graph, D0))
     )
