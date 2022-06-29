@@ -13,6 +13,7 @@ from netsalt.modes import (
     pump_trajectories,
 )
 from netsalt.pump import make_threshold_pump
+from .config import ModeSearchConfig
 from .netsalt_task import NetSaltTask
 from .passive import CreateQuantumGraph, FindPassiveModes
 from .pump import OptimizePump
@@ -94,7 +95,9 @@ class ComputeModeTrajectories(NetSaltTask):
         modes_df = load_modes(self.input()["modes"].path)
         qg = self.get_graph_with_pump(self.input()["graph"].path)
         if not self.skip:
-            modes_df = pump_trajectories(modes_df, qg, return_approx=True)
+            modes_df = pump_trajectories(
+                modes_df, qg, return_approx=True, quality_method=ModeSearchConfig().quality_method
+            )
         save_modes(modes_df, filename=self.output().path)
 
     def output(self):
@@ -120,7 +123,9 @@ class FindThresholdModes(NetSaltTask):
         """ """
         qg = self.get_graph_with_pump(self.input()["graph"].path)
         modes_df = load_modes(self.input()["modes"].path)
-        modes_df = find_threshold_lasing_modes(modes_df, qg)
+        modes_df = find_threshold_lasing_modes(
+            modes_df, qg, quality_method=ModeSearchConfig().quality_method
+        )
         save_modes(modes_df, filename=self.output().path)
 
     def output(self):

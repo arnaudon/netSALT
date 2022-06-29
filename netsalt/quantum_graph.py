@@ -396,7 +396,7 @@ def laplacian_quality(laplacian, method="eigenvalue"):
 
     Args:
         laplacian (sparse matrix): laplacian matrix
-        method (str): either eigenvalue or singular value
+        method (str): method for quality evaluation (eigenvalue, singular value or determinant)
     """
     v0 = np.random.random(laplacian.shape[0])
     if method == "eigenvalue":
@@ -424,7 +424,7 @@ def laplacian_quality(laplacian, method="eigenvalue"):
 
     if method == "determinant":
         sign, logdet = np.linalg.slogdet(laplacian.todense())
-        return np.exp(np.real(logdet/laplacian.shape[0]))
+        return np.exp(np.real(logdet / laplacian.shape[0]))
 
     if method == "singularvalue":
         return sc.sparse.linalg.svds(
@@ -437,12 +437,13 @@ def laplacian_quality(laplacian, method="eigenvalue"):
     return 1.0
 
 
-def mode_quality(mode, graph):
+def mode_quality(mode, graph, quality_method='eigenvalue'):
     """Quality of a mode, small means good quality, thus the mode is close to a correct mode.
 
     Args:
         mode (complex): complex mode
         graph (graph): quantum graph
+        quality_method (str): method for quality evaluation (eig, singular value or det)
     """
     laplacian = construct_laplacian(to_complex(mode), graph)
-    return laplacian_quality(laplacian)
+    return laplacian_quality(laplacian, method=quality_method)

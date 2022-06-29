@@ -34,7 +34,15 @@ L = logging.getLogger(__name__)
 class WorkerModes:
     """Worker to find modes."""
 
-    def __init__(self, estimated_modes, graph, D0s=None, search_radii=None, seed=42):
+    def __init__(
+        self,
+        estimated_modes,
+        graph,
+        D0s=None,
+        search_radii=None,
+        seed=42,
+        quality_method="eigenvalue",
+    ):
         """Init function of the worker."""
         self.graph = graph
         self.params = graph.graph["params"]
@@ -42,6 +50,7 @@ class WorkerModes:
         self.D0s = D0s
         self.search_radii = search_radii
         self.seed = seed
+        self.quality_method = quality_method
 
     def set_search_radii(self, mode):
         """This fixes a local search region set by search radii."""
@@ -59,26 +68,29 @@ class WorkerModes:
         mode = self.estimated_modes[mode_id]
         if self.search_radii is not None:
             self.set_search_radii(mode)
-        return refine_mode_brownian_ratchet(mode, self.graph, self.params, seed=self.seed)
+        return refine_mode_brownian_ratchet(
+            mode, self.graph, self.params, seed=self.seed, quality_method=self.quality_method
+        )
 
 
 class WorkerScan:
     """Worker to scan complex frequency."""
 
-    def __init__(self, graph):
+    def __init__(self, graph, quality_method="eigenvalue"):
         self.graph = graph
+        self.quality_method = quality_method
         np.random.seed(42)
 
     def __call__(self, freq):
-        return mode_quality(to_complex(freq), self.graph)
+        return mode_quality(to_complex(freq), self.graph, quality_method=self.quality_method)
 
 
-def scan_frequencies(graph):
+def scan_frequencies(graph, quality_method="eigenvalue"):
     """Scan a range of complex frequencies and return mode qualities."""
     ks, alphas = get_scan_grid(graph)
     freqs = [[k, a] for k in ks for a in alphas]
 
-    worker_scan = WorkerScan(graph)
+    worker_scan = WorkerScan(graph, quality_method=quality_method)
     chunksize = max(1, int(0.1 * len(freqs) / graph.graph["params"]["n_workers"]))
     with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
         qualities_list = list(
@@ -104,7 +116,7 @@ def _init_dataframe():
     return pd.DataFrame(columns=indexes)
 
 
-def find_modes(graph, qualities):
+def find_modes(graph, qualities, quality_method="eigenvalue"):
     """Find the modes from a scan."""
     ks, alphas = get_scan_grid(graph)
     estimated_modes = find_rough_modes_from_scan(
@@ -112,7 +124,9 @@ def find_modes(graph, qualities):
     )
     L.info("Found %s mode candidates.", len(estimated_modes))
     search_radii = [1 * (ks[1] - ks[0]), 1 * (alphas[1] - alphas[0])]
-    worker_modes = WorkerModes(estimated_modes, graph, search_radii=search_radii)
+    worker_modes = WorkerModes(
+        estimated_modes, graph, search_radii=search_radii, quality_method=quality_method
+    )
     with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
         refined_modes = list(
             tqdm(
@@ -714,7 +728,7 @@ def compute_modal_intensities(modes_df, max_pump_intensity, mode_competition_mat
     return modes_df
 
 
-def pump_trajectories(modes_df, graph, return_approx=False):
+def pump_trajectories(modes_df, graph, return_approx=False, quality_method="eigenvalue"):
     """For a sequence of D0s, find the mode positions of the modes modes."""
 
     D0s = np.linspace(
@@ -738,7 +752,12 @@ def pump_trajectories(modes_df, graph, return_approx=False):
         for m in range(n_modes):
             pumped_modes_approx[-1][m] = pump_linear(pumped_modes[-1][m], graph, D0s[d], D0s[d + 1])
 
-        worker_modes = WorkerModes(pumped_modes_approx[-1], graph, D0s=n_modes * [D0s[d + 1]])
+        worker_modes = WorkerModes(
+            pumped_modes_approx[-1],
+            graph,
+            D0s=n_modes * [D0s[d + 1]],
+            quality_method=quality_method,
+        )
         with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
             pumped_modes.append(list(tqdm(pool.imap(worker_modes, range(n_modes)), total=n_modes)))
         for i, mode in enumerate(pumped_modes[-1]):
@@ -779,7 +798,8 @@ def _get_new_D0(arg, graph=None, D0_steps=0.1):
     return mode_id, new_D0, new_modes_approx
 
 
-def find_threshold_lasing_modes(modes_df, graph):  # pylint:disable=too-many-statements
+def find_threshold_lasing_modes(modes_df, graph, quality_method="eigenvalue"):
+    # pylint:disable=too-many-statements
     """Find the threshold lasing modes and associated lasing thresholds."""
     stepsize = graph.graph["params"]["search_stepsize"]
     D0_steps = graph.graph["params"]["D0_max"] / graph.graph["params"]["D0_steps"]
@@ -818,7 +838,9 @@ def find_threshold_lasing_modes(modes_df, graph):  # pylint:disable=too-many-sta
         )
 
         L.debug("Current search_stepsize: %s", graph.graph["params"]["search_stepsize"])
-        worker_modes = WorkerModes(new_modes_approx, graph, D0s=new_D0s)
+        worker_modes = WorkerModes(
+            new_modes_approx, graph, D0s=new_D0s, quality_method=quality_method
+        )
         new_modes_tmp = np.zeros([len(modes_df), 2])
 
         with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:

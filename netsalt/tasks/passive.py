@@ -101,7 +101,7 @@ class ScanFrequencies(NetSaltTask):
     def run(self):
         """ """
         qg = self.get_graph(self.input().path)
-        qualities = scan_frequencies(qg)
+        qualities = scan_frequencies(qg, quality_method=ModeSearchConfig().quality_method)
         save_qualities(qualities, filename=self.output().path)
 
     def output(self):
@@ -122,7 +122,7 @@ class FindPassiveModes(NetSaltTask):
         """ """
         qg = self.get_graph(self.input()["graph"].path)
         qualities = load_qualities(filename=self.input()["qualities"].path)
-        modes_df = find_modes(qg, qualities)
+        modes_df = find_modes(qg, qualities, quality_method=ModeSearchConfig().quality_method)
         save_modes(modes_df, filename=self.output().path)
 
     def output(self):
