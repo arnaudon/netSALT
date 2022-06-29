@@ -423,7 +423,7 @@ def laplacian_quality(laplacian, method="eigenvalue"):
             )[0]
 
     if method == "determinant":
-        sign, logdet = np.linalg.slogdet(laplacian.todense())
+        logdet = np.linalg.slogdet(laplacian.todense())[1]
         return np.exp(np.real(logdet / laplacian.shape[0]))
 
     if method == "singularvalue":
