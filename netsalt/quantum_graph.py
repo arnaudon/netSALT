@@ -422,6 +422,10 @@ def laplacian_quality(laplacian, method="eigenvalue"):
                 )
             )[0]
 
+    if method == "determinant":
+        sign, logdet = np.linalg.slogdet(laplacian.todense())
+        return np.exp(np.real(logdet/laplacian.shape[0]))
+
     if method == "singularvalue":
         return sc.sparse.linalg.svds(
             laplacian,
