@@ -122,7 +122,13 @@ class FindPassiveModes(NetSaltTask):
         """ """
         qg = self.get_graph(self.input()["graph"].path)
         qualities = load_qualities(filename=self.input()["qualities"].path)
-        modes_df = find_modes(qg, qualities, quality_method=ModeSearchConfig().quality_method)
+        modes_df = find_modes(
+            qg,
+            qualities,
+            quality_method=ModeSearchConfig().quality_method,
+            min_distance=ModeSearchConfig().min_distance,
+            threshold_abs=ModeSearchConfig().threshold_abs,
+        )
         save_modes(modes_df, filename=self.output().path)
 
     def output(self):

@@ -22,6 +22,8 @@ class ModeSearchConfig(luigi.Config):
     quality_method = luigi.ChoiceParameter(
         default="eigenvalue", choices=["eigenvalue", "singularvalue", "determinant"]
     )
+    threshold_abs = luigi.FloatParameter(default=0.1)
+    min_distance = luigi.FloatParameter(default=2)
 
 
 class PumpConfig(luigi.Config):

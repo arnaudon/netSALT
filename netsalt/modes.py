@@ -116,11 +116,11 @@ def _init_dataframe():
     return pd.DataFrame(columns=indexes)
 
 
-def find_modes(graph, qualities, quality_method="eigenvalue"):
+def find_modes(graph, qualities, quality_method="eigenvalue", min_distance=2, threshold_abs=1.0):
     """Find the modes from a scan."""
     ks, alphas = get_scan_grid(graph)
     estimated_modes = find_rough_modes_from_scan(
-        ks, alphas, qualities, min_distance=2, threshold_abs=1.0
+        ks, alphas, qualities, min_distance=min_distance, threshold_abs=threshold_abs
     )
     L.info("Found %s mode candidates.", len(estimated_modes))
     search_radii = [1 * (ks[1] - ks[0]), 1 * (alphas[1] - alphas[0])]
