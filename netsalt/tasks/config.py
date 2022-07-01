@@ -19,6 +19,11 @@ class ModeSearchConfig(luigi.Config):
     max_tries_reduction = luigi.IntParameter(default=50)
     reduction_factor = luigi.FloatParameter(default=1.0)
     search_stepsize = luigi.FloatParameter(default=0.001)
+    quality_method = luigi.ChoiceParameter(
+        default="eigenvalue", choices=["eigenvalue", "singularvalue", "determinant"]
+    )
+    threshold_abs = luigi.FloatParameter(default=0.1)
+    min_distance = luigi.FloatParameter(default=2)
 
 
 class PumpConfig(luigi.Config):

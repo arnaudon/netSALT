@@ -31,6 +31,7 @@ def refine_mode_brownian_ratchet(
     disp=False,
     save_mode_trajectories=False,
     seed=42,
+    quality_method="eigenvalue",
 ):
     """Accurately find a mode from an initial guess, using brownian ratchet algorithm.
 
@@ -54,7 +55,7 @@ def refine_mode_brownian_ratchet(
     if save_mode_trajectories:
         mode_trajectories = [current_mode.copy()]
 
-    initial_quality = mode_quality(current_mode, graph)
+    initial_quality = mode_quality(current_mode, graph, quality_method=quality_method)
     current_quality = initial_quality
 
     search_stepsize = params["search_stepsize"]
@@ -66,7 +67,7 @@ def refine_mode_brownian_ratchet(
             + search_stepsize * current_quality / initial_quality * np.random.uniform(-1, 1, 2)
         )
 
-        new_quality = mode_quality(new_mode, graph)
+        new_quality = mode_quality(new_mode, graph, quality_method=quality_method)
 
         if disp:
             L.debug(
@@ -114,6 +115,7 @@ def refine_mode_brownian_ratchet(
         params,
         disp=disp,
         save_mode_trajectories=save_mode_trajectories,
+        quality_method=quality_method,
     )
 
 
