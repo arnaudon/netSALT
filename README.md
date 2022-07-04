@@ -19,6 +19,10 @@ Then to install the package, just run (preferably in a virtualenv)
 ```bash
 pip install -e . 
 ```
+or from pypi:
+```bash
+pip install netsalt
+```
 
 ## Usage
 
