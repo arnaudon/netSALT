@@ -32,4 +32,4 @@ if __name__ == "__main__":
     pump[0] = 0
     # convert new version
     pump = [[0.0, float(p)] for p in pump]
-    yaml.dump(pump.astype(int).tolist(), open("pump.yaml", "w"))
+    yaml.dump(pump, open("pump.yaml", "w"))
