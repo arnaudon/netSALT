@@ -92,7 +92,7 @@ def dispersion_relation_pump(freq, params=None):
     if "pump" not in params or "D0" not in params:
         return freq * np.sqrt(params["dielectric_constant"])
 
-    pump = params['pump'][:, 0] + params["D0"] * params["pump"][:, 1]
+    pump = params["pump"][:, 0] + params["D0"] * params["pump"][:, 1]
     return freq * np.sqrt(params["dielectric_constant"] + gamma(freq, params) * pump)
 
 

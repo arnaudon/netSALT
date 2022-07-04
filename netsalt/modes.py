@@ -153,9 +153,10 @@ def _convert_edges(vector, D0=None):
     edge_vector = np.zeros(2 * len(vector), dtype=np.complex128)
     if D0 is not None and len(np.shape(vector)) == 2:
         vector = vector[:, 0] + D0 * vector[:, 1]
-    # for mode comp matrix, to check if this makes sense for non-zero first element
+
     if D0 is None and len(np.shape(vector)) == 2:
-        vector = 1 if vector[:, 0] + vector[:, 1] > 0 else 0
+        vector = [1 if v[0] + v[1] > 0 else 0 for v in vector]
+
     edge_vector[::2] = vector
     edge_vector[1::2] = vector
     return edge_vector
@@ -245,12 +246,14 @@ def compute_overlapping_factor(passive_mode, graph, D0):
 
 def pump_linear(mode_0, graph, D0_0, D0_1):
     """Find the linear approximation of the new wavenumber."""
-    print(D0_0, D0_1)
     graph.graph["params"]["D0"] = D0_0
-    overlapping_factor = compute_overlapping_factor(mode_0, graph, D0_0)
+    overlapping_factor_0 = compute_overlapping_factor(mode_0, graph, D0_0)
+    overlapping_factor_1 = compute_overlapping_factor(mode_0, graph, D0_1)
     freq = to_complex(mode_0)
-    gamma_overlap = gamma(freq, graph.graph["params"]) * overlapping_factor
-    return from_complex(freq * np.sqrt((1.0 + gamma_overlap * D0_0) / (1.0 + gamma_overlap * D0_1)))
+    _gamma = gamma(freq, graph.graph["params"])
+    gamma_overlap_0 = _gamma * overlapping_factor_0
+    gamma_overlap_1 = _gamma * overlapping_factor_1
+    return from_complex(freq * np.sqrt((1.0 + gamma_overlap_0) / (1.0 + gamma_overlap_1)))
 
 
 def mode_on_nodes(mode, graph):
