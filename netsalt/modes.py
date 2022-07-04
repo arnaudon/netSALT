@@ -151,13 +151,11 @@ def find_modes(graph, qualities):
 def _convert_edges(vector, D0=None):
     """Convert single edge values to double edges."""
     edge_vector = np.zeros(2 * len(vector), dtype=np.complex128)
-    print(np.shape(vector))
     if D0 is not None and len(np.shape(vector)) == 2:
-        # vector = np.array(vector)
         vector = vector[:, 0] + D0 * vector[:, 1]
+    # for mode comp matrix, to check if this makes sense for non-zero first element
     if D0 is None and len(np.shape(vector)) == 2:
-        vector = vector[:, 0] + vector[:, 1]
-        vector[vector > 0] = 1
+        vector = 1 if vector[:, 0] + vector[:, 1] > 0 else 0
     edge_vector[::2] = vector
     edge_vector[1::2] = vector
     return edge_vector
@@ -247,6 +245,7 @@ def compute_overlapping_factor(passive_mode, graph, D0):
 
 def pump_linear(mode_0, graph, D0_0, D0_1):
     """Find the linear approximation of the new wavenumber."""
+    print(D0_0, D0_1)
     graph.graph["params"]["D0"] = D0_0
     overlapping_factor = compute_overlapping_factor(mode_0, graph, D0_0)
     freq = to_complex(mode_0)

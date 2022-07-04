@@ -165,16 +165,16 @@ def set_total_length(graph, total_length=None, max_extent=None, inner=True, with
 def _set_pump_on_graph(graph):
     """Set the pump values on the graph from params."""
     if "pump" not in graph.graph["params"]:
-        graph.graph["params"]["pump"] = np.ones((2, len(graph.edges)))
+        graph.graph["params"]["pump"] = np.ones((len(graph.edges), 2))
     for ei, e in enumerate(graph.edges):
-        graph[e[0]][e[1]]["pump"] = graph.graph["params"]["pump"][:, ei]
+        graph[e[0]][e[1]]["pump"] = graph.graph["params"]["pump"][ei]
 
 
 def _set_pump_on_params(graph, params):
     """Set the pump values on the graph from params."""
-    params["pump"] = np.ones((2, len(graph.edges)))
+    params["pump"] = np.ones((len(graph.edges), 2))
     for ei, e in enumerate(graph.edges):
-        params["pump"][:, ei] = graph[e[0]][e[1]]["pump"]
+        params["pump"][ei] = graph[e[0]][e[1]]["pump"]
 
 
 def simplify_graph(graph):

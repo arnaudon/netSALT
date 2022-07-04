@@ -30,4 +30,6 @@ if __name__ == "__main__":
     nopump_edges = len(graph.edges()) - pump_edges
     pump = np.append(np.ones(pump_edges), np.zeros(nopump_edges))
     pump[0] = 0
-    yaml.dump(pump.astype(int).tolist(), open("pump.yaml", "w"))
+    # convert new version
+    pump = [[0.0, float(p)] for p in pump]
+    yaml.dump(pump, open("pump.yaml", "w"))

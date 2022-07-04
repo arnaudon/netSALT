@@ -2,6 +2,9 @@
 export OMP_NUM_THREADS=1
 export NUMEXPR_MAX_THREADS=1
 
+rm -rf out
+rm -rf figures
+
 mkdir -p out
 mkdir -p figures
 
