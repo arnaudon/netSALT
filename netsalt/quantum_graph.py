@@ -57,7 +57,7 @@ def _not_equal(data1, data2, force=False):
     if force:
         return True
     if isinstance(data1, np.ndarray):
-        return all(data1 != data2)
+        return not np.array_equal(data1, data2)
     return data1 != data2
 
 
@@ -165,14 +165,14 @@ def set_total_length(graph, total_length=None, max_extent=None, inner=True, with
 def _set_pump_on_graph(graph):
     """Set the pump values on the graph from params."""
     if "pump" not in graph.graph["params"]:
-        graph.graph["params"]["pump"] = np.ones(len(graph.edges))
+        graph.graph["params"]["pump"] = np.ones((len(graph.edges), 2))
     for ei, e in enumerate(graph.edges):
         graph[e[0]][e[1]]["pump"] = graph.graph["params"]["pump"][ei]
 
 
 def _set_pump_on_params(graph, params):
     """Set the pump values on the graph from params."""
-    params["pump"] = np.ones(len(graph.edges))
+    params["pump"] = np.ones((len(graph.edges), 2))
     for ei, e in enumerate(graph.edges):
         params["pump"][ei] = graph[e[0]][e[1]]["pump"]
 

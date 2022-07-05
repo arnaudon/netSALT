@@ -123,10 +123,6 @@ def plot_stem_spectra(
     ax2.set_xlabel(r"$\lambda$")
     ax2.set_ylabel("Gain spectrum (a.u.)")
 
-    ax3 = ax.twiny()
-    lams = 2 * np.pi / ks
-    ax3.set_xlim(lams[0], lams[-1])
-
     if save_option:
         _savefig(graph, fig, folder, filename)
 
@@ -274,7 +270,7 @@ def plot_pump_profile(graph, pump, figsize=(5, 4), ax=None, node_size=1.0, c="0.
         ax = plt.gca()
 
     positions = [graph.nodes[u]["position"] for u in graph]
-    pumped_edges = [e for e, _pump in zip(graph.edges, pump) if _pump > 0.0]
+    pumped_edges = [e for e, _pump in zip(graph.edges, pump) if sum(_pump) > 0.0]
     nx.draw_networkx_edges(
         graph,
         pos=positions,
