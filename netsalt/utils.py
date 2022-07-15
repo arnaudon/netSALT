@@ -1,6 +1,8 @@
 """Some utils functions."""
 import numpy as np
 import networkx as nx
+from scipy.sparse.csgraph import connected_components
+from scipy.spatial import distance_matrix
 
 
 def linewidth(k, k_center, width):
@@ -136,3 +138,128 @@ def remove_pixel(graph, center, size):
     graph = nx.convert_node_labels_to_integers(graph)
     pump = [graph[e[0]][e[1]]["pump"] for e in graph.edges]
     return graph, pump
+
+
+def make_buffon_graph(n_points, size, resolution=1.0):
+    diag = np.sqrt(2) * (size[1] - size[0])
+    t = np.linspace(-diag, diag, int(2.0 * (size[1] - size[0]) / resolution))
+
+    def _to_points(point, angle):
+        points = point + np.array([np.cos(angle) * t, np.sin(angle) * t]).T
+        points = points[(points[:, 0] > size[0]) & (points[:, 0] < size[1])]
+        return points[(points[:, 1] > size[0]) & (points[:, 1] < size[1])].tolist()
+
+    points = np.random.uniform(size[0], size[1], size=(n_points, 2))
+    angles = np.random.uniform(0, np.pi, n_points)
+
+    def get_line_points():
+        all_points = []
+        edge_list = []
+        current_n_points = 0
+        for point, angle in zip(points, angles):
+            _points = _to_points(point, angle)
+            edge_list += [
+                (current_n_points + i, current_n_points + i + 1) for i in range(len(_points) - 1)
+            ]
+            current_n_points += len(_points)
+            all_points += _points
+        return edge_list, np.array(all_points)
+
+    def get_adjacency(all_points, edge_list):
+        adjacency = np.zeros(2 * [len(all_points)])
+        for edge in edge_list:
+            adjacency[edge] = 1.0
+        adjacency += adjacency.T
+        return adjacency
+
+    def get_new_nodes(all_points):
+        dist = distance_matrix(all_points, all_points)
+        mask = dist <= resolution
+        dist[mask] = 1.0
+        dist[~mask] = 0.0
+        dist -= np.diag(np.diag(dist))
+
+        new_nodes_ids = []
+        for i in range(len(dist)):
+            if len(dist[dist[i] == 1]) > 0:
+                _ids = np.argwhere(dist[i] == 1).flatten().tolist() + [i]
+                new_nodes_ids.append(set(_ids))
+        return new_nodes_ids
+
+    def clean_new_modes(new_nodes_ids):
+        cleaned_nodes_ids = []
+        for _ids in new_nodes_ids:
+            add = True
+            for _ids2 in new_nodes_ids:
+                if _ids.issubset(_ids2):
+                    if _ids2 != _ids:
+                        add = False
+            if add and _ids not in cleaned_nodes_ids:
+                cleaned_nodes_ids.append(list(_ids))
+
+        _new_nodes = []
+        for _ids in cleaned_nodes_ids:
+            _new_nodes.append(np.mean(all_points[list(_ids)], axis=0))
+
+        new_dist = distance_matrix(_new_nodes, _new_nodes)
+        mask = new_dist < 2 * resolution
+        new_dist[mask] = 1
+        new_dist[~mask] = 0
+
+        components = connected_components(new_dist)[1]
+        collapsed_nodes_ids = []
+        for comp in np.unique(components):
+            ids = np.argwhere(components == comp).flatten()
+            _n = []
+            for _id in ids:
+                _n += cleaned_nodes_ids[_id]
+            collapsed_nodes_ids.append(set(_n))
+
+        return [list(n) for n in collapsed_nodes_ids]
+
+    def make_adjacency(cleaned_nodes_ids, all_points):
+        new_nodes = []
+        for _ids in cleaned_nodes_ids:
+            new_nodes.append(np.mean(all_points[list(_ids)], axis=0))
+
+        all_points = np.array(all_points.tolist() + new_nodes)
+
+        new_adjacency = np.zeros(2 * [len(adjacency) + len(new_nodes)])
+        new_adjacency[: len(adjacency)][:, : len(adjacency)] = adjacency
+        import itertools
+
+        cross_mask = np.argwhere(new_adjacency.sum(1) == 1).flatten()
+        for new_id, _ids in enumerate(cleaned_nodes_ids):
+            for i, j in itertools.combinations(_ids, 2):
+                new_adjacency[i, :] = 0
+                new_adjacency[:, i] = 0
+                new_adjacency[j, :] = 0
+                new_adjacency[:, j] = 0
+            nodes = [
+                n for n in np.argwhere(new_adjacency.sum(1) == 1).flatten() if n not in cross_mask
+            ]
+            for node in nodes:
+                new_node = new_id + len(adjacency)
+                new_adjacency[node, new_node] = 1
+                new_adjacency[new_node, node] = 1
+        return new_adjacency, all_points
+
+    print(1)
+    edge_list, all_points = get_line_points()
+    print(2)
+    adjacency = get_adjacency(all_points, edge_list)
+    print(3)
+    new_nodes_ids = get_new_nodes(all_points)
+    print(4)
+    cleaned_nodes_ids = clean_new_modes(new_nodes_ids)
+    print(5)
+    new_adjacency, all_points = make_adjacency(cleaned_nodes_ids, all_points)
+    import networkx
+
+    graph = nx.Graph(new_adjacency)
+    import matplotlib.pyplot as plt
+
+    plt.figure()
+    # plt.scatter(*np.array(new_nodes).T, s=4, c="g")
+    nx.draw(graph, pos=all_points, node_size=0.00, width=0.2)
+    plt.savefig("test.pdf")
