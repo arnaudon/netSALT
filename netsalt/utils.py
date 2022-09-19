@@ -138,6 +138,107 @@ def remove_pixel(graph, center, size):
     return graph, pump
 
 
+def _to_points(point, angle, t, size):
+    """Convert a point/angle to set of points."""
+    points = point + np.array([np.cos(angle) * t, np.sin(angle) * t]).T
+    points = points[(points[:, 0] > size[0]) & (points[:, 0] < size[1])]
+    return points[(points[:, 1] > size[0]) & (points[:, 1] < size[1])].tolist()
+
+
+def _get_line_points(points, angles, t, size):
+    """For each line, we create the points are edge list.
+
+    We return a dict with keys are line index.
+    """
+    all_points = {}
+    edge_list = {}
+    for i, (point, angle) in enumerate(zip(points, angles)):
+        _points = _to_points(point, angle, t, size)
+        edge_list[i] = [(i, i + 1) for i in range(len(_points) - 1)]
+        all_points[i] = _points
+    return edge_list, all_points
+
+
+def _get_intersection_points(points, angles, size):
+    """Find the intersection points between intersecting lines.
+
+    For each point, we return a 2-tuple with the point and indices of the intersecting lines.
+    """
+    intersection_points = []
+    for i, (point1, angle1) in enumerate(zip(points, angles)):
+        for j, (point2, angle2) in enumerate(zip(points[i:], angles[i:])):
+            x = (
+                point1[1] - point2[1] - np.tan(angle1) * point1[0] + np.tan(angle2) * point2[0]
+            ) / (np.tan(angle2) - np.tan(angle1))
+            y = point1[1] + np.tan(angle1) * (x - point1[0])
+            if size[0] < x < size[1] and size[0] < y < size[1]:
+                intersection_points.append([[x, y], (i, i + j)])
+
+    return intersection_points
+
+
+def _add_intersection_points(edge_list, all_points, intersection_points):
+    """We add intersections point to each line by adding a new point and updating edge_list."""
+    edges = []
+    for intersection_point in intersection_points:
+        inter_id = {}
+        for i in intersection_point[1]:
+            edges = edge_list[i]
+            points = np.array(all_points[i])
+
+            # search for correct segment (where intersection is in the middle)
+            index = None
+            for j, edge in enumerate(edges):
+                x = intersection_point[0] - points[edge[0]]
+                y = intersection_point[0] - points[edge[1]]
+                z = points[edge[1]] - points[edge[0]]
+
+                if abs(np.linalg.norm(x) + np.linalg.norm(y) - np.linalg.norm(z)) < 1e-10:
+                    index = j
+
+            if index is not None and inter_id is not None:
+                e = edge_list[i].pop(index)
+                edge_list[i].append([e[0], len(points)])
+                edge_list[i].append([len(points), e[1]])
+                inter_id[i] = len(points)
+                all_points[i].append(intersection_point[0])
+            else:
+                inter_id = None
+
+        if inter_id is not None:
+            intersection_point.append(inter_id)
+
+
+def _get_graph(edge_list, all_points, intersection_points):
+    """We create the buffon graph by making line subgraph, and merging each intersection point.
+
+    We return the graph and list of node positions.
+    """
+    graph = nx.Graph()
+    shift = 0
+    pos = []
+    last_ids = {}
+    # create the graph
+    for i in edge_list:
+        edges, points = edge_list[i], all_points[i]
+        for edge in edges:
+            graph.add_edge(edge[0] + shift, edge[1] + shift)
+
+        last_ids[i] = shift
+        shift += len(points)
+        pos += points
+
+    # merge intersection points
+    for intersection_point in intersection_points:
+        edge_i = intersection_point[1][0]
+        edge_j = intersection_point[1][1]
+        if len(intersection_point) == 3:
+            i = last_ids[edge_i] + intersection_point[2][edge_i]
+            j = last_ids[edge_j] + intersection_point[2][edge_j]
+            graph = nx.contracted_nodes(graph, i, j)
+    return graph, pos
+
+
 def make_buffon_graph(n_lines, size, resolution=1.0):
     """Make a buffon graph.
 
@@ -151,108 +252,11 @@ def make_buffon_graph(n_lines, size, resolution=1.0):
     """
     diag = np.sqrt(2) * (size[1] - size[0])
     t = np.arange(-diag, diag, resolution)
-
-    def _to_points(point, angle):
-        """Convert a point/angle to set of points."""
-        points = point + np.array([np.cos(angle) * t, np.sin(angle) * t]).T
-        points = points[(points[:, 0] > size[0]) & (points[:, 0] < size[1])]
-        return points[(points[:, 1] > size[0]) & (points[:, 1] < size[1])].tolist()
-
     points = np.random.uniform(size[0], size[1], size=(n_lines, 2))
     angles = np.random.uniform(0, np.pi, n_lines)
 
-    def get_line_points():
-        """For each line, we create the points are edge list.
-
-        We return a dict with keys are line index.
-        """
-        all_points = {}
-        edge_list = {}
-        for i, (point, angle) in enumerate(zip(points, angles)):
-            _points = _to_points(point, angle)
-            edge_list[i] = [(i, i + 1) for i in range(len(_points) - 1)]
-            all_points[i] = _points
-        return edge_list, all_points
-
-    def get_intersection_points():
-        """Find the intersection points between intersecting lines.
-
-        For each point, we return a 2-tuple with the point and indices of the intersecting lines.
-        """
-        intersection_points = []
-        for i, (point1, angle1) in enumerate(zip(points, angles)):
-            for j, (point2, angle2) in enumerate(zip(points[i:], angles[i:])):
-                x = (
-                    point1[1] - point2[1] - np.tan(angle1) * point1[0] + np.tan(angle2) * point2[0]
-                ) / (np.tan(angle2) - np.tan(angle1))
-                y = point1[1] + np.tan(angle1) * (x - point1[0])
-                if size[0] < x < size[1] and size[0] < y < size[1]:
-                    intersection_points.append([[x, y], (i, i + j)])
-
-        return intersection_points
-
-    def add_intersection_points(edge_list, all_points, intersection_points):
-        """We add intersections point to each line by adding a new point and updating edge_list."""
-        edges = []
-        for intersection_point in intersection_points:
-            inter_id = {}
-            for i in intersection_point[1]:
-                edges = edge_list[i]
-                points = np.array(all_points[i])
-
-                # search for correct segment (where intersection is in the middle)
-                index = None
-                for j, edge in enumerate(edges):
-                    x = intersection_point[0] - points[edge[0]]
-                    y = intersection_point[0] - points[edge[1]]
-                    z = points[edge[1]] - points[edge[0]]
-
-                    if abs(np.linalg.norm(x) + np.linalg.norm(y) - np.linalg.norm(z)) < 1e-10:
-                        index = j
-
-                if index is not None and inter_id is not None:
-                    e = edge_list[i].pop(index)
-                    edge_list[i].append([e[0], len(points)])
-                    edge_list[i].append([len(points), e[1]])
-                    inter_id[i] = len(points)
-                    all_points[i].append(intersection_point[0])
-                else:
-                    inter_id = None
-
-            if inter_id is not None:
-                intersection_point.append(inter_id)
-
-    def get_graph(edge_list, all_points, intersection_points):
-        """We create the buffon graph by making line subgraph, and merging each intersection point.
-
-        We return the graph and list of node positions.
-        """
-        graph = nx.Graph()
-        shift = 0
-        pos = []
-        last_ids = {}
-        # create the graph
-        for i in edge_list:
-            edges, points = edge_list[i], all_points[i]
-            for edge in edges:
-                graph.add_edge(edge[0] + shift, edge[1] + shift)
-
-            last_ids[i] = shift
-            shift += len(points)
-            pos += points
-
-        # merge intersection points
-        for intersection_point in intersection_points:
-            edge_i = intersection_point[1][0]
-            edge_j = intersection_point[1][1]
-            if len(intersection_point) == 3:
-                i = last_ids[edge_i] + intersection_point[2][edge_i]
-                j = last_ids[edge_j] + intersection_point[2][edge_j]
-                graph = nx.contracted_nodes(graph, i, j)
-        return graph, pos
-
-    edge_list, all_points = get_line_points()
-    intersection_points = get_intersection_points()
-    add_intersection_points(edge_list, all_points, intersection_points)
-    graph, pos = get_graph(edge_list, all_points, intersection_points)
+    edge_list, all_points = _get_line_points(points, angles, t, size)
+    intersection_points = _get_intersection_points(points, angles, size)
+    _add_intersection_points(edge_list, all_points, intersection_points)
+    graph, pos = _get_graph(edge_list, all_points, intersection_points)
     return graph, pos
