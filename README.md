@@ -1,3 +1,5 @@
+[![DOI](https://zenodo.org/badge/171305314.svg)](https://zenodo.org/badge/latestdoi/171305314)
+
 Code simulating quantum graphs. 
 ================================
 
