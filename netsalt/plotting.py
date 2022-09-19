@@ -471,7 +471,7 @@ def _plot_single_mode(graph, mode, ax=None, colorbar=True, edge_vmin=None, edge_
     if colorbar:
         sm = plt.cm.ScalarMappable(cmap=cmap, norm=plt.Normalize(vmin=edge_vmin, vmax=edge_vmax))
         sm.set_array([])
-        plt.colorbar(sm, label=r"$|E|^2$ (a.u)", shrink=0.5)
+        plt.colorbar(sm, ax=ax, label=r"$|E|^2$ (a.u)", shrink=0.5)
     return ax
 
 
