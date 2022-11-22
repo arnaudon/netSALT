@@ -159,9 +159,9 @@ if __name__ == "__main__":
     n = 70
 
     graph = nx.cycle_graph(n)
-    # graph.add_edge(0, n)
-    # graph.add_edge(10, n + 1)
-    # graph.add_edge(20, n + 2)
+    graph.add_edge(0, n)
+    graph.add_edge(10, n + 1)
+    graph.add_edge(20, n + 2)
 
     graph.add_edge(0, 2)
     graph.add_edge(0, 5)
@@ -172,9 +172,9 @@ if __name__ == "__main__":
     graph.add_edge(20, 12)
 
     graph_u1 = nx.cycle_graph(n)
-    # graph_u1.add_edge(0, n)
-    # graph_u1.add_edge(10, n + 1)
-    # graph_u1.add_edge(20, n + 2)
+    graph_u1.add_edge(0, n)
+    graph_u1.add_edge(10, n + 1)
+    graph_u1.add_edge(20, n + 2)
 
     graph_u1.add_edge(0, 2)
     graph_u1.add_edge(0, 5)

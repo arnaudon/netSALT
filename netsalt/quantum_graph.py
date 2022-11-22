@@ -326,7 +326,7 @@ def construct_incidence_matrix(graph):
 def construct_weight_matrix(graph, with_k=True):
     """Construct the quantum matrix W^{-1}(k).
 
-    The with_k argument is needed for the graph laplcian, not for computing the edge amplitudes.
+    The with_k argument is needed for the graph laplacian, not for computing the edge amplitudes.
 
     Args:
         graph (graph): quantum graph
