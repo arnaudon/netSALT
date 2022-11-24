@@ -13,6 +13,7 @@ Sensitivity and spectral control of network lasers
 Dhruv Saxena, Alexis Arnaudon, Oscar Cipolato, Michele Gaio, Alain Quentel, Sophia Yaliraki, Dario Pisignano, Andrea Camposeo, Mauricio Barahona, Riccardo Sapienza
 ```
 avaialble on arxiv: https://arxiv.org/abs/2203.16974
+and Nat. Comm.: https://www.nature.com/articles/s41467-022-34073-3
 
 
 ## Installation
