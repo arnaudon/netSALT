@@ -266,9 +266,9 @@ def construct_laplacian(wavenumber, graph):
         graph (graph): quantum graph
     """
     set_wavenumber(graph, wavenumber)
-    BT, Bout = construct_incidence_matrix(graph)
+    BT, B = construct_incidence_matrix(graph)
     Winv = construct_weight_matrix(graph)
-    return BT.dot(Winv).dot(Bout)
+    return BT.dot(Winv).dot(B)
 
 
 def set_wavenumber(graph, wavenumber):
@@ -304,9 +304,9 @@ def construct_incidence_matrix(graph):
 
     m = len(graph.edges)
     n = len(graph.nodes)
-    BT = sc.sparse.csr_matrix((data, (col, row)), shape=(n, 2 * m), dtype=np.complex128)
-    Bout = sc.sparse.csr_matrix((data_out, (row, col)), shape=(2 * m, n), dtype=np.complex128)
-    return BT, Bout
+    BT = sc.sparse.csr_matrix((data_out, (col, row)), shape=(n, 2 * m), dtype=np.complex128)
+    B = sc.sparse.csr_matrix((data, (row, col)), shape=(2 * m, n), dtype=np.complex128)
+    return BT, B
 
 
 def construct_weight_matrix(graph, with_k=True):
@@ -318,16 +318,14 @@ def construct_weight_matrix(graph, with_k=True):
         graph (graph): quantum graph
         with_k (bool): multiplies or not the laplacian by k
     """
-    mask = abs(graph.graph["ks"]) > 0
     data_tmp = np.zeros(len(graph.edges), dtype=np.complex128)
-    data_tmp[mask] = 1.0 / (
-        np.exp(2.0j * graph.graph["lengths"][mask] * graph.graph["ks"][mask]) - 1.0
+    data_tmp = 1.0 / (
+        np.exp(2.0j * graph.graph["lengths"] * graph.graph["ks"]) - 1.0
     )
     if any(data_tmp > 1e5):
         L.info("Large values in Winv, it may not work!")
     if with_k:
-        data_tmp[mask] *= graph.graph["ks"][mask]
-    data_tmp[~mask] = -0.5 * graph.graph["lengths"][~mask]
+        data_tmp *= graph.graph["ks"]
 
     row = np.arange(len(graph.edges) * 2)
     data = np.repeat(data_tmp, 2)
