@@ -210,7 +210,7 @@ def oversample_graph(graph, edge_size):  # pylint: disable=too-many-locals
         last_node = len(oversampled_graph)
         n_nodes = int(graph[u][v]["length"] / edge_size)
         if n_nodes > 1:
-            dielectric_constant = graph[u][v]["dielectric_constant"]
+            dielectric_constant = graph[u][v].get("dielectric_constant", None)
             pump = graph[u][v]["pump"]
             oversampled_graph.remove_edge(u, v)
 
@@ -232,7 +232,6 @@ def oversample_graph(graph, edge_size):  # pylint: disable=too-many-locals
                 oversampled_graph.add_edge(
                     first,
                     last,
-                    inner=True,
                     dielectric_constant=dielectric_constant,
                     pump=pump,
                     edgelabel=ei,
@@ -241,7 +240,6 @@ def oversample_graph(graph, edge_size):  # pylint: disable=too-many-locals
             oversampled_graph.add_edge(
                 last_node + node_index,
                 v,
-                inner=True,
                 dielectric_constant=dielectric_constant,
                 pump=pump,
                 edgelabel=ei,
@@ -249,7 +247,8 @@ def oversample_graph(graph, edge_size):  # pylint: disable=too-many-locals
 
     oversampled_graph = nx.convert_node_labels_to_integers(oversampled_graph)
     _set_edge_lengths(oversampled_graph)
-    params = {"inner": [oversampled_graph[u][v]["inner"] for u, v in oversampled_graph.edges]}
+    params = oversampled_graph.graph['params']
+    set_inner_edges(oversampled_graph, params)
     update_params_dielectric_constant(oversampled_graph, params)
     _set_pump_on_params(oversampled_graph, params)
     update_parameters(oversampled_graph, params, force=True)
@@ -298,9 +297,13 @@ def construct_incidence_matrix(graph):
     deg_v = np.array([len(graph[e[1]]) for e in graph.edges])
 
     data_out = data.copy()
-    mask = np.logical_or(deg_u == 1, deg_v == 1)
-    data_out[1::4][mask] = 0
-    data_out[2::4][mask] = 0
+    if graph.graph['params']['open_model'] == 'open':
+        mask = np.logical_or(deg_u == 1, deg_v == 1)
+        data_out[1::4][mask] = 0
+        data_out[2::4][mask] = 0
+    if graph.graph['params']['open_model'] == 'one_way':
+        data_out[2::4] = 0
+        data_out[3::4] = 0
 
     m = len(graph.edges)
     n = len(graph.nodes)
@@ -345,7 +348,7 @@ def set_inner_edges(graph, params=None, outer_edges=None):
         params (dict): has to contain 'open_model' of the form open, closed, custom
         outer_edges (list): if open_model == custom, pass the list of outer edges.
     """
-    if params["open_model"] not in ["open", "closed", "custom"]:
+    if params["open_model"] not in ["open", "closed", "custom", "one_way"]:
         raise Exception(f"open_model value not understood:{params['open_model']}")
 
     params["inner"] = []

@@ -236,13 +236,7 @@ def plot_scan(
         for index, modes in modes_df.iterrows():
             k = np.real(modes["passive"][0])
             alpha = -np.imag(modes["passive"][0])
-            ax.scatter(
-                k,
-                alpha,
-                marker="o",
-                color="r",
-                s=np.real(modes["q_factor"]) / np.max(modes_df["q_factor"]) * 20,
-            )
+            ax.scatter(k, alpha, marker="+", color="r")
             ax.annotate(index, (k, alpha), size="x-small")
         if "threshold_lasing_modes" in modes_df:
             ax.scatter(
@@ -427,13 +421,14 @@ def plot_single_mode(
     ax=None,
     edge_vmin=None,
     edge_vmax=None,
+    cmap='coolwarm'
 ):
     """Plot single mode on the graph."""
     mode = modes_df[df_entry][index]
     if df_entry == "threshold_lasing_modes":
         graph.graph["params"]["D0"] = modes_df["lasing_thresholds"][index]
     ax = _plot_single_mode(
-        graph, mode, ax=ax, colorbar=colorbar, edge_vmin=edge_vmin, edge_vmax=edge_vmax
+        graph, mode, ax=ax, colorbar=colorbar, edge_vmin=edge_vmin, edge_vmax=edge_vmax, cmap=cmap
     )
     ax.set_title(
         "mode "
@@ -443,7 +438,7 @@ def plot_single_mode(
     )
 
 
-def _plot_single_mode(graph, mode, ax=None, colorbar=True, edge_vmin=None, edge_vmax=None):
+def _plot_single_mode(graph, mode, ax=None, colorbar=True, edge_vmin=None, edge_vmax=None, cmap='coolwarm'):
     positions = [graph.nodes[u]["position"] for u in graph]
     edge_solution = mean_mode_on_edges(mode, graph)
 
@@ -453,11 +448,11 @@ def _plot_single_mode(graph, mode, ax=None, colorbar=True, edge_vmin=None, edge_
 
     nx.draw(graph, pos=positions, node_size=0, width=0, ax=ax)
 
-    cmap = plt.get_cmap("PuRd")
+    cmap = plt.get_cmap(cmap)
     if edge_vmax is None:
-        edge_vmax = max(edge_solution)
+        edge_vmax = max(abs(edge_solution))
     if edge_vmin is None:
-        edge_vmin = min(edge_solution)
+        edge_vmin = -max(abs(edge_solution))
     nx.draw_networkx_edges(
         graph,
         pos=positions,

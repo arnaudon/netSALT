@@ -286,14 +286,14 @@ def flux_on_edges(mode, graph):
 
     node_solution = mode_on_nodes(mode, graph)
 
-    BT, _ = construct_incidence_matrix(graph)
+    _, B = construct_incidence_matrix(graph)
     Winv = construct_weight_matrix(graph, with_k=False)
 
-    return Winv.dot(BT.T).dot(node_solution)
+    return Winv.dot(B).dot(node_solution)
 
 
 def mean_mode_on_edges(mode, graph):
-    r"""Compute the average :math:`|E|^2` on each edge."""
+    r"""Compute the average :math:`Real(E^2)` on each edge."""
     edge_flux = flux_on_edges(mode, graph)
 
     mean_edge_solution = np.zeros(len(graph.edges))
@@ -302,13 +302,16 @@ def mean_mode_on_edges(mode, graph):
         length = graph.graph["lengths"][ei]
         z = np.zeros([2, 2], dtype=np.complex128)
 
-        z[0, 0] = (np.exp(length * (k + np.conj(k))) - 1.0) / (length * (k + np.conj(k)))
+        if abs(np.real(k)) > 0:  # in case we deal with closed graph, we have 0 / 0
+            z[0, 0] = (np.exp(length * (k + np.conj(k))) - 1.0) / (length * (k + np.conj(k)))
+        else:
+            z[0, 0] = 1.0
+            z[1, 1] = 1.0
         z[0, 1] = (np.exp(length * k) - np.exp(length * np.conj(k))) / (length * (k - np.conj(k)))
-
         z[1, 0] = z[0, 1]
         z[1, 1] = z[0, 0]
 
-        mean_edge_solution[ei] = np.real(
+        mean_edge_solution[ei] = np.abs(
             edge_flux[2 * ei : 2 * ei + 2].T.dot(z.dot(np.conj(edge_flux[2 * ei : 2 * ei + 2])))
         )
 

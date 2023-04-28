@@ -45,7 +45,7 @@ def get_scan_grid(graph):
 
 def to_complex(mode):
     """Convert mode array to complex number."""
-    if isinstance(mode, complex):
+    if isinstance(mode, (complex, float)):
         return mode
     return mode[0] - 1.0j * mode[1]
 

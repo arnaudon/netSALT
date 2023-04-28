@@ -58,10 +58,12 @@ def refine_mode_brownian_ratchet(
     initial_quality = mode_quality(current_mode, graph, quality_method=quality_method)
     current_quality = initial_quality
 
-    search_stepsize = params["search_stepsize"]
+    search_stepsize = params.get("search_stepsize", 0.01)
     tries_counter = 0
     step_counter = 0
-    while current_quality > params["quality_threshold"] and step_counter < params["max_steps"]:
+    while current_quality > params.get("quality_threshold", 1e-4) and step_counter < params.get(
+        "max_steps", 10000
+    ):
         new_mode = (
             current_mode
             + search_stepsize * current_quality / initial_quality * np.random.uniform(-1, 1, 2)
@@ -90,8 +92,8 @@ def refine_mode_brownian_ratchet(
             tries_counter += 1
 
         # if no improvements after some iterations, multiply the steps by reduction factor
-        if tries_counter > params["max_tries_reduction"]:
-            search_stepsize *= params["reduction_factor"]
+        if tries_counter > params.get("max_tries_reduction", 50):
+            search_stepsize *= params.get("reduction_factor", 0.8)
             tries_counter = 0
 
         if search_stepsize < 1e-10:
@@ -101,13 +103,13 @@ def refine_mode_brownian_ratchet(
             search_stepsize = 1e-8
         step_counter += 1
 
-    if current_quality < params["quality_threshold"]:
+    if current_quality < params.get("quality_threshold", 1e-4):
         if save_mode_trajectories:
             return np.array(mode_trajectories)
         return current_mode
 
     L.info("Maximum number of tries attained and no mode found, we retry from scratch!")
-    params["search_stepsize"] *= 5
+    params["search_stepsize"] = params.get("search_stepsize", 0.1) * 5
 
     return refine_mode_brownian_ratchet(
         initial_mode,

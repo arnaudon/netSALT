@@ -21,6 +21,8 @@ def gamma(freq, params):
         freq (float): frequency
         params (dict): parameters, must include 'gamma_perp' and 'k_a'
     """
+    if "gamma_perp" not in params:
+        return -1.0j
     return params["gamma_perp"] / (np.real(freq) - params["k_a"] + 1.0j * params["gamma_perp"])
 
 
@@ -50,7 +52,7 @@ def dispersion_relation_linear(freq, params=None):
     """
     if not params or "c" not in params:
         raise Exception("Please correct provide dispersion parameters")
-    return freq / params["c"]
+    return freq / np.array(params["c"])
 
 
 def dispersion_relation_resistance(freq, params=None):
@@ -69,7 +71,7 @@ def dispersion_relation_resistance(freq, params=None):
     if not params or "c" not in params:
         raise Exception("Please correct provide dispersion parameters")
     return np.sqrt(
-        (freq / params["c"]) ** 2 + 1.j * freq * params.get("C", 1.0) * params.get("R", 0.0)
+        (freq / params["c"]) ** 2 + 1.0j * freq * params.get("C", 1.0) * params.get("R", 0.0)
     )
 
 
