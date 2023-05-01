@@ -35,6 +35,7 @@ class CreateQuantumGraph(NetSaltTask):
     custom_index = luigi.Parameter(default="index.yaml")
     inner_value = luigi.FloatParameter(default=1.5)
     loss = luigi.FloatParameter(default=0.005)
+    node_loss = luigi.FloatParameter(default=0)
     outer_value = luigi.FloatParameter(default=1.0)
     edge_size = luigi.FloatParameter(default=0.1)
     k_a = luigi.FloatParameter(default=15.0)
@@ -55,6 +56,7 @@ class CreateQuantumGraph(NetSaltTask):
                 "loss": self.loss,
                 "outer_value": self.outer_value,
             },
+            "node_loss": self.node_loss,
             "plot_edgesize": self.edge_size,
             "k_a": self.k_a,
             "gamma_perp": self.gamma_perp,
