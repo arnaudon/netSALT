@@ -112,7 +112,7 @@ def scan_frequencies(graph, quality_method="eigenvalue"):
 
 def _init_dataframe():
     """Initialize multicolumn dataframe."""
-    indexes = pd.MultiIndex(levels=[[], []], codes=[[], []], names=["data", "D0"], dtype=np.float)
+    indexes = pd.MultiIndex(levels=[[], []], codes=[[], []], names=["data", "D0"], dtype=float)
     return pd.DataFrame(columns=indexes)
 
 
