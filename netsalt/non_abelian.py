@@ -46,12 +46,12 @@ def Ad(chi_mat):
 
 def set_so3_wavenumber(graph, wavenumber, chis=None):
     if chis is None:
-        x = np.array([0.2, 0.2, 1.0])
+        x = np.array([0.1, 0.5, 1.0])
         chi_vec = wavenumber * x / np.linalg.norm(x)
         chi_mat = hat_inv(chi_vec)
         graph.graph["ks"] = len(graph.edges) * [chi_mat]
 
-        x2 = np.array([1.0, 0.2, 0.2])
+        x2 = np.array([1.0, 0.5, 0.0])
         chi_vec2 = wavenumber * x2 / np.linalg.norm(x2)
         chi_mat2 = hat_inv(chi_vec2)
         graph.graph["ks"][:10] = 10 * [chi_mat2]
@@ -72,7 +72,7 @@ def construct_so3_incidence_matrix(graph, abelian_scale=1.0):
 
         one = np.eye(dim)
         expl = Ad(graph.graph["lengths"][ei] * graph.graph["ks"][ei])
-        expl = np.array(expl.dot(proj_perp(graph.graph["ks"][ei])), dtype=np.complex128)
+        #expl = np.array(expl.dot(proj_perp(graph.graph["ks"][ei])), dtype=np.complex128)
         expl += (
             abelian_scale
             * proj_paral(graph.graph["ks"][ei])
@@ -108,13 +108,13 @@ def construct_so3_weight_matrix(graph, with_k=True, abelian_scale=1.0):
 
         w_perp = Ad(2.0 * length * chi).dot(proj_perp(chi))
         w_paral = abelian_scale * np.exp(2.0j * length * norm(chi)) * proj_paral(chi)
-
         w = w_perp + w_paral - np.eye(3)
 
         winv = linalg.inv(w)
 
         if with_k:
-            winv = (chi.dot(proj_perp(chi)) + 1.0j * norm(chi) * proj_paral(chi)).dot(winv)
+            # winv = (chi.dot(proj_perp(chi)) + 1.0j * norm(chi) * proj_paral(chi)).dot(winv)
+            winv = (chi + 1.0j * norm(chi) * proj_paral(chi)).dot(winv)
 
         Winv[_ext(2 * ei), _ext(2 * ei)] = winv
         Winv[_ext(2 * ei + 1), _ext(2 * ei + 1)] = winv

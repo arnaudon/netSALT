@@ -9,17 +9,19 @@ import networkx as nx
 
 
 from netsalt.non_abelian import construct_so3_laplacian, so3_mode_on_nodes
+
+
 def make_graph():
     graph = nx.cycle_graph(n)
     graph.add_edge(0, 8)
     graph.add_edge(0, 20)
     graph.add_edge(10, 15)
-    x = np.linspace(0, 2*np.pi*(1-1. / (len(graph) - 1)), len(graph))
+    x = np.linspace(0, 2 * np.pi * (1 - 1.0 / (len(graph) - 1)), len(graph))
     pos = np.array([np.cos(x), np.sin(x)]).T
     pos = list(pos)
 
-
     return graph, pos
+
 
 if __name__ == "__main__":
 
@@ -32,22 +34,25 @@ if __name__ == "__main__":
 
     create_quantum_graph(graph, params=params, positions=pos)
     create_quantum_graph(graph_u1, params=params, positions=pos)
+
     set_dispersion_relation(graph_u1, dispersion_relation_linear)
 
-    ks = np.linspace(1.53, 1.58, 2000)
+    ks = np.linspace(1.0, 3, 200)
     qs = []
     qs_u1 = []
     for k in tqdm(ks):
-        k += 0.0966j
-        L = construct_so3_laplacian(k, graph, abelian_scale=20.0)
+        kim = 0  # 0.0966j
+        L = construct_so3_laplacian(k - kim, graph, abelian_scale=1.0)
         qs.append(laplacian_quality(L))
-        qs_u1.append(mode_quality([k, 0], graph_u1))
+        qs_u1.append(mode_quality([k, kim], graph_u1))
 
     plt.figure()
-    plt.plot(ks, qs_u1, "+-r")
-    plt.plot(ks, qs, "-")
+    plt.plot(ks, qs_u1, "+-r", label="u1")
+    plt.plot(ks, qs, "-", label="so3")
+    plt.legend(loc="best")
     plt.yscale("log")
     plt.show()
+
 
     k = ks[np.argmin(qs)]
     L = construct_so3_laplacian(k, graph)
