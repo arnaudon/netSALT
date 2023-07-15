@@ -35,7 +35,7 @@ from .lasing import (
 from .netsalt_task import NetSaltTask
 from .passive import CreateQuantumGraph, FindPassiveModes, ScanFrequencies
 
-#matplotlib.use("Agg")
+matplotlib.use("Agg")
 
 
 class PlotQuantumGraph(NetSaltTask):
