@@ -247,7 +247,6 @@ def optimize_pump_linear_programming(
     final_cost = min(cs)
 
     if plot_debug:
-
         plt.figure(figsize=(5, 4))
         plt.plot(epsilons, cs)
         plt.axvline(epsilons[np.argmin(cs)], c="k")
