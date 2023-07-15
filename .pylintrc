@@ -12,7 +12,7 @@
 #W0622 - redefined-builti
 #C0325 - superfluous-parens
 #R0205 - useless-object-inheritance
-disable=C0103,R0904,R0903,W0511,R0801,R0401,I0013,W0622,C0325,R0205,C1801,E1111,C0112,C0302,W1514
+disable=C0103,R0904,R0903,W0511,R0801,R0401,I0013,W0622,C0325,R0205,C1801,E1111,C0112,C0302,W1514,W0719
 
 [FORMAT]
 # Maximum number of characters on a single line.

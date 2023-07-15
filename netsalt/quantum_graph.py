@@ -369,7 +369,7 @@ def _set_node_positions(graph, positions=None):
     """Set the position to the networkx graph."""
     if positions is None:
         positions = nx.spring_layout(graph)
-        Warning("No node positions given, plots will have random positions from spring_layout")
+        L.warning("No node positions given, plots will have random positions from spring_layout")
 
     for u in graph.nodes():
         graph.nodes[u]["position"] = positions[u]
@@ -437,7 +437,7 @@ def laplacian_quality(laplacian, method="eigenvalue"):
     return 1.0
 
 
-def mode_quality(mode, graph, quality_method='eigenvalue'):
+def mode_quality(mode, graph, quality_method="eigenvalue"):
     """Quality of a mode, small means good quality, thus the mode is close to a correct mode.
 
     Args:
