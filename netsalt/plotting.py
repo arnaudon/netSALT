@@ -421,7 +421,7 @@ def plot_single_mode(
     ax=None,
     edge_vmin=None,
     edge_vmax=None,
-    cmap='coolwarm'
+    cmap="coolwarm",
 ):
     """Plot single mode on the graph."""
     mode = modes_df[df_entry][index]
@@ -438,7 +438,9 @@ def plot_single_mode(
     )
 
 
-def _plot_single_mode(graph, mode, ax=None, colorbar=True, edge_vmin=None, edge_vmax=None, cmap='coolwarm'):
+def _plot_single_mode(
+    graph, mode, ax=None, colorbar=True, edge_vmin=None, edge_vmax=None, cmap="coolwarm"
+):
     positions = [graph.nodes[u]["position"] for u in graph]
     edge_solution = mean_mode_on_edges(mode, graph)
 

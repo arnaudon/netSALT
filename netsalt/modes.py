@@ -145,7 +145,7 @@ def find_modes(graph, qualities, quality_method="eigenvalue", min_distance=2, th
 
     # sort by decreasing Q*\Gamma value
     _gammas = gamma(to_complex(true_modes.T), graph.graph["params"])
-    q_factors = -np.imag(_gammas) * true_modes[:, 0] / (2 * true_modes[:, 1])
+    q_factors = -1 * np.imag(_gammas) * true_modes[:, 0] / (2 * true_modes[:, 1])
     modes_sorted = true_modes[np.argsort(q_factors)[::-1]]
     q_factors = np.sort(q_factors)[::-1]
     if "n_modes_max" in graph.graph["params"] and graph.graph["params"]["n_modes_max"]:
@@ -889,6 +889,7 @@ def lasing_threshold_linear(mode, graph, D0):
     graph.graph["params"]["D0"] = D0
     return 1.0 / (
         q_value(mode)
-        * -np.imag(gamma(to_complex(mode), graph.graph["params"]))
+        * -1
+        * np.imag(gamma(to_complex(mode), graph.graph["params"]))
         * np.real(compute_overlapping_factor(mode, graph))
     )

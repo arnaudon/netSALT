@@ -1,37 +1,38 @@
 """Module for transfer quantum graphs."""
 import numpy as np
+from scipy.sparse import linalg
 import matplotlib.pyplot as plt
 import networkx as nx
+
 from netsalt.quantum_graph import (
     construct_weight_matrix,
     construct_incidence_matrix,
     construct_laplacian,
 )
-from scipy.sparse import linalg
 
 
 def get_node_transfer_matrix(k, graph, input_flow):
     """Compute edge transfer matrix from a given input flow."""
     L = construct_laplacian(k, graph)
-    BT, B = construct_incidence_matrix(graph)
-    Winv = construct_weight_matrix(graph, with_k=False)
+    BT, _ = construct_incidence_matrix(graph)
+    # Winv = construct_weight_matrix(graph, with_k=False)
     K = np.append(graph.graph["ks"], graph.graph["ks"])
     _input_flow = BT.dot(K * input_flow)
     return linalg.spsolve(L, _input_flow)
 
 
-
 def get_edge_transfer_matrix(k, graph, input_flow):
     """Compute edge transfer matrix from a given input flow."""
     _r = get_node_transfer_matrix(k, graph, input_flow)
-    BT, B = construct_incidence_matrix(graph)
+    _, B = construct_incidence_matrix(graph)
     Winv = construct_weight_matrix(graph, with_k=False)
     return Winv.dot(B).dot(_r)
 
 
 def mean_tranfer_mode_on_edges(k, graph, input_flow):
+    """Mean transfer mode on edges."""
     edge_flux = get_edge_transfer_matrix(k, graph, input_flow)
-    #return np.real(edge_flux[0::2])
+    # return np.real(edge_flux[0::2])
 
     mean_edge_solution = np.zeros(len(graph.edges))
     for ei in range(len(graph.edges)):

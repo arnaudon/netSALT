@@ -247,7 +247,7 @@ def oversample_graph(graph, edge_size):  # pylint: disable=too-many-locals
 
     oversampled_graph = nx.convert_node_labels_to_integers(oversampled_graph)
     _set_edge_lengths(oversampled_graph)
-    params = oversampled_graph.graph['params']
+    params = oversampled_graph.graph["params"]
     set_inner_edges(oversampled_graph, params)
     update_params_dielectric_constant(oversampled_graph, params)
     _set_pump_on_params(oversampled_graph, params)
@@ -297,11 +297,11 @@ def construct_incidence_matrix(graph):
     deg_v = np.array([len(graph[e[1]]) for e in graph.edges])
 
     data_out = data.copy()
-    if graph.graph['params']['open_model'] == 'open':
+    if graph.graph["params"]["open_model"] == "open":
         mask = np.logical_or(deg_u == 1, deg_v == 1)
         data_out[1::4][mask] = 0
         data_out[2::4][mask] = 0
-    if graph.graph['params']['open_model'] == 'one_way':
+    if graph.graph["params"]["open_model"] == "directed":
         data_out[2::4] = 0
         data_out[3::4] = 0
 
@@ -322,9 +322,7 @@ def construct_weight_matrix(graph, with_k=True):
         with_k (bool): multiplies or not the laplacian by k
     """
     data_tmp = np.zeros(len(graph.edges), dtype=np.complex128)
-    data_tmp = 1.0 / (
-        np.exp(2.0j * graph.graph["lengths"] * graph.graph["ks"]) - 1.0
-    )
+    data_tmp = 1.0 / (np.exp(2.0j * graph.graph["lengths"] * graph.graph["ks"]) - 1.0)
     if any(data_tmp > 1e5):
         L.info("Large values in Winv, it may not work!")
     if with_k:
@@ -348,7 +346,7 @@ def set_inner_edges(graph, params=None, outer_edges=None):
         params (dict): has to contain 'open_model' of the form open, closed, custom
         outer_edges (list): if open_model == custom, pass the list of outer edges.
     """
-    if params["open_model"] not in ["open", "closed", "custom", "one_way"]:
+    if params["open_model"] not in ["open", "closed", "custom", "directed"]:
         raise Exception(f"open_model value not understood:{params['open_model']}")
 
     params["inner"] = []
