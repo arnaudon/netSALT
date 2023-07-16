@@ -4,14 +4,16 @@ import matplotlib.pyplot as plt
 from netsalt.quantum_graph import create_quantum_graph, laplacian_quality, mode_quality
 from netsalt.modes import mode_on_nodes
 
+from netsalt.modes import scan_frequencies
+from netsalt.plotting import plot_scan
 from netsalt.physics import dispersion_relation_linear, set_dispersion_relation
 import networkx as nx
 
 
-from netsalt.non_abelian import construct_so3_laplacian, so3_mode_on_nodes
+from netsalt.non_abelian import construct_so3_laplacian, so3_mode_on_nodes, scan_frequencies_so3
 
 
-def make_graph():
+def make_graph(n):
     graph = nx.cycle_graph(n)
     graph.add_edge(0, 8)
     graph.add_edge(0, 20)
@@ -19,16 +21,30 @@ def make_graph():
     x = np.linspace(0, 2 * np.pi * (1 - 1.0 / (len(graph) - 1)), len(graph))
     pos = np.array([np.cos(x), np.sin(x)]).T
     pos = list(pos)
+    graph.add_edge(1, n)
+    graph.add_edge(15, n + 1)
+    pos += [[1.2, 0]]
+    pos += [[-1.2, 0]]
 
     return graph, pos
 
 
 if __name__ == "__main__":
 
-    params = {"open_model": "open", "c": 1.0}
+    params = {
+        "open_model": "open",
+        "c": 1.0,
+        "k_min": 10.0,
+        "k_max": 12.0,
+        "k_n": 200,
+        "alpha_min": 0.0,
+        "alpha_max": 0.4,
+        "alpha_n": 50,
+        "n_workers": 7,
+    }
     n = 30
-    graph, pos = make_graph()
-    graph_u1, pos = make_graph()
+    graph, pos = make_graph(n)
+    graph_u1, pos = make_graph(n)
 
     nx.draw(graph, pos=pos)
 
@@ -37,12 +53,23 @@ if __name__ == "__main__":
 
     set_dispersion_relation(graph_u1, dispersion_relation_linear)
 
-    ks = np.linspace(1.0, 3, 200)
+    qualities_u1 = scan_frequencies(graph_u1)
+    plot_scan(graph_u1, qualities_u1)
+    plt.suptitle('u1')
+
+    qualities = scan_frequencies_so3(graph)
+    plot_scan(graph, qualities)
+    plt.suptitle("so3")
+    plt.show()
+
+
+def lkj():
+    ks = np.linspace(10.0, 15, 500)
     qs = []
     qs_u1 = []
     for k in tqdm(ks):
-        kim = 0  # 0.0966j
-        L = construct_so3_laplacian(k - kim, graph, abelian_scale=1.0)
+        kim = 0.05
+        L = construct_so3_laplacian(k + 1j * kim, graph)
         qs.append(laplacian_quality(L))
         qs_u1.append(mode_quality([k, kim], graph_u1))
 
@@ -52,7 +79,6 @@ if __name__ == "__main__":
     plt.legend(loc="best")
     plt.yscale("log")
     plt.show()
-
 
     k = ks[np.argmin(qs)]
     L = construct_so3_laplacian(k, graph)
