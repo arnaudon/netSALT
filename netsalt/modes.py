@@ -252,11 +252,21 @@ def compute_overlapping_factor(passive_mode, graph):
     return pump_norm / inner_norm
 
 
-def pump_linear(mode_0, graph, D0_0, D0_1):
+def lasing_threshold_linear(mode, graph):
+    """Find the linear approximation of the pump lasing threshold of a mode at D0=0."""
+    graph.graph["params"]["D0"] = 0
+    return 1.0 / (
+        gamma(to_complex(mode), graph.graph["params"])
+        * q_value(mode)
+        * np.real(compute_overlapping_factor(mode, graph))
+    )
+
+
+def pump_linear(mode, graph, D0_0, D0_1):
     """Find the linear approximation of the new wavenumber."""
     graph.graph["params"]["D0"] = D0_0
-    overlapping_factor = compute_overlapping_factor(mode_0, graph)
-    freq = to_complex(mode_0)
+    overlapping_factor = compute_overlapping_factor(mode, graph)
+    freq = to_complex(mode)
     gamma_overlap = gamma(freq, graph.graph["params"]) * overlapping_factor
     return from_complex(freq * np.sqrt((1.0 + gamma_overlap * D0_0) / (1.0 + gamma_overlap * D0_1)))
 
