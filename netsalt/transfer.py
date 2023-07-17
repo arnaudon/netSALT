@@ -14,10 +14,14 @@ from netsalt.quantum_graph import (
 def get_node_transfer_matrix(k, graph, input_flow):
     """Compute edge transfer matrix from a given input flow."""
     L = construct_laplacian(k, graph)
-    BT, _ = construct_incidence_matrix(graph)
+    #BT, _ = construct_incidence_matrix(graph)
     # Winv = construct_weight_matrix(graph, with_k=False)
-    K = np.append(graph.graph["ks"], graph.graph["ks"])
-    _input_flow = BT.dot(K * input_flow)
+    #K = np.append(graph.graph["ks"], graph.graph["ks"])
+    _input_flow = graph.graph["ks"] * input_flow
+    #Linv = linalg.inv(L)
+    #plt.figure()
+    #plt.imshow(abs(Linv.toarray()))
+    #plt.show()
     return linalg.spsolve(L, _input_flow)
 
 

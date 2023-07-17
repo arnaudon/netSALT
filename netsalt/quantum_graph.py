@@ -304,6 +304,9 @@ def construct_incidence_matrix(graph):
     if graph.graph["params"]["open_model"] == "directed":
         data_out[2::4] = 0
         data_out[3::4] = 0
+    if graph.graph["params"]["open_model"] == "directed_reversed":
+        data[2::4] = 0
+        data[3::4] = 0
 
     m = len(graph.edges)
     n = len(graph.nodes)
@@ -346,7 +349,7 @@ def set_inner_edges(graph, params=None, outer_edges=None):
         params (dict): has to contain 'open_model' of the form open, closed, custom
         outer_edges (list): if open_model == custom, pass the list of outer edges.
     """
-    if params["open_model"] not in ["open", "closed", "custom", "directed"]:
+    if params["open_model"] not in ["open", "closed", "custom", "directed", "directed_reversed"]:
         raise Exception(f"open_model value not understood:{params['open_model']}")
 
     params["inner"] = []
