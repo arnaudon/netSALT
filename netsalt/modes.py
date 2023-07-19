@@ -19,6 +19,7 @@ from .quantum_graph import (
     construct_incidence_matrix,
     construct_laplacian,
     construct_weight_matrix,
+    set_wavenumber,
     mode_quality,
 )
 from .utils import from_complex, get_scan_grid, to_complex
@@ -145,7 +146,7 @@ def find_modes(graph, qualities, quality_method="eigenvalue", min_distance=2, th
 
     # sort by decreasing Q*\Gamma value
     _gammas = gamma(to_complex(true_modes.T), graph.graph["params"])
-    q_factors = -np.imag(_gammas) * true_modes[:, 0] / (2 * true_modes[:, 1])
+    q_factors = -1 * np.imag(_gammas) * true_modes[:, 0] / (2 * true_modes[:, 1])
     modes_sorted = true_modes[np.argsort(q_factors)[::-1]]
     q_factors = np.sort(q_factors)[::-1]
     if "n_modes_max" in graph.graph["params"] and graph.graph["params"]["n_modes_max"]:
@@ -286,14 +287,14 @@ def flux_on_edges(mode, graph):
 
     node_solution = mode_on_nodes(mode, graph)
 
-    BT, _ = construct_incidence_matrix(graph)
+    _, B = construct_incidence_matrix(graph)
     Winv = construct_weight_matrix(graph, with_k=False)
 
-    return Winv.dot(BT.T).dot(node_solution)
+    return Winv.dot(B).dot(node_solution)
 
 
 def mean_mode_on_edges(mode, graph):
-    r"""Compute the average :math:`|E|^2` on each edge."""
+    r"""Compute the average :math:`Real(E^2)` on each edge."""
     edge_flux = flux_on_edges(mode, graph)
 
     mean_edge_solution = np.zeros(len(graph.edges))
@@ -302,13 +303,16 @@ def mean_mode_on_edges(mode, graph):
         length = graph.graph["lengths"][ei]
         z = np.zeros([2, 2], dtype=np.complex128)
 
-        z[0, 0] = (np.exp(length * (k + np.conj(k))) - 1.0) / (length * (k + np.conj(k)))
+        if abs(np.real(k)) > 0:  # in case we deal with closed graph, we have 0 / 0
+            z[0, 0] = (np.exp(length * (k + np.conj(k))) - 1.0) / (length * (k + np.conj(k)))
+        else:
+            z[0, 0] = 1.0
+            z[1, 1] = 1.0
         z[0, 1] = (np.exp(length * k) - np.exp(length * np.conj(k))) / (length * (k - np.conj(k)))
-
         z[1, 0] = z[0, 1]
         z[1, 1] = z[0, 0]
 
-        mean_edge_solution[ei] = np.real(
+        mean_edge_solution[ei] = np.abs(
             edge_flux[2 * ei : 2 * ei + 2].T.dot(z.dot(np.conj(edge_flux[2 * ei : 2 * ei + 2])))
         )
 
@@ -886,6 +890,51 @@ def lasing_threshold_linear(mode, graph, D0):
     graph.graph["params"]["D0"] = D0
     return 1.0 / (
         q_value(mode)
-        * -np.imag(gamma(to_complex(mode), graph.graph["params"]))
+        * -1
+        * np.imag(gamma(to_complex(mode), graph.graph["params"]))
         * np.real(compute_overlapping_factor(mode, graph))
     )
+
+
+def get_node_transfer(k, graph, input_flow):
+    """Compute node transfer from a given input flow."""
+    return sc.sparse.linalg.spsolve(construct_laplacian(k, graph), graph.graph["ks"] * input_flow)
+
+
+def get_edge_transfer(k, graph, input_flow):
+    """Compute edge transfer from a given input flow."""
+    set_wavenumber(graph, k)
+    BT, B = construct_incidence_matrix(graph)
+    _r = get_node_transfer(k, graph, BT.dot(input_flow))
+    Winv = construct_weight_matrix(graph, with_k=False)
+    return Winv.dot(B).dot(_r)
+
+
+def estimate_boundary_flow(graph, input_flow, k_frac=1e-2):
+    """Estimate boundary flow for static simulations.
+
+    Arguments:
+        graph: QG graph
+        input_flow: edge input flow
+        k_frac: fraction of estimated small wavenumber to evaluate the flows
+    """
+    # estimate a small wavenumber for the graph
+    k = k_frac * np.mean(
+        np.array(graph.graph["params"]["inner"], dtype=float)
+        * graph.graph["params"]["c"]
+        / graph.graph["lengths"]
+    )
+
+    e_deg = np.array([len(graph[v]) for u, v in graph.edges])
+    output_ids = list(np.argwhere(e_deg == 1).flatten())
+    output_ids += list(2 * np.argwhere(e_deg == 1).flatten() + 1)
+
+    # get the flows on all nodes
+    flows = np.abs(get_edge_transfer(k, graph, input_flow))
+    # remove on inner nodes
+    flows[[i for i in range(len(flows)) if i not in output_ids]] = 0
+    # get total output flow per unit of input flow
+    total = flows[output_ids].sum() / input_flow.sum()
+    # remove input flow to get a global conservation
+    flows -= total * input_flow
+    return flows, k

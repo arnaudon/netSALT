@@ -210,7 +210,7 @@ def oversample_graph(graph, edge_size):  # pylint: disable=too-many-locals
         last_node = len(oversampled_graph)
         n_nodes = int(graph[u][v]["length"] / edge_size)
         if n_nodes > 1:
-            dielectric_constant = graph[u][v]["dielectric_constant"]
+            dielectric_constant = graph[u][v].get("dielectric_constant", None)
             pump = graph[u][v]["pump"]
             oversampled_graph.remove_edge(u, v)
 
@@ -232,7 +232,6 @@ def oversample_graph(graph, edge_size):  # pylint: disable=too-many-locals
                 oversampled_graph.add_edge(
                     first,
                     last,
-                    inner=True,
                     dielectric_constant=dielectric_constant,
                     pump=pump,
                     edgelabel=ei,
@@ -241,7 +240,6 @@ def oversample_graph(graph, edge_size):  # pylint: disable=too-many-locals
             oversampled_graph.add_edge(
                 last_node + node_index,
                 v,
-                inner=True,
                 dielectric_constant=dielectric_constant,
                 pump=pump,
                 edgelabel=ei,
@@ -249,7 +247,8 @@ def oversample_graph(graph, edge_size):  # pylint: disable=too-many-locals
 
     oversampled_graph = nx.convert_node_labels_to_integers(oversampled_graph)
     _set_edge_lengths(oversampled_graph)
-    params = {"inner": [oversampled_graph[u][v]["inner"] for u, v in oversampled_graph.edges]}
+    params = oversampled_graph.graph["params"]
+    set_inner_edges(oversampled_graph, params)
     update_params_dielectric_constant(oversampled_graph, params)
     _set_pump_on_params(oversampled_graph, params)
     update_parameters(oversampled_graph, params, force=True)
@@ -266,9 +265,9 @@ def construct_laplacian(wavenumber, graph):
         graph (graph): quantum graph
     """
     set_wavenumber(graph, wavenumber)
-    BT, Bout = construct_incidence_matrix(graph)
+    BT, B = construct_incidence_matrix(graph)
     Winv = construct_weight_matrix(graph)
-    return BT.dot(Winv).dot(Bout)
+    return BT.dot(Winv).dot(B)
 
 
 def set_wavenumber(graph, wavenumber):
@@ -298,15 +297,22 @@ def construct_incidence_matrix(graph):
     deg_v = np.array([len(graph[e[1]]) for e in graph.edges])
 
     data_out = data.copy()
-    mask = np.logical_or(deg_u == 1, deg_v == 1)
-    data_out[1::4][mask] = 0
-    data_out[2::4][mask] = 0
+    if graph.graph["params"]["open_model"] == "open":
+        mask = np.logical_or(deg_u == 1, deg_v == 1)
+        data_out[1::4][mask] = 0
+        data_out[2::4][mask] = 0
+    if graph.graph["params"]["open_model"] == "directed":
+        data_out[2::4] = 0
+        data_out[3::4] = 0
+    if graph.graph["params"]["open_model"] == "directed_reversed":
+        data[2::4] = 0
+        data[3::4] = 0
 
     m = len(graph.edges)
     n = len(graph.nodes)
-    BT = sc.sparse.csr_matrix((data, (col, row)), shape=(n, 2 * m), dtype=np.complex128)
-    Bout = sc.sparse.csr_matrix((data_out, (row, col)), shape=(2 * m, n), dtype=np.complex128)
-    return BT, Bout
+    BT = sc.sparse.csr_matrix((data_out, (col, row)), shape=(n, 2 * m), dtype=np.complex128)
+    B = sc.sparse.csr_matrix((data, (row, col)), shape=(2 * m, n), dtype=np.complex128)
+    return BT, B
 
 
 def construct_weight_matrix(graph, with_k=True):
@@ -318,16 +324,12 @@ def construct_weight_matrix(graph, with_k=True):
         graph (graph): quantum graph
         with_k (bool): multiplies or not the laplacian by k
     """
-    mask = abs(graph.graph["ks"]) > 0
     data_tmp = np.zeros(len(graph.edges), dtype=np.complex128)
-    data_tmp[mask] = 1.0 / (
-        np.exp(2.0j * graph.graph["lengths"][mask] * graph.graph["ks"][mask]) - 1.0
-    )
+    data_tmp = 1.0 / (np.exp(2.0j * graph.graph["lengths"] * graph.graph["ks"]) - 1.0)
     if any(data_tmp > 1e5):
         L.info("Large values in Winv, it may not work!")
     if with_k:
-        data_tmp[mask] *= graph.graph["ks"][mask]
-    data_tmp[~mask] = -0.5 * graph.graph["lengths"][~mask]
+        data_tmp *= graph.graph["ks"]
 
     row = np.arange(len(graph.edges) * 2)
     data = np.repeat(data_tmp, 2)
@@ -347,7 +349,7 @@ def set_inner_edges(graph, params=None, outer_edges=None):
         params (dict): has to contain 'open_model' of the form open, closed, custom
         outer_edges (list): if open_model == custom, pass the list of outer edges.
     """
-    if params["open_model"] not in ["open", "closed", "custom"]:
+    if params["open_model"] not in ["open", "closed", "custom", "directed", "directed_reversed"]:
         raise Exception(f"open_model value not understood:{params['open_model']}")
 
     params["inner"] = []

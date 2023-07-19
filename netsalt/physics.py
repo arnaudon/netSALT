@@ -21,6 +21,8 @@ def gamma(freq, params):
         freq (float): frequency
         params (dict): parameters, must include 'gamma_perp' and 'k_a'
     """
+    if "gamma_perp" not in params:
+        return -1.0j
     return params["gamma_perp"] / (np.real(freq) - params["k_a"] + 1.0j * params["gamma_perp"])
 
 
@@ -42,7 +44,7 @@ def dispersion_relation_linear(freq, params=None):
 
     .. math::
 
-        \omega(k) = \frac{k}{c}
+        k(\omega) = \frac{\omega}{c}
 
     Args:
         freq (float): frequency
@@ -50,7 +52,27 @@ def dispersion_relation_linear(freq, params=None):
     """
     if not params or "c" not in params:
         raise Exception("Please correct provide dispersion parameters")
-    return freq / params["c"]
+    return freq / np.array(params["c"])
+
+
+def dispersion_relation_resistance(freq, params=None):
+    r"""Linear dispersion relation with wavespeed.
+
+    The dispersion relation is
+
+    .. math::
+
+        k(\omega) = \sqrt{\frac{\omega^2}{c^2} - i R C \omega}
+
+    Args:
+        freq (float): frequency
+        params (dict): parameters, must include wavespeed 'c', compliance C and edge resistances R
+    """
+    if not params or "c" not in params:
+        raise Exception("Please correct provide dispersion parameters")
+    return np.sqrt(
+        (freq / params["c"]) ** 2 + 1.0j * freq * params.get("C", 1.0) * params.get("R", 0.0)
+    )
 
 
 def dispersion_relation_dielectric(freq, params=None):
@@ -72,13 +94,13 @@ def dispersion_relation_pump(freq, params=None):
 
     .. math::
 
-        \omega(k) = k \sqrt{\epsilon + \gamma(k) D_0 \delta_\mathrm{pump}}
+        k(\omega) = \omega \sqrt{\epsilon + \gamma(\omega) D_0 \delta_\mathrm{pump}}
 
     otherwise
 
     .. math::
 
-        \omega(k) = k \sqrt{\epsilon}
+        k(\omega) = \omega \sqrt{\epsilon}
 
     Args:
         freq (float): frequency
