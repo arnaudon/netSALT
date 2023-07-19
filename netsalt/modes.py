@@ -19,6 +19,7 @@ from .quantum_graph import (
     construct_incidence_matrix,
     construct_laplacian,
     construct_weight_matrix,
+    set_wavenumber,
     mode_quality,
 )
 from .utils import from_complex, get_scan_grid, to_complex
@@ -893,3 +894,47 @@ def lasing_threshold_linear(mode, graph, D0):
         * np.imag(gamma(to_complex(mode), graph.graph["params"]))
         * np.real(compute_overlapping_factor(mode, graph))
     )
+
+
+def get_node_transfer(k, graph, input_flow):
+    """Compute node transfer from a given input flow."""
+    return sc.sparse.linalg.spsolve(construct_laplacian(k, graph), graph.graph["ks"] * input_flow)
+
+
+def get_edge_transfer(k, graph, input_flow):
+    """Compute edge transfer from a given input flow."""
+    set_wavenumber(graph, k)
+    BT, B = construct_incidence_matrix(graph)
+    _r = get_node_transfer(k, graph, BT.dot(input_flow))
+    Winv = construct_weight_matrix(graph, with_k=False)
+    return Winv.dot(B).dot(_r)
+
+
+def estimate_boundary_flow(graph, input_flow, k_frac=1e-2):
+    """Estimate boundary flow for static simulations.
+
+    Arguments:
+        graph: QG graph
+        input_flow: edge input flow
+        k_frac: fraction of estimated small wavenumber to evaluate the flows
+    """
+    # estimate a small wavenumber for the graph
+    k = k_frac * np.mean(
+        np.array(graph.graph["params"]["inner"], dtype=float)
+        * graph.graph["params"]["c"]
+        / graph.graph["lengths"]
+    )
+
+    e_deg = np.array([len(graph[v]) for u, v in graph.edges])
+    output_ids = list(np.argwhere(e_deg == 1).flatten())
+    output_ids += list(2 * np.argwhere(e_deg == 1).flatten() + 1)
+
+    # get the flows on all nodes
+    flows = np.abs(get_edge_transfer(k, graph, input_flow))
+    # remove on inner nodes
+    flows[[i for i in range(len(flows)) if i not in output_ids]] = 0
+    # get total output flow per unit of input flow
+    total = flows[output_ids].sum() / input_flow.sum()
+    # remove input flow to get a global conservation
+    flows -= total * input_flow
+    return flows, k
