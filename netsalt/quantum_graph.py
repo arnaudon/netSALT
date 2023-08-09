@@ -455,5 +455,7 @@ def mode_quality(mode, graph, quality_method="eigenvalue"):
         graph (graph): quantum graph
         quality_method (str): method for quality evaluation (eig, singular value or det)
     """
-    laplacian = construct_laplacian(to_complex(mode), graph)
+    laplacian = graph.graph["params"].get("laplacian_constructor", construct_laplacian)(
+        to_complex(mode), graph
+    )
     return laplacian_quality(laplacian, method=quality_method)

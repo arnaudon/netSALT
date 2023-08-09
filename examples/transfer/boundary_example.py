@@ -41,7 +41,7 @@ def make_graph2():
 
 if __name__ == "__main__":
 
-    params = {"open_model": "open", "c": 1.0, "R": 1000.0}
+    params = {"open_model": "open", "c": 1.0, "R": 0.0}
     np.random.seed(42)
 
     graph, pos = make_graph2()
