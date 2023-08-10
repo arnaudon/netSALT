@@ -441,24 +441,40 @@ def plot_single_mode(
 def _plot_single_mode(
     graph, mode, ax=None, colorbar=True, edge_vmin=None, edge_vmax=None, cmap="coolwarm"
 ):
-    positions = [graph.nodes[u]["position"] for u in graph]
     edge_solution = mean_mode_on_edges(mode, graph)
 
+    return plot_on_graph(
+        graph,
+        edge_solution,
+        edge_vmin=edge_vmin,
+        edge_vmax=edge_vmax,
+        ax=ax,
+        cmap=cmap,
+        colorbar=colorbar,
+    )
+
+
+def plot_on_graph(
+    graph, edge_data, edge_vmin=None, edge_vmax=None, ax=None, cmap="coolwarm", colorbar=True
+):
+    """Plot edge data on graph."""
     if ax is None:
         plt.figure(figsize=(5, 4))  # 14,3
         ax = plt.gca()
 
+    positions = [graph.nodes[u]["position"] for u in graph]
     nx.draw(graph, pos=positions, node_size=0, width=0, ax=ax)
 
     cmap = plt.get_cmap(cmap)
     if edge_vmax is None:
-        edge_vmax = max(abs(edge_solution))
+        edge_vmax = max(abs(edge_data))
     if edge_vmin is None:
-        edge_vmin = -max(abs(edge_solution))
+        edge_vmin = -max(abs(edge_data))
+    print(len(edge_data))
     nx.draw_networkx_edges(
         graph,
         pos=positions,
-        edge_color=edge_solution,
+        edge_color=edge_data,
         width=2,
         edge_cmap=cmap,
         edge_vmin=edge_vmin,

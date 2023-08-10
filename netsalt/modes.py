@@ -296,7 +296,10 @@ def flux_on_edges(mode, graph):
 def mean_mode_on_edges(mode, graph):
     r"""Compute the average :math:`Real(E^2)` on each edge."""
     edge_flux = flux_on_edges(mode, graph)
+    return mean_on_edges(edge_flux, graph)
 
+
+def mean_on_edges(edge_flux, graph):
     mean_edge_solution = np.zeros(len(graph.edges))
     for ei in range(len(graph.edges)):
         k = 1.0j * graph.graph["ks"][ei]
@@ -898,14 +901,19 @@ def lasing_threshold_linear(mode, graph, D0):
 
 def get_node_transfer(k, graph, input_flow):
     """Compute node transfer from a given input flow."""
-    return sc.sparse.linalg.spsolve(construct_laplacian(k, graph), graph.graph["ks"] * input_flow)
+    BT, _ = construct_incidence_matrix(graph)
+    bt = np.clip(np.ceil(np.real(BT.toarray())), -1, 0)
+    K = bt.dot(np.repeat(graph.graph["ks"], 2))
+    return sc.sparse.linalg.spsolve(construct_laplacian(k, graph), K * input_flow)
 
 
 def get_edge_transfer(k, graph, input_flow):
     """Compute edge transfer from a given input flow."""
     set_wavenumber(graph, k)
     BT, B = construct_incidence_matrix(graph)
-    _r = get_node_transfer(k, graph, BT.dot(input_flow))
+    _r = sc.sparse.linalg.spsolve(
+        construct_laplacian(k, graph), BT.dot(np.repeat(graph.graph["ks"], 2) * input_flow)
+    )
     Winv = construct_weight_matrix(graph, with_k=False)
     return Winv.dot(B).dot(_r)
 
@@ -926,7 +934,7 @@ def estimate_boundary_flow(graph, input_flow, k_frac=1e-2):
     )
 
     e_deg = np.array([len(graph[v]) for u, v in graph.edges])
-    output_ids = list(np.argwhere(e_deg == 1).flatten())
+    output_ids = list(2 * np.argwhere(e_deg == 1).flatten())
     output_ids += list(2 * np.argwhere(e_deg == 1).flatten() + 1)
 
     # get the flows on all nodes
