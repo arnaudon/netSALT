@@ -264,7 +264,9 @@ def pump_linear(mode_0, graph, D0_0, D0_1):
 
 def mode_on_nodes(mode, graph):
     """Compute the mode solution on the nodes of the graph."""
-    laplacian = construct_laplacian(to_complex(mode), graph)
+    laplacian = graph.graph["params"].get("laplacian_constructor", construct_laplacian)(
+        to_complex(mode), graph
+    )[0]
     min_eigenvalue, node_solution = sc.sparse.linalg.eigs(
         laplacian, k=1, sigma=0, v0=np.ones(len(graph)), which="LM"
     )
@@ -901,20 +903,36 @@ def lasing_threshold_linear(mode, graph, D0):
 
 def get_node_transfer(k, graph, input_flow):
     """Compute node transfer from a given input flow."""
-    BT, _ = construct_incidence_matrix(graph)
+    laplacian, BT, _, _ = graph.graph["params"].get("laplacian_constructor", construct_laplacian)(
+        k, graph
+    )
     bt = np.clip(np.ceil(np.real(BT.toarray())), -1, 0)
-    K = bt.dot(np.repeat(graph.graph["ks"], 2))
-    return sc.sparse.linalg.spsolve(construct_laplacian(k, graph), K * input_flow)
+    ks = np.empty(2 * len(graph.graph["ks"]))
+    ks[::2] = graph.graph["ks"]
+    ks[1::2] = graph.graph["ks"]
+    K = bt.dot(ks)
+    return sc.sparse.linalg.spsolve(laplacian, K * input_flow)
 
 
 def get_edge_transfer(k, graph, input_flow):
     """Compute edge transfer from a given input flow."""
     set_wavenumber(graph, k)
-    BT, B = construct_incidence_matrix(graph)
-    _r = sc.sparse.linalg.spsolve(
-        construct_laplacian(k, graph), BT.dot(np.repeat(graph.graph["ks"], 2) * input_flow)
-    )
-    Winv = construct_weight_matrix(graph, with_k=False)
+    laplacian, BT, B, Winv = graph.graph["params"].get(
+        "laplacian_constructor", construct_laplacian
+    )(k, graph)
+    s = list(np.shape(graph.graph["ks"]))
+    s[0] *= 2
+    ks = np.empty(s, dtype=np.complex)
+    ks[::2] = graph.graph["ks"]
+    ks[1::2] = graph.graph["ks"]
+    if len(s) > 1:
+        _in = np.einsum("ikl,ij", ks, np.diag(input_flow))
+        _in = BT.dot(sc.linalg.block_diag(*_in))
+        # WIP HERE
+    else:
+        _in = BT.dot(ks * input_flow)
+
+    _r = sc.sparse.linalg.spsolve(laplacian, _in)
     return Winv.dot(B).dot(_r)
 
 

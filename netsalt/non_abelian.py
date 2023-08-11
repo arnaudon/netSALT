@@ -125,4 +125,4 @@ def construct_so3_laplacian(wavenumber, graph, abelian_scale=1.0):
     set_so3_wavenumber(graph, wavenumber)
     BT, B = construct_so3_incidence_matrix(graph, abelian_scale=abelian_scale)
     Winv = construct_so3_weight_matrix(graph, abelian_scale=abelian_scale)
-    return BT.dot(Winv).dot(B)
+    return BT.dot(Winv).dot(B), BT, B, Winv

@@ -275,7 +275,7 @@ def construct_laplacian(wavenumber, graph):
             [graph[u].get("node_loss", node_loss) for u in graph.nodes()]
         )
 
-    return laplacian
+    return BT.dot(Winv).dot(B), BT, B, Winv
 
 
 def set_wavenumber(graph, wavenumber):
@@ -455,7 +455,7 @@ def mode_quality(mode, graph, quality_method="eigenvalue"):
         graph (graph): quantum graph
         quality_method (str): method for quality evaluation (eig, singular value or det)
     """
-    laplacian = graph.graph["params"].get("laplacian_constructor", construct_laplacian)(
+    laplacian = graph.graph["params"].get("laplacian_constructor", construct_laplacian)[0](
         to_complex(mode), graph
     )
     return laplacian_quality(laplacian, method=quality_method)
