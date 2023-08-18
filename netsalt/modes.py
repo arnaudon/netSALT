@@ -302,6 +302,7 @@ def mean_mode_on_edges(mode, graph):
 
 
 def mean_on_edges(edge_flux, graph):
+    """Mean edge values from any edge vector."""
     mean_edge_solution = np.zeros(len(graph.edges))
     for ei in range(len(graph.edges)):
         k = 1.0j * graph.graph["ks"][ei]
