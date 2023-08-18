@@ -84,7 +84,7 @@ def dispersion_relation_dielectric(freq, params=None):
     """
     if not params:
         raise Exception("Please provide dispersion parameters")
-    return freq * np.sqrt(params["dielectric_constant"])
+    return freq * np.array(np.sqrt(params["dielectric_constant"])) / params.get("c", 1.0)
 
 
 def dispersion_relation_pump(freq, params=None):
@@ -112,10 +112,11 @@ def dispersion_relation_pump(freq, params=None):
         raise Exception("Please provide dispersion parameters")
 
     if "pump" not in params or "D0" not in params:
-        return freq * np.sqrt(params["dielectric_constant"])
+        return freq * np.array(np.sqrt(params["dielectric_constant"])) / params.get("c", 1.0)
 
     return freq * np.sqrt(
-        params["dielectric_constant"] + gamma(freq, params) * params["D0"] * params["pump"]
+        np.array(params["dielectric_constant"]) / params.get("c", 1.0)
+        + gamma(freq, params) * params["D0"] * params["pump"]
     )
 
 

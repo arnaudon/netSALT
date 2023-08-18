@@ -137,7 +137,7 @@ def find_modes(graph, qualities, quality_method="eigenvalue", min_distance=2, th
         )
 
     if len(refined_modes) == 0:
-        raise Exception("No modes found!")
+        raise Exception("No mode found!")
 
     refined_modes = [refined_mode for refined_mode in refined_modes if refined_mode is not None]
 

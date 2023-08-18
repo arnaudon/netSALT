@@ -267,7 +267,15 @@ def construct_laplacian(wavenumber, graph):
     set_wavenumber(graph, wavenumber)
     BT, B = construct_incidence_matrix(graph)
     Winv = construct_weight_matrix(graph)
-    return BT.dot(Winv).dot(B)
+    laplacian = BT.dot(Winv).dot(B)
+
+    node_loss = graph.graph["params"].get("node_loss", 0)
+    if node_loss > 0:
+        laplacian -= node_loss * sc.sparse.diags(
+            [graph[u].get("node_loss", node_loss) for u in graph.nodes()]
+        )
+
+    return laplacian
 
 
 def set_wavenumber(graph, wavenumber):
