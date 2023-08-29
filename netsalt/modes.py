@@ -347,7 +347,6 @@ def mean_on_edges(edge_flux, graph, norm_type="abs", mode=None):
             length = graph.graph["lengths"][ei]
             z = np.zeros([2 * DIM, 2 * DIM], dtype=np.complex128)
             if DIM == 3:
-
                 w_perp = Ad(2.0 * length * chi).dot(proj_perp(chi))
                 w_paral = np.exp(2.0j * length * norm(chi)) * proj_paral(chi)
                 if norm_type.endswith("x"):
