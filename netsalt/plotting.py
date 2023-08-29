@@ -422,13 +422,21 @@ def plot_single_mode(
     edge_vmin=None,
     edge_vmax=None,
     cmap="coolwarm",
+    norm_type="abs",
 ):
     """Plot single mode on the graph."""
     mode = modes_df[df_entry][index]
     if df_entry == "threshold_lasing_modes":
         graph.graph["params"]["D0"] = modes_df["lasing_thresholds"][index]
     ax = _plot_single_mode(
-        graph, mode, ax=ax, colorbar=colorbar, edge_vmin=edge_vmin, edge_vmax=edge_vmax, cmap=cmap
+        graph,
+        mode,
+        ax=ax,
+        colorbar=colorbar,
+        edge_vmin=edge_vmin,
+        edge_vmax=edge_vmax,
+        cmap=cmap,
+        norm_type=norm_type,
     )
     ax.set_title(
         "mode "
@@ -439,9 +447,16 @@ def plot_single_mode(
 
 
 def _plot_single_mode(
-    graph, mode, ax=None, colorbar=True, edge_vmin=None, edge_vmax=None, cmap="coolwarm"
+    graph,
+    mode,
+    ax=None,
+    colorbar=True,
+    edge_vmin=None,
+    edge_vmax=None,
+    cmap="coolwarm",
+    norm_type="abs",
 ):
-    edge_solution = mean_mode_on_edges(mode, graph)
+    edge_solution = mean_mode_on_edges(mode, graph, norm_type=norm_type)
 
     return plot_on_graph(
         graph,
@@ -451,11 +466,19 @@ def _plot_single_mode(
         ax=ax,
         cmap=cmap,
         colorbar=colorbar,
+        norm_type=norm_type,
     )
 
 
 def plot_on_graph(
-    graph, edge_data, edge_vmin=None, edge_vmax=None, ax=None, cmap="coolwarm", colorbar=True
+    graph,
+    edge_data,
+    edge_vmin=None,
+    edge_vmax=None,
+    ax=None,
+    cmap="coolwarm",
+    colorbar=True,
+    norm_type="abs",
 ):
     """Plot edge data on graph."""
     if ax is None:
@@ -469,8 +492,11 @@ def plot_on_graph(
     if edge_vmax is None:
         edge_vmax = max(abs(edge_data))
     if edge_vmin is None:
-        edge_vmin = -max(abs(edge_data))
-    print(len(edge_data))
+        if norm_type == "abs":
+            edge_vmin = 0
+        if norm_type.startswith("real"):
+            edge_vmin = -max(abs(edge_data))
+
     nx.draw_networkx_edges(
         graph,
         pos=positions,
@@ -484,7 +510,10 @@ def plot_on_graph(
     if colorbar:
         sm = plt.cm.ScalarMappable(cmap=cmap, norm=plt.Normalize(vmin=edge_vmin, vmax=edge_vmax))
         sm.set_array([])
-        plt.colorbar(sm, ax=ax, label=r"$|E|^2$ (a.u)", shrink=0.5)
+        if norm_type == "abs":
+            plt.colorbar(sm, ax=ax, label=r"$|E|^2$ (a.u)", shrink=0.5)
+        if norm_type.startswith("real"):
+            plt.colorbar(sm, ax=ax, label=r"Real$(E^2)$ (a.u)", shrink=0.5)
     return ax
 
 

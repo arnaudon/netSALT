@@ -211,6 +211,9 @@ def oversample_graph(graph, edge_size):  # pylint: disable=too-many-locals
         n_nodes = int(graph[u][v]["length"] / edge_size)
         if n_nodes > 1:
             dielectric_constant = graph[u][v].get("dielectric_constant", None)
+            chi = None
+            if "chi" in graph[u][v]:
+                chi = graph[u][v]["chi"]
             pump = graph[u][v]["pump"]
             oversampled_graph.remove_edge(u, v)
 
@@ -233,6 +236,7 @@ def oversample_graph(graph, edge_size):  # pylint: disable=too-many-locals
                     first,
                     last,
                     dielectric_constant=dielectric_constant,
+                    chi=chi,
                     pump=pump,
                     edgelabel=ei,
                 )
@@ -241,6 +245,7 @@ def oversample_graph(graph, edge_size):  # pylint: disable=too-many-locals
                 last_node + node_index,
                 v,
                 dielectric_constant=dielectric_constant,
+                chi=chi,
                 pump=pump,
                 edgelabel=ei,
             )
@@ -255,7 +260,7 @@ def oversample_graph(graph, edge_size):  # pylint: disable=too-many-locals
     return oversampled_graph
 
 
-def construct_laplacian(wavenumber, graph):
+def construct_laplacian(wavenumber, graph, with_k=True):
     """Construct quantum laplacian from a graph.
 
     The quantum laplacian is L(k) = B^T(k) W^{-1}(k) B(k), with quantum incidence and weight matrix.
@@ -266,7 +271,7 @@ def construct_laplacian(wavenumber, graph):
     """
     set_wavenumber(graph, wavenumber)
     BT, B = construct_incidence_matrix(graph)
-    Winv = construct_weight_matrix(graph)
+    Winv = construct_weight_matrix(graph, with_k=with_k)
     laplacian = BT.dot(Winv).dot(B)
 
     node_loss = graph.graph["params"].get("node_loss", 0)

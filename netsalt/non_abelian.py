@@ -2,6 +2,8 @@
 import numpy as np
 from scipy import sparse, linalg
 
+DIM = 3
+
 
 def hat_inv(xi_vec):
     """Convert vector Lie algebra to matrix Lie algebra element."""
@@ -48,8 +50,8 @@ def Ad(chi_mat):
 
 def set_so3_wavenumber(graph, wavenumber):
     """Set so3 matrix wavenumber."""
-    chis = graph.graph["params"].get("chis", None)
-    if chis is None:
+    chis = [graph[u][v].get("chi", None) for u, v in graph.edges]
+    if chis[0] is None:
         chi = hat_inv(np.array([0.0, 0.0, 1.0]))
         chis = np.array(len(graph.edges) * [chi])
     else:
@@ -60,12 +62,11 @@ def set_so3_wavenumber(graph, wavenumber):
 
 def construct_so3_incidence_matrix(graph, abelian_scale=1.0):
     """Construct SO3 incidence matrix."""
-    DIM = 3
 
     def _ext(i):
         return slice(DIM * i, DIM * (i + 1))
 
-    Bout = sparse.lil_matrix((len(graph.edges) * 2 * DIM, len(graph) * DIM), dtype=np.complex128)
+    B = sparse.lil_matrix((len(graph.edges) * 2 * DIM, len(graph) * DIM), dtype=np.complex128)
     BT = sparse.lil_matrix((len(graph) * DIM, len(graph.edges) * 2 * DIM), dtype=np.complex128)
     for ei, (u, v) in enumerate(graph.edges):
         one = np.eye(DIM)
@@ -79,22 +80,21 @@ def construct_so3_incidence_matrix(graph, abelian_scale=1.0):
 
         out = len(graph[u]) == 1 or len(graph[v]) == 1
 
-        Bout[_ext(2 * ei), _ext(u)] = -one
-        Bout[_ext(2 * ei), _ext(v)] = 0 if out else expl
-        Bout[_ext(2 * ei + 1), _ext(u)] = 0 if out else expl
-        Bout[_ext(2 * ei + 1), _ext(v)] = -one
+        B[_ext(2 * ei), _ext(u)] = -one
+        B[_ext(2 * ei), _ext(v)] = expl
+        B[_ext(2 * ei + 1), _ext(u)] = expl
+        B[_ext(2 * ei + 1), _ext(v)] = -one
 
         BT[_ext(u), _ext(2 * ei)] = -one
-        BT[_ext(v), _ext(2 * ei)] = expl
-        BT[_ext(u), _ext(2 * ei + 1)] = expl
+        BT[_ext(v), _ext(2 * ei)] = 0 if out else expl
+        BT[_ext(u), _ext(2 * ei + 1)] = 0 if out else expl
         BT[_ext(v), _ext(2 * ei + 1)] = -one
 
-    return BT, Bout
+    return BT, B
 
 
 def construct_so3_weight_matrix(graph, with_k=True, abelian_scale=1.0):
     """Construct SO3 weight matrix."""
-    DIM = 3
 
     def _ext(i):
         return slice(DIM * i, DIM * (i + 1))
@@ -120,9 +120,9 @@ def construct_so3_weight_matrix(graph, with_k=True, abelian_scale=1.0):
     return Winv
 
 
-def construct_so3_laplacian(wavenumber, graph, abelian_scale=1.0):
+def construct_so3_laplacian(wavenumber, graph, abelian_scale=1.0, with_k=True):
     """Construct quantum laplacian from a graph."""
     set_so3_wavenumber(graph, wavenumber)
     BT, B = construct_so3_incidence_matrix(graph, abelian_scale=abelian_scale)
-    Winv = construct_so3_weight_matrix(graph, abelian_scale=abelian_scale)
+    Winv = construct_so3_weight_matrix(graph, abelian_scale=abelian_scale, with_k=with_k)
     return BT.dot(Winv).dot(B), BT, B, Winv
