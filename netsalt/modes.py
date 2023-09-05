@@ -9,20 +9,19 @@ import pandas as pd
 import scipy as sc
 from tqdm import tqdm
 
-from .algorithm import (
+from netsalt.algorithm import (
     clean_duplicate_modes,
     find_rough_modes_from_scan,
     refine_mode_brownian_ratchet,
 )
-from .physics import gamma, q_value
-from .quantum_graph import (
+from netsalt.physics import gamma, q_value
+from netsalt.quantum_graph import (
     construct_incidence_matrix,
     construct_laplacian,
     construct_weight_matrix,
-    set_wavenumber,
     mode_quality,
 )
-from .utils import from_complex, get_scan_grid, to_complex
+from netsalt.utils import from_complex, get_scan_grid, to_complex
 from netsalt.non_abelian import norm, Ad, proj_paral, proj_perp
 
 warnings.filterwarnings("ignore")
@@ -331,6 +330,8 @@ def mean_on_edges(edge_flux, graph, norm_type="abs", mode=None):
             )
 
     if norm_type.startswith("real"):
+        if mode is None:
+            raise Exception("We need the mode for norm_type='real'")
         _, _, _, Winv = graph.graph["params"].get("laplacian_constructor", construct_laplacian)(
             to_complex(mode), graph, with_k=False
         )
@@ -965,24 +966,25 @@ def get_node_transfer(k, graph, input_flow):
 
 def get_edge_transfer(k, graph, input_flow):
     """Compute edge transfer from a given input flow."""
-    set_wavenumber(graph, k)
     laplacian, BT, B, Winv = graph.graph["params"].get(
         "laplacian_constructor", construct_laplacian
-    )(k, graph)
-    s = list(np.shape(graph.graph["ks"]))
-    s[0] *= 2
-    ks = np.empty(s, dtype=np.complex)
+    )(k, graph, with_k=True)
+
+    shape_k = list(np.shape(graph.graph["ks"]))
+    shape_k[0] *= 2
+    ks = np.empty(shape_k, dtype=np.complex)
     ks[::2] = graph.graph["ks"]
     ks[1::2] = graph.graph["ks"]
-    if len(s) > 1:
+
+    if len(shape_k) > 1:
+        # non-abelian part, WIP
         _in = np.einsum("ikl,ij", ks, np.diag(input_flow))
         _in = BT.dot(sc.linalg.block_diag(*_in))
-        # WIP HERE
     else:
         _in = BT.dot(ks * input_flow)
 
     _r = sc.sparse.linalg.spsolve(laplacian, _in)
-    return Winv.dot(B).dot(_r)
+    return Winv.dot(B).dot(_r) / ks  # we divide by ks as Winv has it (with_k=True)
 
 
 def estimate_boundary_flow(graph, input_flow, k_frac=1e-2):
