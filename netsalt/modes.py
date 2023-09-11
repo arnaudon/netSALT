@@ -987,7 +987,7 @@ def get_edge_transfer(k, graph, input_flow):
     return Winv.dot(B).dot(_r) / ks  # we divide by ks as Winv has it (with_k=True)
 
 
-def estimate_boundary_flow(graph, input_flow, k_frac=1e-2):
+def estimate_boundary_flow(graph, input_flow, k_frac=1e-3):
     """Estimate boundary flow for static simulations.
 
     Arguments:
