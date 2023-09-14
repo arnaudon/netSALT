@@ -70,6 +70,7 @@ def refine_mode_brownian_ratchet(
         )
 
         new_quality = mode_quality(new_mode, graph, quality_method=quality_method)
+        print(current_mode, current_quality, new_mode, new_quality)
 
         if disp:
             L.debug(

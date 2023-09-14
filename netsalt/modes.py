@@ -966,25 +966,32 @@ def get_node_transfer(k, graph, input_flow):
 
 def get_edge_transfer(k, graph, input_flow):
     """Compute edge transfer from a given input flow."""
-    laplacian, BT, B, Winv = graph.graph["params"].get(
-        "laplacian_constructor", construct_laplacian
-    )(k, graph, with_k=True)
+    laplacian, BT, B, _ = graph.graph["params"].get("laplacian_constructor", construct_laplacian)(
+        k, graph, with_k=True
+    )
+
+    _, _, _, Winv = graph.graph["params"].get("laplacian_constructor", construct_laplacian)(
+        k, graph, with_k=False
+    )
 
     shape_k = list(np.shape(graph.graph["ks"]))
-    shape_k[0] *= 2
-    ks = np.empty(shape_k, dtype=np.complex)
-    ks[::2] = graph.graph["ks"]
-    ks[1::2] = graph.graph["ks"]
 
     if len(shape_k) > 1:
-        # non-abelian part, WIP
-        _in = np.einsum("ikl,ij", ks, np.diag(input_flow))
-        _in = BT.dot(sc.linalg.block_diag(*_in))
+        ks = np.zeros((6 * shape_k[0], 6 * shape_k[0]), dtype=np.complex)
+        for ei in range(shape_k[0]):
+            k = graph.graph["ks"][ei]
+            ks[2 * 3 * ei : 3 * (2 * ei + 1), 2 * 3 * ei : 3 * (2 * ei + 1)] = k
+            ks[3 * (2 * ei + 1) : 3 * (2 * ei + 2), 3 * (2 * ei + 1) : 3 * (2 * ei + 2)] = k
     else:
-        _in = BT.dot(ks * input_flow)
+        shape_k[0] *= 2
+        ks = np.empty(shape_k, dtype=np.complex)
+        ks[::2] = graph.graph["ks"]
+        ks[1::2] = graph.graph["ks"]
+        ks = np.diag(ks)
 
+    _in = BT.dot(ks.dot(input_flow))
     _r = sc.sparse.linalg.spsolve(laplacian, _in)
-    return Winv.dot(B).dot(_r) / ks  # we divide by ks as Winv has it (with_k=True)
+    return Winv.dot(B).dot(_r)
 
 
 def estimate_boundary_flow(graph, input_flow, k_frac=1e-3):
