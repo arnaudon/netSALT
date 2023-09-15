@@ -211,6 +211,9 @@ def oversample_graph(graph, edge_size):  # pylint: disable=too-many-locals
         n_nodes = int(graph[u][v]["length"] / edge_size)
         if n_nodes > 1:
             dielectric_constant = graph[u][v].get("dielectric_constant", None)
+            chi = None
+            if "chi" in graph[u][v]:
+                chi = graph[u][v]["chi"]
             pump = graph[u][v]["pump"]
             oversampled_graph.remove_edge(u, v)
 
@@ -233,6 +236,7 @@ def oversample_graph(graph, edge_size):  # pylint: disable=too-many-locals
                     first,
                     last,
                     dielectric_constant=dielectric_constant,
+                    chi=chi,
                     pump=pump,
                     edgelabel=ei,
                 )
@@ -241,6 +245,7 @@ def oversample_graph(graph, edge_size):  # pylint: disable=too-many-locals
                 last_node + node_index,
                 v,
                 dielectric_constant=dielectric_constant,
+                chi=chi,
                 pump=pump,
                 edgelabel=ei,
             )
@@ -255,7 +260,7 @@ def oversample_graph(graph, edge_size):  # pylint: disable=too-many-locals
     return oversampled_graph
 
 
-def construct_laplacian(wavenumber, graph):
+def construct_laplacian(wavenumber, graph, with_k=True):
     """Construct quantum laplacian from a graph.
 
     The quantum laplacian is L(k) = B^T(k) W^{-1}(k) B(k), with quantum incidence and weight matrix.
@@ -266,7 +271,7 @@ def construct_laplacian(wavenumber, graph):
     """
     set_wavenumber(graph, wavenumber)
     BT, B = construct_incidence_matrix(graph)
-    Winv = construct_weight_matrix(graph)
+    Winv = construct_weight_matrix(graph, with_k=with_k)
     laplacian = BT.dot(Winv).dot(B)
 
     node_loss = graph.graph["params"].get("node_loss", 0)
@@ -275,7 +280,7 @@ def construct_laplacian(wavenumber, graph):
             [graph[u].get("node_loss", node_loss) for u in graph.nodes()]
         )
 
-    return laplacian
+    return BT.dot(Winv).dot(B), BT, B, Winv
 
 
 def set_wavenumber(graph, wavenumber):
@@ -326,7 +331,7 @@ def construct_incidence_matrix(graph):
 def construct_weight_matrix(graph, with_k=True):
     """Construct the quantum matrix W^{-1}(k).
 
-    The with_k argument is needed for the graph laplcian, not for computing the edge amplitudes.
+    The with_k argument is needed for the graph laplacian, not for computing the edge amplitudes.
 
     Args:
         graph (graph): quantum graph
@@ -455,5 +460,7 @@ def mode_quality(mode, graph, quality_method="eigenvalue"):
         graph (graph): quantum graph
         quality_method (str): method for quality evaluation (eig, singular value or det)
     """
-    laplacian = construct_laplacian(to_complex(mode), graph)
+    laplacian = graph.graph["params"].get("laplacian_constructor", construct_laplacian)(
+        to_complex(mode), graph
+    )[0]
     return laplacian_quality(laplacian, method=quality_method)
