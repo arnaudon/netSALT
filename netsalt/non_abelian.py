@@ -78,17 +78,28 @@ def construct_so3_incidence_matrix(graph, abelian_scale=1.0):
             * np.exp(1.0j * graph.graph["lengths"][ei] * norm(graph.graph["ks"][ei]))
         )
 
-        out = len(graph[u]) == 1 or len(graph[v]) == 1
-
         B[_ext(2 * ei), _ext(u)] = -one
         B[_ext(2 * ei), _ext(v)] = expl
         B[_ext(2 * ei + 1), _ext(u)] = expl
         B[_ext(2 * ei + 1), _ext(v)] = -one
 
         BT[_ext(u), _ext(2 * ei)] = -one
-        BT[_ext(v), _ext(2 * ei)] = 0 if out else expl
-        BT[_ext(u), _ext(2 * ei + 1)] = 0 if out else expl
+        BT[_ext(v), _ext(2 * ei)] = expl
+        BT[_ext(u), _ext(2 * ei + 1)] = expl
         BT[_ext(v), _ext(2 * ei + 1)] = -one
+
+        if graph.graph["params"]["open_model"] == "open":
+            if len(graph[u]) == 1 or len(graph[v]) == 1:
+                BT[_ext(v), _ext(2 * ei)] = 0
+                BT[_ext(u), _ext(2 * ei + 1)] = 0
+
+        if graph.graph["params"]["open_model"] == "directed":
+            BT[_ext(u), _ext(2 * ei + 1)] = 0
+            BT[_ext(v), _ext(2 * ei + 1)] = 0
+
+        if graph.graph["params"]["open_model"] == "directed_reversed":
+            B[_ext(2 * ei + 1), _ext(u)] = 0
+            B[_ext(2 * ei + 1), _ext(v)] = 0
 
     return BT, B
 
