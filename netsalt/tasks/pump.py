@@ -55,7 +55,7 @@ class OptimizePump(NetSaltTask):
                 disp=self.disp,
             )
 
-        if self.optimisation_mode == "linear_programming":
+        elif self.optimisation_mode == "linear_programming":
             optimal_pump, pump_overlapps, costs, final_cost = optimize_pump_linear_programming(
                 modes_df,
                 qg,
@@ -65,6 +65,8 @@ class OptimizePump(NetSaltTask):
                 eps_n=self.eps_n,
                 cost_diff_min=self.cost_diff_min,
             )
+        else:
+            raise ValueError(f"unknown optimisation mode {self.optimisation_mode}")
 
         results = {
             "optimal_pump": optimal_pump,

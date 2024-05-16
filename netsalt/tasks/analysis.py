@@ -11,7 +11,6 @@ import pandas as pd
 import seaborn as sns
 import yaml
 from matplotlib.backends.backend_pdf import PdfPages
-from matplotlib.cm import get_cmap
 from matplotlib.colors import ListedColormap
 
 from netsalt.io import load_graph, load_modes, load_qualities
@@ -67,7 +66,7 @@ class PlotQuantumGraph(NetSaltTask):
         print("mean edge length", np.mean(lengths))
         print("total edge length", sum(lengths))
 
-        cmap = get_cmap("Pastel1_r")
+        cmap = plt.get_cmap("Pastel1_r")
         newcolors = cmap(np.take(np.linspace(0, 1, 9), [0, 4, 2, 3, 1, 8, 6, 7, 5]))
         newcmp = ListedColormap(newcolors)
         plot_quantum_graph(

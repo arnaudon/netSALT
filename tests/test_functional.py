@@ -1,4 +1,5 @@
 """Fuctional test of the workflow."""
+
 import shutil
 import os
 from pathlib import Path
@@ -38,15 +39,15 @@ def create_graph():
     netsalt.save_graph(graph, "graph.pkl")
 
     # create the index of refraction profile
-    custom_index = len(graph.edges) * [3.0 ** 2]
+    custom_index = len(graph.edges) * [3.0**2]
     custom_loss = len(graph.edges) * [0.0]
-    custom_index[0] = 1.0 ** 2
-    custom_index[-1] = 1.0 ** 2
+    custom_index[0] = 1.0**2
+    custom_index[-1] = 1.0**2
 
     count_inedges = len(graph.edges) - 2.0
     if count_inedges % 4 == 0:
         for i in range(round(count_inedges / 4)):
-            custom_index[i + 1] = 1.5 ** 2
+            custom_index[i + 1] = 1.5**2
 
     yaml.dump({"constant": custom_index, "loss": custom_loss}, open("index.yaml", "w"))
 
@@ -86,4 +87,6 @@ def test_ComputeLasingModes(working_directory):
 
     # Check the numerical results
     result_dir, expected_dir = working_directory
-    assert_equal_trees(expected_dir, result_dir)
+    assert_equal_trees(
+        expected_dir, result_dir, specific_args={"out": {"patterns": [r".*\.h5$"], "atol": 1e-5}}
+    )

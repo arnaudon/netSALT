@@ -381,8 +381,8 @@ def _set_node_positions(graph, positions=None):
         positions = nx.spring_layout(graph)
         L.warning("No node positions given, plots will have random positions from spring_layout")
 
-    for u in graph.nodes():
-        graph.nodes[u]["position"] = positions[u]
+    for i, u in enumerate(graph.nodes()):
+        graph.nodes[u]["position"] = positions[i]
 
 
 def _set_edge_lengths(graph, lengths=None):
