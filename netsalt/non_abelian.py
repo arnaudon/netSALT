@@ -117,9 +117,9 @@ def construct_so3_weight_matrix(graph, with_k=True, abelian_scale=1.0):
         chi = graph.graph["ks"][ei]
         length = graph.graph["lengths"][ei]
 
-        w_perp = Ad(2.0 * length * chi).dot(proj_perp(chi))
-        w_paral = abelian_scale * np.exp(2.0j * length * norm(chi)) * proj_paral(chi)
-        w = w_perp + w_paral - np.eye(3)
+        w_perp = (Ad(2.0 * length * chi) - np.eye(3)).dot(proj_perp(chi))
+        w_paral = abelian_scale * (np.exp(2.0j * length * norm(chi)) - np.eye(3)) * proj_paral(chi)
+        w = w_perp + w_paral
 
         winv = linalg.inv(w)
 
