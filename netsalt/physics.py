@@ -62,7 +62,7 @@ def dispersion_relation_resistance(freq, params=None):
 
     .. math::
 
-        k(\omega) = \sqrt{\frac{\omega^2}{c^2} - i R C \omega}
+        k(\omega) = \sqrt{\frac{\omega^2}{c^2} + i R C \omega}
 
     Args:
         freq (float): frequency
