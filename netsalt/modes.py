@@ -267,10 +267,9 @@ def mode_on_nodes(mode, graph):
         to_complex(mode), graph
     )[0]
     min_eigenvalue, node_solution = sc.sparse.linalg.eigs(
-        laplacian, k=4, sigma=0, v0=np.ones(laplacian.shape[0]), which="LM"
+        laplacian, k=5, sigma=0, v0=np.ones(laplacian.shape[0]), which="LM"
     )
     quality_thresh = graph.graph["params"].get("quality_threshold", 1e-2)
-    print("eigenvalues:", np.abs(min_eigenvalue))  # [np.abs(min_eigenvalue) < quality_thresh])
     if abs(min_eigenvalue[0]) > quality_thresh:
         raise Exception(
             "Not a mode, as quality is too high: "
@@ -280,8 +279,13 @@ def mode_on_nodes(mode, graph):
             + ", mode: "
             + str(mode)
         )
-
-    return node_solution[:, 0]
+    # this 1.5 is fairly arbitrary, it is so get similar igenvalues, close to 0, regardless of the
+    # choice of quality_threshold, which may pick up other small ones, not 0 if set to large values
+    n_eig = len([1 for a in np.abs(min_eigenvalue) < 1.5 * min(np.abs(min_eigenvalue)) if a])
+    if n_eig > 1:
+        L.info(f"We found {n_eig} vanishing eigenvalues, we will use the sum of their eigenvectors")
+        print(f"We found {n_eig} vanishing eigenvalues, we will use the sum of their eigenvectors")
+    return node_solution[:, np.abs(min_eigenvalue) < 1.5 * min(np.abs(min_eigenvalue))].sum(axis=1)
 
 
 def flux_on_edges(mode, graph):
@@ -369,29 +373,19 @@ def mean_on_edges(edge_flux, graph, norm_type="abs", mode=None):
                         return np.linalg.norm(s)
                     return s[axis]
 
+                import scipy.integrate as integrate
+
+                res = integrate.quad(sol, 0, length)[0]
+                mean_edge_solution[ei] = res
+
             if DIM == 1:
 
                 z[0, 0] = z[1, 1] = (np.exp(2.0j * length * chi) - 1) / (2.0j * length * chi)
                 z[0, 1] = z[1, 0] = np.exp(1.0j * length * chi)
 
-                def sol(x):
-                    return np.real(
-                        (
-                            np.exp(1.0j * x * chi) * edge_flux[2 * ei]
-                            + np.exp(1.0j * (length - x) * chi) * edge_flux[2 * ei + 1]
-                        )
-                        ** 2
-                        / length
-                    )
-
-            import scipy.integrate as integrate
-
-            res = integrate.quad(sol, 0, length)[0]
-            mean_edge_solution[ei] = np.real(
-                edge_flux[_ext(2 * ei, shift=2)].T.dot(z).dot(edge_flux[_ext(2 * ei, shift=2)])
-            )
-            # print("check:", mean_edge_solution[ei], res)
-            mean_edge_solution[ei] = res
+                mean_edge_solution[ei] = np.real(
+                    edge_flux[_ext(2 * ei, shift=2)].T.dot(z).dot(edge_flux[_ext(2 * ei, shift=2)])
+                )
     return mean_edge_solution
 
 
