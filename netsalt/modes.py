@@ -267,9 +267,10 @@ def mode_on_nodes(mode, graph):
         to_complex(mode), graph
     )[0]
     min_eigenvalue, node_solution = sc.sparse.linalg.eigs(
-        laplacian, k=1, sigma=0, v0=np.ones(laplacian.shape[0]), which="LM"
+        laplacian, k=4, sigma=0, v0=np.ones(laplacian.shape[0]), which="LM"
     )
     quality_thresh = graph.graph["params"].get("quality_threshold", 1e-2)
+    print("eigenvalues:", np.abs(min_eigenvalue))  # [np.abs(min_eigenvalue) < quality_thresh])
     if abs(min_eigenvalue[0]) > quality_thresh:
         raise Exception(
             "Not a mode, as quality is too high: "
@@ -285,12 +286,10 @@ def mode_on_nodes(mode, graph):
 
 def flux_on_edges(mode, graph):
     """Compute the flux on each edge (in both directions)."""
-
     node_solution = mode_on_nodes(mode, graph)
     _, _, B, Winv = graph.graph["params"].get("laplacian_constructor", construct_laplacian)(
         to_complex(mode), graph, with_k=False
     )
-
     return Winv.dot(B).dot(node_solution)
 
 
@@ -318,23 +317,19 @@ def mean_on_edges(edge_flux, graph, norm_type="abs", mode=None):
                 z[0, 0] = (np.exp(length * (k + np.conj(k))) - 1.0) / (length * (k + np.conj(k)))
             else:
                 z[0, 0] = 1.0
-                z[1, 1] = 1.0
             z[0, 1] = (np.exp(length * k) - np.exp(length * np.conj(k))) / (
                 length * (k - np.conj(k))
             )
             z[1, 0] = z[0, 1]
             z[1, 1] = z[0, 0]
 
-            mean_edge_solution[ei] = np.abs(
+            mean_edge_solution[ei] = np.real(
                 edge_flux[2 * ei : 2 * ei + 2].T.dot(z.dot(np.conj(edge_flux[2 * ei : 2 * ei + 2])))
             )
 
     if norm_type.startswith("real"):
         if mode is None:
             raise Exception("We need the mode for norm_type='real'")
-        _, _, _, Winv = graph.graph["params"].get("laplacian_constructor", construct_laplacian)(
-            to_complex(mode), graph, with_k=False
-        )
         if len(edge_flux) > 2 * len(graph.edges):
             DIM = 3
         else:
@@ -348,29 +343,55 @@ def mean_on_edges(edge_flux, graph, norm_type="abs", mode=None):
             length = graph.graph["lengths"][ei]
             z = np.zeros([2 * DIM, 2 * DIM], dtype=np.complex128)
             if DIM == 3:
-                w_perp = Ad(2.0 * length * chi).dot(proj_perp(chi))
-                w_paral = np.exp(2.0j * length * norm(chi)) * proj_paral(chi)
+                axis = None
                 if norm_type.endswith("x"):
-                    _z = np.diag([1, 0, 0])
-                elif norm_type.endswith("y"):
-                    _z = np.diag([0, 1, 0])
-                elif norm_type.endswith("z"):
-                    _z = np.diag([0, 0, 1])
-                else:
-                    _z = (
-                        0 * chi.T.dot(w_perp) / norm(chi) ** 2
-                        + w_paral / norm(chi)
-                        - np.eye(3) / norm(chi)
-                    ) / (2.0 * length)
+                    axis = 0
+                if norm_type.endswith("y"):
+                    axis = 1
+                if norm_type.endswith("z"):
+                    axis = 2
+
+                def sol(x):
+                    s_paral = np.exp(1.0j * x * norm(chi)) * proj_paral(chi).dot(
+                        edge_flux[_ext(2 * ei)]
+                    )
+                    s_paral += np.exp(1.0j * (length - x) * norm(chi)) * proj_paral(chi).dot(
+                        edge_flux[_ext(2 * ei + 1)]
+                    )
+                    s_perp = Ad(x * chi).dot(proj_perp(chi)).dot(edge_flux[_ext(2 * ei)])
+                    s_perp += (
+                        Ad((length - x) * chi).dot(proj_perp(chi)).dot(edge_flux[_ext(2 * ei + 1)])
+                    )
+                    s = np.real((s_paral + s_perp) ** 2) / length
+                    # find the equation equivalent to this integration!!!
+                    # return np.linalg.norm(s)
+                    if axis is None:
+                        return np.linalg.norm(s)
+                    return s[axis]
 
             if DIM == 1:
-                _z = Winv[_ext(2 * ei), _ext(2 * ei)].toarray()
 
-            z[_ext(0), _ext(0)] = z[_ext(1), _ext(1)] = _z
+                z[0, 0] = z[1, 1] = (np.exp(2.0j * length * chi) - 1) / (2.0j * length * chi)
+                z[0, 1] = z[1, 0] = np.exp(1.0j * length * chi)
+
+                def sol(x):
+                    return np.real(
+                        (
+                            np.exp(1.0j * x * chi) * edge_flux[2 * ei]
+                            + np.exp(1.0j * (length - x) * chi) * edge_flux[2 * ei + 1]
+                        )
+                        ** 2
+                        / length
+                    )
+
+            import scipy.integrate as integrate
+
+            res = integrate.quad(sol, 0, length)[0]
             mean_edge_solution[ei] = np.real(
-                edge_flux[_ext(2 * ei, shift=2)].T.dot(z.dot(edge_flux[_ext(2 * ei, shift=2)]))
+                edge_flux[_ext(2 * ei, shift=2)].T.dot(z).dot(edge_flux[_ext(2 * ei, shift=2)])
             )
-
+            # print("check:", mean_edge_solution[ei], res)
+            mean_edge_solution[ei] = res
     return mean_edge_solution
 
 

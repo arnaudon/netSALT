@@ -26,21 +26,19 @@ def hat(xi):
     return xi_vec
 
 
-def proj_perp(chi):
+def proj_perp(chi_mat):
     """Perpendicular projection."""
-    return np.eye(3) - proj_paral(chi)
+    return chi_mat.dot(chi_mat.T) / norm(chi_mat) ** 2
 
 
 def proj_paral(chi_mat):
     """Paralell projection."""
-    chi_vec = hat(chi_mat)
-    return np.outer(chi_vec, chi_vec) / np.linalg.norm(chi_vec) ** 2
+    return np.eye(3) - proj_perp(chi_mat)
 
 
 def norm(chi_mat):
     """Norm of chi"""
-    chi_vec = hat(chi_mat)
-    return np.linalg.norm(chi_vec)
+    return np.sqrt(np.trace(0.5 * chi_mat.dot(chi_mat.T)))
 
 
 def Ad(chi_mat):
@@ -74,8 +72,8 @@ def construct_so3_incidence_matrix(graph, abelian_scale=1.0):
         expl = np.array(expl.dot(proj_perp(graph.graph["ks"][ei])), dtype=np.complex128)
         expl += (
             abelian_scale
-            * proj_paral(graph.graph["ks"][ei])
             * np.exp(1.0j * graph.graph["lengths"][ei] * norm(graph.graph["ks"][ei]))
+            * proj_paral(graph.graph["ks"][ei])
         )
 
         B[_ext(2 * ei), _ext(u)] = -one
@@ -117,9 +115,9 @@ def construct_so3_weight_matrix(graph, with_k=True, abelian_scale=1.0):
         chi = graph.graph["ks"][ei]
         length = graph.graph["lengths"][ei]
 
-        w_perp = (Ad(2.0 * length * chi) - np.eye(3)).dot(proj_perp(chi))
-        w_paral = abelian_scale * (np.exp(2.0j * length * norm(chi)) - np.eye(3)) * proj_paral(chi)
-        w = w_perp + w_paral
+        w_perp = Ad(2.0 * length * chi).dot(proj_perp(chi))
+        w_paral = abelian_scale * np.exp(2.0j * length * norm(chi)) * proj_paral(chi)
+        w = w_perp + w_paral - np.eye(3)
 
         winv = linalg.inv(w)
 

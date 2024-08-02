@@ -183,7 +183,7 @@ def update_params_dielectric_constant(graph, params):
         graph (networkx graph): current graph
         params (dict): parameters, must include 'gamma_perp' and 'k_a'
     """
-    params["dielectric_constant"] = [graph[u][v]["dielectric_constant"] for u, v in graph.edges]
+    params["dielectric_constant"] = [graph[u][v].get("dielectric_constant", None) for u, v in graph.edges]
 
 
 def q_value(mode):
