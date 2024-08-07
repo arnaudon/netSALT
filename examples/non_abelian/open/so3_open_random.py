@@ -25,7 +25,7 @@ if __name__ == "__main__":
         "k_min": 5.0,
         "k_max": 7.0,
         "alpha_n": 100,
-        "alpha_min": -0.3,
+        "alpha_min": -0.01,
         "alpha_max": 0.3,
         "c": len(graph.edges) * [1.0],
         "laplacian_constructor": construct_so3_laplacian,
@@ -107,3 +107,24 @@ if __name__ == "__main__":
     plot_single_mode(over_graph, modes_df, 1, norm_type="real_z", ax=plt.gca())
     plt.tight_layout()
     plt.savefig("so3_open_mode_2_z_non.pdf")
+
+    print("lkjlkj")
+    plt.figure(figsize=(5, 3))
+    plot_single_mode(over_graph, modes_df, 10, norm_type="real", ax=plt.gca())
+    plt.tight_layout()
+    plt.savefig("so3_open_mode_3_non.pdf")
+
+    plt.figure(figsize=(5, 3))
+    plot_single_mode(over_graph, modes_df, 10, norm_type="real_x", ax=plt.gca())
+    plt.tight_layout()
+    plt.savefig("so3_open_mode_3_x_non.pdf")
+
+    plt.figure(figsize=(5, 3))
+    plot_single_mode(over_graph, modes_df, 10, norm_type="real_y", ax=plt.gca())
+    plt.tight_layout()
+    plt.savefig("so3_open_mode_3_y_non.pdf")
+
+    plt.figure(figsize=(5, 3))
+    plot_single_mode(over_graph, modes_df, 10, norm_type="real_z", ax=plt.gca())
+    plt.tight_layout()
+    plt.savefig("so3_open_mode_3_z_non.pdf")

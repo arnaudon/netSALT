@@ -35,12 +35,16 @@ if __name__ == "__main__":
     create_quantum_graph(graph, params=params, positions=pos)
 
     chi = np.array([0.0, 0.0, 1.0])
+    random = [np.random.normal(0, 1, 3) for _ in range(len(graph.edges))]
     chis = np.array(len(graph.edges) * [chi])
     for ei, (u, v) in enumerate(graph.edges):
-        if graph[u][v]["length"] > 0.5:
-            graph[u][v]["chi"] = np.array([0.0, 1.0, 0.0])
-        else:
-            graph[u][v]["chi"] = np.array([0.0, 0.0, 1.0])
+        graph[u][v]["chi"] = random[ei]
+        graph[u][v]["chi"] /= np.linalg.norm(graph[u][v]["chi"])
+
+    #        if graph[u][v]["length"] > 0.5:
+    #            graph[u][v]["chi"] = np.array([0.0, 1.0, 0.0])
+    #        else:
+    #            graph[u][v]["chi"] = np.array([0.0, 0.0, 1.0])
 
     ks = np.linspace(5, 7, 2000)
     if not Path("so3_qualities_non_uniform.csv").exists():
@@ -69,43 +73,42 @@ if __name__ == "__main__":
     modes_df.loc[:, "passive"] = modes
     over_graph = oversample_graph(graph, 0.01)
 
-    i = 2
     plt.figure(figsize=(4, 3))
     plot_single_mode(over_graph, modes_df, 1, ax=plt.gca(), norm_type="real")
     plt.tight_layout()
-    plt.savefig(f"so3_close_mode_1_{i}.pdf")
-
-    plt.figure(figsize=(4, 3))
-    plot_single_mode(over_graph, modes_df, 2, ax=plt.gca(), norm_type="real")
-    plt.tight_layout()
-    plt.savefig(f"so3_close_mode_2_{i}.pdf")
+    plt.savefig("so3_close_mode_1.pdf")
 
     plt.figure(figsize=(4, 3))
     plot_single_mode(over_graph, modes_df, 1, ax=plt.gca(), norm_type="real_x")
     plt.tight_layout()
-    plt.savefig(f"so3_close_mode_1_x_{i}.pdf")
-
-    plt.figure(figsize=(4, 3))
-    plot_single_mode(over_graph, modes_df, 2, ax=plt.gca(), norm_type="real_x")
-    plt.tight_layout()
-    plt.savefig(f"so3_close_mode_2_x_{i}.pdf")
+    plt.savefig("so3_close_mode_1_x.pdf")
 
     plt.figure(figsize=(4, 3))
     plot_single_mode(over_graph, modes_df, 1, ax=plt.gca(), norm_type="real_y")
     plt.tight_layout()
-    plt.savefig(f"so3_close_mode_1_y_{i}.pdf")
-
-    plt.figure(figsize=(4, 3))
-    plot_single_mode(over_graph, modes_df, 2, ax=plt.gca(), norm_type="real_y")
-    plt.tight_layout()
-    plt.savefig(f"so3_close_mode_2_y_{i}.pdf")
+    plt.savefig("so3_close_mode_1_y.pdf")
 
     plt.figure(figsize=(4, 3))
     plot_single_mode(over_graph, modes_df, 1, ax=plt.gca(), norm_type="real_z")
     plt.tight_layout()
-    plt.savefig(f"so3_close_mode_1_z_{i}.pdf")
+    plt.savefig("so3_close_mode_1_z.pdf")
+
+    plt.figure(figsize=(4, 3))
+    plot_single_mode(over_graph, modes_df, 2, ax=plt.gca(), norm_type="real")
+    plt.tight_layout()
+    plt.savefig("so3_close_mode_2.pdf")
+
+    plt.figure(figsize=(4, 3))
+    plot_single_mode(over_graph, modes_df, 2, ax=plt.gca(), norm_type="real_x")
+    plt.tight_layout()
+    plt.savefig("so3_close_mode_2_x.pdf")
+
+    plt.figure(figsize=(4, 3))
+    plot_single_mode(over_graph, modes_df, 2, ax=plt.gca(), norm_type="real_y")
+    plt.tight_layout()
+    plt.savefig("so3_close_mode_2_y.pdf")
 
     plt.figure(figsize=(4, 3))
     plot_single_mode(over_graph, modes_df, 2, ax=plt.gca(), norm_type="real_z")
     plt.tight_layout()
-    plt.savefig(f"so3_close_mode_2_z_{i}.pdf")
+    plt.savefig("so3_close_mode_2_z.pdf")

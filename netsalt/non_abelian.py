@@ -55,7 +55,9 @@ def set_so3_wavenumber(graph, wavenumber):
     else:
         if len(np.shape(chis[0])) == 1:
             chis = np.array([hat_inv(chi) for chi in chis])
-    graph.graph["ks"] = chis * wavenumber
+    graph.graph["ks"] = chis * np.real(wavenumber) - np.eye(3) * np.imag(wavenumber)
+    graph.graph["chis"] = chis
+    graph.graph["wavenumber"] = wavenumber
 
 
 def construct_so3_incidence_matrix(graph, abelian_scale=1.0):
@@ -69,11 +71,11 @@ def construct_so3_incidence_matrix(graph, abelian_scale=1.0):
     for ei, (u, v) in enumerate(graph.edges):
         one = np.eye(DIM)
         expl = Ad(graph.graph["lengths"][ei] * graph.graph["ks"][ei])
-        expl = np.array(expl.dot(proj_perp(graph.graph["ks"][ei])), dtype=np.complex128)
+        expl = np.array(expl.dot(proj_perp(graph.graph["chis"][ei])), dtype=np.complex128)
         expl += (
             abelian_scale
-            * np.exp(1.0j * graph.graph["lengths"][ei] * norm(graph.graph["ks"][ei]))
-            * proj_paral(graph.graph["ks"][ei])
+            * np.exp(1.0j * graph.graph["lengths"][ei] * graph.graph["wavenumber"])
+            * proj_paral(graph.graph["chis"][ei])
         )
 
         B[_ext(2 * ei), _ext(u)] = -one
@@ -112,17 +114,22 @@ def construct_so3_weight_matrix(graph, with_k=True, abelian_scale=1.0):
         (len(graph.edges) * 2 * DIM, len(graph.edges) * 2 * DIM), dtype=np.complex128
     )
     for ei, _ in enumerate(graph.edges):
-        chi = graph.graph["ks"][ei]
+        k = graph.graph["ks"][ei]
+        chi = graph.graph["chis"][ei]
         length = graph.graph["lengths"][ei]
 
-        w_perp = Ad(2.0 * length * chi).dot(proj_perp(chi))
-        w_paral = abelian_scale * np.exp(2.0j * length * norm(chi)) * proj_paral(chi)
+        w_perp = Ad(2.0 * length * k).dot(proj_perp(chi))
+        w_paral = (
+            abelian_scale * np.exp(2.0j * length * graph.graph["wavenumber"]) * proj_paral(chi)
+        )
         w = w_perp + w_paral - np.eye(3)
 
         winv = linalg.inv(w)
 
         if with_k:
-            winv = (chi.dot(proj_perp(chi)) + 1.0j * norm(chi) * proj_paral(chi)).dot(winv)
+            winv = (k.dot(proj_perp(chi)) + 1.0j * graph.graph["wavenumber"] * proj_paral(chi)).dot(
+                winv
+            )
 
         Winv[_ext(2 * ei), _ext(2 * ei)] = winv
         Winv[_ext(2 * ei + 1), _ext(2 * ei + 1)] = winv

@@ -58,47 +58,47 @@ if __name__ == "__main__":
 
     modes_df = pd.DataFrame()
     modes_df.loc[:, "passive"] = modes
-    i = 4
     over_graph = oversample_graph(graph, 0.01)
 
     plt.figure(figsize=(4, 3))
     plot_single_mode(over_graph, modes_df, 1, ax=plt.gca(), norm_type="real")
     plt.tight_layout()
-    plt.savefig(f"so3_close_mode_1_uniform_{i}.pdf")
-
-    plt.figure(figsize=(4, 3))
-    plot_single_mode(over_graph, modes_df, 2, ax=plt.gca(), norm_type="real")
-    plt.tight_layout()
-    plt.savefig(f"so3_close_mode_2_uniform_{i}.pdf")
+    plt.savefig("so3_close_mode_1_uniform.pdf")
 
     plt.figure(figsize=(4, 3))
     plot_single_mode(over_graph, modes_df, 1, ax=plt.gca(), norm_type="real_x")
     plt.tight_layout()
-    plt.savefig(f"so3_close_mode_1_x_uniform_{i}.pdf")
-
-    plt.figure(figsize=(4, 3))
-    plot_single_mode(over_graph, modes_df, 2, ax=plt.gca(), norm_type="real_x")
-    plt.tight_layout()
-    plt.savefig(f"so3_close_mode_2_x_uniform_{i}.pdf")
+    plt.savefig("so3_close_mode_1_x_uniform.pdf")
 
     plt.figure(figsize=(4, 3))
     plot_single_mode(over_graph, modes_df, 1, ax=plt.gca(), norm_type="real_y")
     plt.tight_layout()
-    plt.savefig(f"so3_close_mode_1_y_uniform_{i}.pdf")
-
-    plt.figure(figsize=(4, 3))
-    plot_single_mode(over_graph, modes_df, 2, ax=plt.gca(), norm_type="real_y")
-    plt.tight_layout()
-    plt.savefig(f"so3_close_mode_2_y_uniform_{i}.pdf")
+    plt.savefig("so3_close_mode_1_y_uniform.pdf")
 
     plt.figure(figsize=(4, 3))
     plot_single_mode(over_graph, modes_df, 1, ax=plt.gca(), norm_type="real_z")
     plt.tight_layout()
-    plt.savefig(f"so3_close_mode_1_z_uniform_{i}.pdf")
+    plt.savefig("so3_close_mode_1_z_uniform.pdf")
+
+    plt.figure(figsize=(4, 3))
+    plot_single_mode(over_graph, modes_df, 2, ax=plt.gca(), norm_type="real")
+    plt.tight_layout()
+    plt.savefig("so3_close_mode_2_uniform.pdf")
+
+
+    plt.figure(figsize=(4, 3))
+    plot_single_mode(over_graph, modes_df, 2, ax=plt.gca(), norm_type="real_x")
+    plt.tight_layout()
+    plt.savefig("so3_close_mode_2_x_uniform.pdf")
+
+
+    plt.figure(figsize=(4, 3))
+    plot_single_mode(over_graph, modes_df, 2, ax=plt.gca(), norm_type="real_y")
+    plt.tight_layout()
+    plt.savefig("so3_close_mode_2_y_uniform.pdf")
+
 
     plt.figure(figsize=(4, 3))
     plot_single_mode(over_graph, modes_df, 2, ax=plt.gca(), norm_type="real_z")
     plt.tight_layout()
-    plt.savefig(f"so3_close_mode_2_z_uniform_{i}.pdf")
-
-    #plt.show()
+    plt.savefig("so3_close_mode_2_z_uniform.pdf")
