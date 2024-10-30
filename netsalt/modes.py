@@ -281,11 +281,17 @@ def mode_on_nodes(mode, graph):
         )
     # this 1.5 is fairly arbitrary, it is so get similar igenvalues, close to 0, regardless of the
     # choice of quality_threshold, which may pick up other small ones, not 0 if set to large values
-    n_eig = len([1 for a in np.abs(min_eigenvalue) < 1.5 * min(np.abs(min_eigenvalue)) if a])
+    mask = np.logical_or(
+        np.abs(min_eigenvalue) < 1.5 * min(np.abs(min_eigenvalue)),
+        np.abs(min_eigenvalue) < 1e-4,
+    )
+
+    n_eig = len([1 for a in mask if a])
+    print(min_eigenvalue, np.abs(min_eigenvalue))
     if n_eig > 1:
         L.info(f"We found {n_eig} vanishing eigenvalues, we will use the sum of their eigenvectors")
         print(f"We found {n_eig} vanishing eigenvalues, we will use the sum of their eigenvectors")
-    return node_solution[:, np.abs(min_eigenvalue) < 1.5 * min(np.abs(min_eigenvalue))].sum(axis=1)
+    return node_solution[:, mask].sum(axis=1)
 
 
 def flux_on_edges(mode, graph):

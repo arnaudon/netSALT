@@ -48,14 +48,15 @@ def Ad(chi_mat):
 
 def set_so3_wavenumber(graph, wavenumber):
     """Set so3 matrix wavenumber."""
-    chis = [graph[u][v].get("chi", None) for u, v in graph.edges]
+    chis = np.array([graph[u][v].get("chi", None) for u, v in graph.edges])
     if chis[0] is None:
         chi = hat_inv(np.array([0.0, 0.0, 1.0]))
         chis = np.array(len(graph.edges) * [chi])
     else:
         if len(np.shape(chis[0])) == 1:
             chis = np.array([hat_inv(chi) for chi in chis])
-    graph.graph["ks"] = chis * np.real(wavenumber) - np.eye(3) * np.imag(wavenumber)
+    chi_loss = np.array([proj_perp(chi) for chi in chis])
+    graph.graph["ks"] = chis * np.real(wavenumber) - chi_loss * np.imag(wavenumber)
     graph.graph["chis"] = chis
     graph.graph["wavenumber"] = wavenumber
 
@@ -69,14 +70,15 @@ def construct_so3_incidence_matrix(graph, abelian_scale=1.0):
     B = sparse.lil_matrix((len(graph.edges) * 2 * DIM, len(graph) * DIM), dtype=np.complex128)
     BT = sparse.lil_matrix((len(graph) * DIM, len(graph.edges) * 2 * DIM), dtype=np.complex128)
     for ei, (u, v) in enumerate(graph.edges):
+
+        k = graph.graph["ks"][ei]
+        chi = graph.graph["chis"][ei]
+        length = graph.graph["lengths"][ei]
+
         one = np.eye(DIM)
-        expl = Ad(graph.graph["lengths"][ei] * graph.graph["ks"][ei])
-        expl = np.array(expl.dot(proj_perp(graph.graph["chis"][ei])), dtype=np.complex128)
-        expl += (
-            abelian_scale
-            * np.exp(1.0j * graph.graph["lengths"][ei] * graph.graph["wavenumber"])
-            * proj_paral(graph.graph["chis"][ei])
-        )
+        expl = Ad(length * k)
+        expl = np.array(expl.dot(proj_perp(chi)), dtype=np.complex128)
+        expl += abelian_scale * np.exp(1.0j * length * graph.graph["wavenumber"]) * proj_paral(chi)
 
         B[_ext(2 * ei), _ext(u)] = -one
         B[_ext(2 * ei), _ext(v)] = expl
