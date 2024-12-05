@@ -82,8 +82,8 @@ class CreateQuantumGraph(NetSaltTask):
         set_dielectric_constant(quantum_graph, params, custom_values=custom_index)
         set_dispersion_relation(quantum_graph, dispersion_relation_pump)
 
-        quantum_graph = oversample_graph(quantum_graph, params["plot_edgesize"])
         update_parameters(quantum_graph, params)
+        quantum_graph = oversample_graph(quantum_graph, params["plot_edgesize"])
         save_graph(quantum_graph, self.output().path)
 
     def output(self):
