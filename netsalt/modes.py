@@ -9,20 +9,20 @@ import pandas as pd
 import scipy as sc
 from tqdm import tqdm
 
-from .algorithm import (
+from netsalt.algorithm import (
     clean_duplicate_modes,
     find_rough_modes_from_scan,
     refine_mode_brownian_ratchet,
 )
-from .physics import gamma, q_value
-from .quantum_graph import (
+from netsalt.physics import gamma, q_value
+from netsalt.quantum_graph import (
     construct_incidence_matrix,
     construct_laplacian,
     construct_weight_matrix,
-    set_wavenumber,
     mode_quality,
 )
-from .utils import from_complex, get_scan_grid, to_complex
+from netsalt.utils import from_complex, get_scan_grid, to_complex
+from netsalt.non_abelian import norm, Ad, proj_paral, proj_perp
 
 warnings.filterwarnings("ignore")
 warnings.filterwarnings("error", category=np.ComplexWarning)
@@ -187,8 +187,7 @@ def _graph_norm(BT, Bout, Winv, z_matrix, node_solution, mask):
     """Compute the norm of the node solution on the graph."""
     weight_matrix = Winv.dot(z_matrix).dot(Winv)
     inner_matrix = BT.dot(weight_matrix).dot(mask).dot(Bout)
-    norm = node_solution.T.dot(inner_matrix.dot(node_solution))
-    return norm
+    return node_solution.T.dot(inner_matrix.dot(node_solution))
 
 
 def compute_z_matrix(graph):
@@ -264,11 +263,13 @@ def pump_linear(mode_0, graph, D0_0, D0_1):
 
 def mode_on_nodes(mode, graph):
     """Compute the mode solution on the nodes of the graph."""
-    laplacian = construct_laplacian(to_complex(mode), graph)
+    laplacian = graph.graph["params"].get("laplacian_constructor", construct_laplacian)(
+        to_complex(mode), graph
+    )[0]
     min_eigenvalue, node_solution = sc.sparse.linalg.eigs(
-        laplacian, k=1, sigma=0, v0=np.ones(len(graph)), which="LM"
+        laplacian, k=5, sigma=0, v0=np.ones(laplacian.shape[0]), which="LM"
     )
-    quality_thresh = graph.graph["params"].get("quality_threshold", 1e-4)
+    quality_thresh = graph.graph["params"].get("quality_threshold", 1e-2)
     if abs(min_eigenvalue[0]) > quality_thresh:
         raise Exception(
             "Not a mode, as quality is too high: "
@@ -278,44 +279,119 @@ def mode_on_nodes(mode, graph):
             + ", mode: "
             + str(mode)
         )
+    # this 1.5 is fairly arbitrary, it is so get similar igenvalues, close to 0, regardless of the
+    # choice of quality_threshold, which may pick up other small ones, not 0 if set to large values
+    mask = np.logical_or(
+        np.abs(min_eigenvalue) < 1.5 * min(np.abs(min_eigenvalue)),
+        np.abs(min_eigenvalue) < 1e-4,
+    )
 
-    return node_solution[:, 0]
+    n_eig = len([1 for a in mask if a])
+    print(min_eigenvalue, np.abs(min_eigenvalue))
+    if n_eig > 1:
+        L.info(f"We found {n_eig} vanishing eigenvalues, we will use the sum of their eigenvectors")
+        print(f"We found {n_eig} vanishing eigenvalues, we will use the sum of their eigenvectors")
+    return node_solution[:, mask].sum(axis=1)
 
 
 def flux_on_edges(mode, graph):
     """Compute the flux on each edge (in both directions)."""
-
     node_solution = mode_on_nodes(mode, graph)
-
-    _, B = construct_incidence_matrix(graph)
-    Winv = construct_weight_matrix(graph, with_k=False)
-
+    _, _, B, Winv = graph.graph["params"].get("laplacian_constructor", construct_laplacian)(
+        to_complex(mode), graph, with_k=False
+    )
     return Winv.dot(B).dot(node_solution)
 
 
-def mean_mode_on_edges(mode, graph):
-    r"""Compute the average :math:`Real(E^2)` on each edge."""
+def mean_mode_on_edges(mode, graph, norm_type="abs"):
+    r"""Compute the average edge value."""
     edge_flux = flux_on_edges(mode, graph)
+    return mean_on_edges(edge_flux, graph, norm_type=norm_type, mode=mode)
 
+
+def mean_on_edges(edge_flux, graph, norm_type="abs", mode=None):
+    r"""Mean edge values from any edge vector.
+
+    With norm_type='abs', we use \int |u|^2 dx (does not work for non-abelian)
+    With norm_type='real', we use Real \int u^2 dx, needs mode value
+    """
     mean_edge_solution = np.zeros(len(graph.edges))
-    for ei in range(len(graph.edges)):
-        k = 1.0j * graph.graph["ks"][ei]
-        length = graph.graph["lengths"][ei]
-        z = np.zeros([2, 2], dtype=np.complex128)
 
-        if abs(np.real(k)) > 0:  # in case we deal with closed graph, we have 0 / 0
-            z[0, 0] = (np.exp(length * (k + np.conj(k))) - 1.0) / (length * (k + np.conj(k)))
+    if norm_type == "abs":
+        for ei in range(len(graph.edges)):
+            k = 1.0j * graph.graph["ks"][ei]
+            length = graph.graph["lengths"][ei]
+            z = np.zeros([2, 2], dtype=np.complex128)
+
+            if abs(np.real(k)) > 0:  # in case we deal with closed graph, we have 0 / 0
+                z[0, 0] = (np.exp(length * (k + np.conj(k))) - 1.0) / (length * (k + np.conj(k)))
+            else:
+                z[0, 0] = 1.0
+            z[0, 1] = (np.exp(length * k) - np.exp(length * np.conj(k))) / (
+                length * (k - np.conj(k))
+            )
+            z[1, 0] = z[0, 1]
+            z[1, 1] = z[0, 0]
+
+            mean_edge_solution[ei] = np.real(
+                edge_flux[2 * ei : 2 * ei + 2].T.dot(z.dot(np.conj(edge_flux[2 * ei : 2 * ei + 2])))
+            )
+
+    if norm_type.startswith("real"):
+        if mode is None:
+            raise Exception("We need the mode for norm_type='real'")
+        if len(edge_flux) > 2 * len(graph.edges):
+            DIM = 3
         else:
-            z[0, 0] = 1.0
-            z[1, 1] = 1.0
-        z[0, 1] = (np.exp(length * k) - np.exp(length * np.conj(k))) / (length * (k - np.conj(k)))
-        z[1, 0] = z[0, 1]
-        z[1, 1] = z[0, 0]
+            DIM = 1
 
-        mean_edge_solution[ei] = np.abs(
-            edge_flux[2 * ei : 2 * ei + 2].T.dot(z.dot(np.conj(edge_flux[2 * ei : 2 * ei + 2])))
-        )
+        def _ext(i, shift=1):
+            return slice(DIM * i, DIM * (i + shift))
 
+        for ei in range(len(graph.edges)):
+            chi = graph.graph["ks"][ei]
+            length = graph.graph["lengths"][ei]
+            z = np.zeros([2 * DIM, 2 * DIM], dtype=np.complex128)
+            if DIM == 3:
+                axis = None
+                if norm_type.endswith("x"):
+                    axis = 0
+                if norm_type.endswith("y"):
+                    axis = 1
+                if norm_type.endswith("z"):
+                    axis = 2
+
+                def sol(x):
+                    s_paral = np.exp(1.0j * x * norm(chi)) * proj_paral(chi).dot(
+                        edge_flux[_ext(2 * ei)]
+                    )
+                    s_paral += np.exp(1.0j * (length - x) * norm(chi)) * proj_paral(chi).dot(
+                        edge_flux[_ext(2 * ei + 1)]
+                    )
+                    s_perp = Ad(x * chi).dot(proj_perp(chi)).dot(edge_flux[_ext(2 * ei)])
+                    s_perp += (
+                        Ad((length - x) * chi).dot(proj_perp(chi)).dot(edge_flux[_ext(2 * ei + 1)])
+                    )
+                    s = np.real((s_paral + s_perp) ** 2) / length
+                    # find the equation equivalent to this integration!!!
+                    # return np.linalg.norm(s)
+                    if axis is None:
+                        return np.linalg.norm(s)
+                    return s[axis]
+
+                import scipy.integrate as integrate
+
+                res = integrate.quad(sol, 0, length)[0]
+                mean_edge_solution[ei] = res
+
+            if DIM == 1:
+
+                z[0, 0] = z[1, 1] = (np.exp(2.0j * length * chi) - 1) / (2.0j * length * chi)
+                z[0, 1] = z[1, 0] = np.exp(1.0j * length * chi)
+
+                mean_edge_solution[ei] = np.real(
+                    edge_flux[_ext(2 * ei, shift=2)].T.dot(z).dot(edge_flux[_ext(2 * ei, shift=2)])
+                )
     return mean_edge_solution
 
 
@@ -898,19 +974,48 @@ def lasing_threshold_linear(mode, graph, D0):
 
 def get_node_transfer(k, graph, input_flow):
     """Compute node transfer from a given input flow."""
-    return sc.sparse.linalg.spsolve(construct_laplacian(k, graph), graph.graph["ks"] * input_flow)
+    laplacian, BT, _, _ = graph.graph["params"].get("laplacian_constructor", construct_laplacian)(
+        k, graph
+    )
+    bt = np.clip(np.ceil(np.real(BT.toarray())), -1, 0)
+    ks = np.empty(2 * len(graph.graph["ks"]))
+    ks[::2] = graph.graph["ks"]
+    ks[1::2] = graph.graph["ks"]
+    K = bt.dot(ks)
+    return sc.sparse.linalg.spsolve(laplacian, K * input_flow)
 
 
 def get_edge_transfer(k, graph, input_flow):
     """Compute edge transfer from a given input flow."""
-    set_wavenumber(graph, k)
-    BT, B = construct_incidence_matrix(graph)
-    _r = get_node_transfer(k, graph, BT.dot(input_flow))
-    Winv = construct_weight_matrix(graph, with_k=False)
+    laplacian, BT, B, _ = graph.graph["params"].get("laplacian_constructor", construct_laplacian)(
+        k, graph, with_k=True
+    )
+
+    _, _, _, Winv = graph.graph["params"].get("laplacian_constructor", construct_laplacian)(
+        k, graph, with_k=False
+    )
+
+    shape_k = list(np.shape(graph.graph["ks"]))
+
+    if len(shape_k) > 1:
+        ks = np.zeros((6 * shape_k[0], 6 * shape_k[0]), dtype=np.complex)
+        for ei in range(shape_k[0]):
+            k = graph.graph["ks"][ei]
+            ks[2 * 3 * ei : 3 * (2 * ei + 1), 2 * 3 * ei : 3 * (2 * ei + 1)] = k
+            ks[3 * (2 * ei + 1) : 3 * (2 * ei + 2), 3 * (2 * ei + 1) : 3 * (2 * ei + 2)] = k
+    else:
+        shape_k[0] *= 2
+        ks = np.empty(shape_k, dtype=np.complex)
+        ks[::2] = graph.graph["ks"]
+        ks[1::2] = graph.graph["ks"]
+        ks = np.diag(ks)
+
+    _in = BT.dot(ks.dot(input_flow))
+    _r = sc.sparse.linalg.spsolve(laplacian, _in)
     return Winv.dot(B).dot(_r)
 
 
-def estimate_boundary_flow(graph, input_flow, k_frac=1e-2):
+def estimate_boundary_flow(graph, input_flow, k_frac=1e-3):
     """Estimate boundary flow for static simulations.
 
     Arguments:
@@ -926,7 +1031,7 @@ def estimate_boundary_flow(graph, input_flow, k_frac=1e-2):
     )
 
     e_deg = np.array([len(graph[v]) for u, v in graph.edges])
-    output_ids = list(np.argwhere(e_deg == 1).flatten())
+    output_ids = list(2 * np.argwhere(e_deg == 1).flatten())
     output_ids += list(2 * np.argwhere(e_deg == 1).flatten() + 1)
 
     # get the flows on all nodes
