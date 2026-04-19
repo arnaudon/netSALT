@@ -324,12 +324,6 @@ def plot_quantum_graph(
     else:
         nx.draw_networkx_nodes(graph, pos=positions, node_size=node_size, node_color="k")
 
-    # nx.draw_networkx_edges(graph, pos=positions)
-    # for edge labeling:
-    # labels = nx.get_edge_attributes(graph,'edgelabel')
-    # labels = dict([((u, v), i) for i, (u, v) in enumerate(graph.edges())])
-    # nx.draw_networkx_edge_labels(graph, pos=positions, edge_labels=labels)
-
     if edge_colors is not None:
         edge_colors = np.real(edge_colors)
         for ei, e in enumerate(order_edges_by(graph, edge_colors)):

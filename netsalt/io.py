@@ -20,6 +20,7 @@ from typing import Any
 import networkx as nx
 import numpy as np
 import pandas as pd
+from pandas.errors import PerformanceWarning
 
 from . import physics
 from .params import NetSaltParams
@@ -160,9 +161,14 @@ def save_modes(modes_df, filename: str = "results.h5") -> None:
     """Save modes dataframe into hdf5 (fixed format) and a CSV sidecar.
 
     ``format="fixed"`` and ``mode="w"`` are pinned explicitly so the behaviour
-    doesn't silently change across pandas releases.
+    doesn't silently change across pandas releases. The modes dataframe holds
+    complex-valued columns, which pytables stores as pickled objects and
+    warns about on every write; that warning is harmless here, so it's
+    suppressed locally.
     """
-    modes_df.to_hdf(filename, key="modes", format="fixed", mode="w")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", PerformanceWarning)
+        modes_df.to_hdf(filename, key="modes", format="fixed", mode="w")
     modes_df.to_csv(Path(filename).with_suffix(".csv"))
 
 

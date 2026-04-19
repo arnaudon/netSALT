@@ -52,8 +52,8 @@ def to_complex(mode: Any) -> complex:
     Uses the netsalt sign convention ``k_complex = k - j*alpha``. Scalars
     pass through unchanged.
     """
-    if isinstance(mode, complex | float):
-        return mode
+    if isinstance(mode, complex | float | int):
+        return complex(mode)
     return mode[0] - 1.0j * mode[1]
 
 
@@ -89,9 +89,7 @@ def _intersect(x, y):
 
 def _in_box(x, box):
     """Check if x is in the box."""
-    if box[0] < x[0] < box[1] and box[2] < x[1] < box[3]:
-        return True
-    return False
+    return box[0] < x[0] < box[1] and box[2] < x[1] < box[3]
 
 
 def remove_pixel(graph, center, size):

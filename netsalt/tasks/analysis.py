@@ -192,8 +192,7 @@ class PlotScanWithModeTrajectories(NetSaltTask):
         modes_df = load_modes(self.input()["trajectories"].path)
 
         plot_scan(qg, qualities, modes_df, relax_upper=True)
-        plt.tight_layout()
-        plt.savefig(self.output().path)
+        plt.savefig(self.output().path, bbox_inches="tight")
 
     def output(self):
         """ """
@@ -221,8 +220,7 @@ class PlotScanWithThresholdModes(NetSaltTask):
         modes_df = load_modes(self.input()["thresholds"].path)
 
         plot_scan(qg, qualities, modes_df, relax_upper=True, with_approx=False)
-        plt.tight_layout()
-        plt.savefig(self.output().path)
+        plt.savefig(self.output().path, bbox_inches="tight")
 
     def output(self):
         """ """
