@@ -641,10 +641,7 @@ def _find_next_lasing_mode(
                 * sub_mode_comp_matrix_mu_inv.dot(1.0 / lasing_thresholds[lasing_mode_ids])
             )
             _int_thresh = lasing_thresholds[mu] * factor
-            if (
-                _int_thresh > pump_intensity
-                and _int_thresh > modes_df.loc[mu, "lasing_thresholds"].to_list()[0]
-            ):
+            if _int_thresh > pump_intensity and _int_thresh > lasing_thresholds[mu]:
                 interacting_lasing_thresholds[mu] = _int_thresh
 
     next_lasing_mode_id = np.argmin(interacting_lasing_thresholds)
@@ -655,9 +652,9 @@ def _find_next_lasing_mode(
 # pylint: disable=too-many-statements
 def compute_modal_intensities(modes_df, max_pump_intensity, mode_competition_matrix):
     """Compute the modal intensities of the modes up to D0, with D0_steps."""
-    lasing_thresholds = modes_df["lasing_thresholds"]
+    lasing_thresholds = np.asarray(modes_df["lasing_thresholds"]).ravel()
 
-    next_lasing_mode_id = np.argmin(lasing_thresholds)
+    next_lasing_mode_id = int(np.argmin(lasing_thresholds))
     next_lasing_threshold = lasing_thresholds[next_lasing_mode_id]
     L.debug("First lasing mode id: %s", next_lasing_mode_id)
 

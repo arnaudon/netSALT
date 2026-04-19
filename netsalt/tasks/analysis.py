@@ -265,8 +265,10 @@ class PlotThresholdModes(NetSaltTask):
             modes_df = load_modes(self.input()["modes"].path).head(self.n_modes)
         if not Path(self.output().path).exists():
             Path(self.output().path).mkdir()
-        pd.options.mode.use_inf_as_na = True
-        modes_df = modes_df[~modes_df["lasing_thresholds"].isna()]
+        # `use_inf_as_na` was removed in pandas 3.0 — treat +/-inf as missing
+        # explicitly rather than flipping a global option.
+        thresholds = modes_df["lasing_thresholds"].replace([np.inf, -np.inf], np.nan)
+        modes_df = modes_df[~thresholds.isna()]
         plot_modes(
             qg,
             modes_df,

@@ -235,8 +235,11 @@ def plot_scan(
     ax.set_ylabel(r"$\alpha = -Im(k)$")
     if modes_df is not None:
         for index, modes in modes_df.iterrows():
-            k = np.real(modes["passive"][0])
-            alpha = -np.imag(modes["passive"][0])
+            passive = modes["passive"]
+            if hasattr(passive, "iloc"):
+                passive = passive.iloc[0]
+            k = np.real(passive)
+            alpha = -np.imag(passive)
             ax.scatter(k, alpha, marker="+", color="r")
             ax.annotate(index, (k, alpha), size="x-small")
         if "threshold_lasing_modes" in modes_df:

@@ -117,7 +117,10 @@ they are what an "old code" most needs before further work lands on top.
    which silently uses the "fixed" format and overwrites keys. This is the
    kind of thing that breaks on a pandas major bump. Pin `format="table"` (or
    explicitly choose "fixed") and pass `mode="a"` when appending `qualities`
-   to an existing `modes` file, or split the two files.
+   to an existing `modes` file, or split the two files. (Note: pandas 3.0
+   compat landed — `MultiIndex(dtype=…)`, `.iloc` on passive/threshold
+   Series, `use_inf_as_na` removal all fixed. `to_hdf` format pinning is
+   the remaining item here.)
 
 9. **Docs drift.** `tox -e docs` builds Sphinx from `doc/source`, which has
    one `.rst` per module. Several docstrings are stale (`TODO: get rid of

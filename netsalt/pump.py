@@ -263,7 +263,7 @@ def make_threshold_pump(graph, lasing_modes_id, modes_df, pump_min_size=None):
     if len(lasing_modes_id) > 1:
         raise NotImplementedError("Threshold pump is only for single mode at the moment.")
 
-    edge_solution = mean_mode_on_edges(modes_df["passive"][lasing_modes_id[0]], graph)
+    edge_solution = mean_mode_on_edges(modes_df["passive"].iloc[lasing_modes_id[0]], graph)
     inner = np.array([graph[edge[0]][edge[1]]["inner"] for edge in graph.edges], dtype=int)
 
     pump_overlapps = compute_pump_overlapping_matrix(graph, modes_df)
