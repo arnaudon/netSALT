@@ -10,6 +10,7 @@ import networkx as nx
 import numpy as np
 import scipy as sc
 
+from .params import NetSaltParams
 from .physics import update_params_dielectric_constant
 from .utils import to_complex
 
@@ -63,17 +64,20 @@ def _not_equal(data1, data2, force=False):
 
 
 def update_parameters(graph, params, force=False):
-    """Set the parameter dictionary to the graph.
+    """Set the parameter dictionary to the graph, validating via pydantic.
 
-    TODO: improve this implementation
+    Unknown keys are allowed (``NetSaltParams`` uses ``extra="allow"``), but
+    typed fields (``k_min``, ``D0``, …) get validated on assignment so a
+    wrong-type value fails loudly at the seam rather than silently floating
+    through the compute path.
 
     Args:
         graph (graph): quantum graph
-        params (dict): specific parameters to setup the quantum graph (depends on use cases)
-        force (bool): if True, overwrite values for keys in ``warning_params`` that would
-            otherwise be preserved when the graph already has them set.
+        params (dict or NetSaltParams): parameters to merge in.
+        force (bool): if True, overwrite values for keys in ``warning_params``
+            that would otherwise be preserved when the graph already has them.
     """
-    warning_params = [
+    warning_params = {
         "k_min",
         "k_max",
         "k_n",
@@ -84,21 +88,24 @@ def update_parameters(graph, params, force=False):
         "gamma_perp",
         "dielectric_params",
         "edgelabel",
-    ]
+    }
+    validated = NetSaltParams.from_dict(params)
     if "params" not in graph.graph:
-        graph.graph["params"] = params
-    else:
-        for param, value in params.items():
-            if param not in graph.graph["params"]:
-                graph.graph["params"][param] = value
-            elif _not_equal(graph.graph["params"][param], value, force=force):
-                if param in warning_params:
-                    if force:
-                        graph.graph["params"][param] = value
-                    else:
-                        pass
-                else:
-                    graph.graph["params"][param] = value
+        graph.graph["params"] = validated
+        return
+    existing = graph.graph["params"]
+    if not isinstance(existing, NetSaltParams):
+        existing = NetSaltParams.from_dict(existing)
+        graph.graph["params"] = existing
+    for param, value in validated.items():
+        if param not in existing:
+            existing[param] = value
+        elif _not_equal(existing[param], value, force=force):
+            if param in warning_params:
+                if force:
+                    existing[param] = value
+            else:
+                existing[param] = value
 
 
 def get_total_length(graph):

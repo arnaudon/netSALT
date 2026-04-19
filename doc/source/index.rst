@@ -72,6 +72,7 @@ Documentation of the code.
     pump
     plotting
     io
+    params
     utils
 
 Indices and tables

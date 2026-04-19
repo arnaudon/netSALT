@@ -26,7 +26,7 @@ from .netsalt_task import NetSaltTask
 class CreateQuantumGraph(NetSaltTask):
     """Create a quantum graph."""
 
-    graph_path = luigi.Parameter(default="graph.gpickle")
+    graph_path = luigi.Parameter(default="graph.json")
     graph_mode = luigi.ChoiceParameter(default="open", choices=["open", "closed", "custom"])
     inner_total_length = luigi.FloatParameter(default=None)
     max_extent = luigi.FloatParameter(default=None)
@@ -45,7 +45,7 @@ class CreateQuantumGraph(NetSaltTask):
 
     noise_level = luigi.FloatParameter(default=0.001)
 
-    quantum_graph_path = luigi.Parameter(default="out/quantum_graph.gpickle")
+    quantum_graph_path = luigi.Parameter(default="out/quantum_graph.json")
 
     def run(self):
         """ """

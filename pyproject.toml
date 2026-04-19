@@ -27,6 +27,7 @@ dependencies = [
     "scikit-image",
     "tables",
     "pandas>=2.0",
+    "pydantic>=2",
     "tqdm",
     "h5py",
     "numpy",

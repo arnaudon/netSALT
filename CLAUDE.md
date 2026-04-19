@@ -86,12 +86,13 @@ they are what an "old code" most needs before further work lands on top.
    both: scope the filter to the narrowest block that needs it, and use the
    new path (or `warnings.catch_warnings`).
 
-4. **`pickle` for graph I/O (`io.py`, `quantum_graph.py`).** `load_graph`
-   unpickles arbitrary files, which is an arbitrary-code-execution sink if
-   users share `.gpickle` / `.pkl` files. Switch persistent graph storage to
-   a data-only format (GraphML, JSON node-link, or an explicit HDF5 schema
-   for nodes / edges / lengths / params). Keep a pickle fallback for
-   in-process caching if needed, but do not load untrusted pickles.
+4. ~~**`pickle` for graph I/O.**~~ **Done.** `save_graph` / `load_graph`
+   now default to JSON (node-link format) with a custom encoder for numpy
+   arrays, complex numbers, `NetSaltParams`, and registered dispersion
+   relations. Pickle still works on `.pkl`/`.gpickle` filenames but
+   requires an explicit `allow_pickle=True` on load; otherwise the call
+   raises, and save emits a `DeprecationWarning`. Luigi defaults and test
+   fixtures updated to `.json`.
 
 5. ~~**Global `np.random.seed(42)` calls.**~~ **Done.** All `np.random.seed`
    calls in the package are gone. `laplacian_quality`, `mode_quality`,
@@ -103,27 +104,25 @@ they are what an "old code" most needs before further work lands on top.
    under `tests/data/run_simple/out/` were regenerated under the new PCG64
    stream.
 
-6. **`graph.graph["params"]` as a shared mutable dict.** `update_parameters`
-   carries a `TODO: improve this implementation` and `set_wavenumber` has the
-   same note (`quantum_graph.py:67`, `:353`). The mutation in
-   `WorkerModes.set_search_radii` is the kind of bug this invites. Introduce a
-   small typed dataclass (or at minimum a schema + validation) for params, and
-   stop mutating in-place inside workers.
+6. ~~**`graph.graph["params"]` as a shared mutable dict.**~~ **Done.**
+   Replaced with a pydantic `NetSaltParams` model (see `netsalt/params.py`)
+   that keeps full dict-style access (`params["k_min"]`, `params.get(...)`,
+   `"x" in params`) but runs type validation on construction and
+   assignment. Unknown keys remain allowed (`extra="allow"`) so callers
+   can still stash problem-specific knobs. `update_parameters` validates
+   incoming dicts through the model at the graph boundary. The workers
+   still mutate `self.params` in place — that's fine because pydantic
+   validates each assignment, but a follow-up could remove the mutation.
 
 7. **`raise Exception(...)` in `physics.py`.** `dispersion_relation_linear`,
    `_resistance`, `_dielectric` all raise the bare `Exception` class with
    typo'd messages ("Please correct provide…"). Use `ValueError` (or a
    module-specific exception) and fix the strings — these are user-facing.
 
-8. **`pandas.to_hdf` without `format=` / `mode=`.** `io.save_modes` /
-   `save_qualities` write to the same `results.h5` with default settings,
-   which silently uses the "fixed" format and overwrites keys. This is the
-   kind of thing that breaks on a pandas major bump. Pin `format="table"` (or
-   explicitly choose "fixed") and pass `mode="a"` when appending `qualities`
-   to an existing `modes` file, or split the two files. (Note: pandas 3.0
-   compat landed — `MultiIndex(dtype=…)`, `.iloc` on passive/threshold
-   Series, `use_inf_as_na` removal all fixed. `to_hdf` format pinning is
-   the remaining item here.)
+8. ~~**`pandas.to_hdf` without `format=` / `mode=`.**~~ **Done.**
+   `save_modes` pins `format="fixed", mode="w"`; `save_qualities` pins
+   `format="fixed", mode="a"` so it appends rather than silently
+   overwriting the `modes` key.
 
 9. **Docs drift.** `tox -e docs` builds Sphinx from `doc/source`, which has
    one `.rst` per module. Several docstrings are stale (`TODO: get rid of

@@ -41,7 +41,7 @@ def create_graph():
     pos = np.array([[i / (len(graph) - 1), 0] for i in range(len(graph))])
     for n, _pos in zip(graph.nodes, pos):
         graph.nodes[n]["position"] = _pos
-    netsalt.save_graph(graph, "graph.pkl")
+    netsalt.save_graph(graph, "graph.json")
 
     # create the index of refraction profile
     custom_index = len(graph.edges) * [3.0**2]

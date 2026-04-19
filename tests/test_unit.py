@@ -146,6 +146,117 @@ class TestModesImport:
             assert any("sentinel" in str(w.message) for w in caught)
 
 
+class TestNetSaltParams:
+    """Pydantic-backed params model replaces the old dict."""
+
+    def test_dict_style_access(self):
+        from netsalt.params import NetSaltParams
+
+        p = NetSaltParams.from_dict({"k_min": 1.0, "k_max": 2.0, "custom": [1, 2, 3]})
+        assert p["k_min"] == 1.0
+        assert p["custom"] == [1, 2, 3]
+        assert p.get("missing", "DEFAULT") == "DEFAULT"
+        assert "k_min" in p
+        assert "missing" not in p
+
+    def test_assignment_triggers_validation(self):
+        from pydantic import ValidationError
+
+        from netsalt.params import NetSaltParams
+
+        p = NetSaltParams()
+        p["k_min"] = 1.5  # float OK
+        with pytest.raises(ValidationError):
+            p["k_min"] = "not a float"  # rejected at the boundary
+
+    def test_extra_keys_still_allowed(self):
+        from netsalt.params import NetSaltParams
+
+        p = NetSaltParams.from_dict({"problem_specific_knob": 42})
+        assert p["problem_specific_knob"] == 42
+        assert list(p.keys()) == ["problem_specific_knob"]
+
+    def test_from_dict_accepts_none(self):
+        from netsalt.params import NetSaltParams
+
+        p = NetSaltParams.from_dict(None)
+        assert len(list(p.keys())) == 0
+
+    def test_update_parameters_converts_dict(self):
+        """``update_parameters`` should upgrade a bare dict on the graph to
+        a ``NetSaltParams`` instance so subsequent access gets validated."""
+        from netsalt.params import NetSaltParams
+        from netsalt.quantum_graph import update_parameters
+
+        graph = nx.Graph()
+        update_parameters(graph, {"k_min": 1.0})
+        assert isinstance(graph.graph["params"], NetSaltParams)
+        assert graph.graph["params"]["k_min"] == 1.0
+
+
+class TestGraphIO:
+    """JSON graph I/O is safe and round-trips."""
+
+    def test_save_load_round_trip(self, tmp_path):
+        from netsalt.io import load_graph, save_graph
+
+        g = nx.path_graph(3)
+        g.graph["params"] = {"k_min": 1.0, "k_max": 2.0}
+        for n in g.nodes:
+            g.nodes[n]["position"] = np.array([float(n), 0.0])
+        for u, v in g.edges:
+            g[u][v]["dielectric_constant"] = 2.0 + 0.1j
+            g[u][v]["length"] = 1.0
+
+        path = tmp_path / "graph.json"
+        save_graph(g, str(path))
+
+        loaded = load_graph(str(path))
+        assert list(loaded.nodes) == list(g.nodes)
+        assert list(loaded.edges) == list(g.edges)
+        assert loaded.graph["params"]["k_min"] == 1.0
+        assert np.allclose(loaded.nodes[0]["position"], [0.0, 0.0])
+        assert loaded[0][1]["dielectric_constant"] == 2.0 + 0.1j
+
+    def test_load_pickle_refused_by_default(self, tmp_path):
+        """Unpickling is an ACE sink — must be explicit opt-in."""
+        from netsalt.io import load_graph, save_graph
+
+        g = nx.path_graph(3)
+        path = tmp_path / "graph.pkl"
+        with pytest.warns(DeprecationWarning):
+            save_graph(g, str(path))
+
+        with pytest.raises(ValueError, match="pickle"):
+            load_graph(str(path))
+
+        with pytest.warns(DeprecationWarning):
+            loaded = load_graph(str(path), allow_pickle=True)
+        assert list(loaded.nodes) == list(g.nodes)
+
+
+class TestPhysicsPrimitives:
+    """Pure scalar helpers — targets of future regressions."""
+
+    def test_gamma_without_gamma_perp_returns_minus_i(self):
+        from netsalt.physics import gamma
+
+        assert gamma(1.0, {}) == -1.0j
+
+    def test_gamma_peak_at_k_a_is_minus_i(self):
+        from netsalt.physics import gamma
+
+        # gamma(k_a) = gamma_perp / (0 + j*gamma_perp) = -j
+        result = gamma(5.0, {"gamma_perp": 2.0, "k_a": 5.0})
+        assert result == pytest.approx(-1.0j)
+
+    def test_q_value_of_complex_mode(self):
+        from netsalt.physics import q_value
+
+        # q = real / (2 * imag_alpha), with mode = [k, alpha]
+        assert q_value([10.0, 0.5]) == 10.0
+
+
 class TestRngIsolation:
     """Regression: compute functions used to call ``np.random.seed`` which
     mutates the process-wide RNG state."""
