@@ -69,7 +69,8 @@ def update_parameters(graph, params, force=False):
     Args:
         graph (graph): quantum graph
         params (dict): specific parameters to setup the quantum graph (depends on use cases)
-        force (bool): I forgot
+        force (bool): if True, overwrite values for keys in ``warning_params`` that would
+            otherwise be preserved when the graph already has them set.
     """
     warning_params = [
         "k_min",
@@ -130,7 +131,7 @@ def set_total_length(graph, total_length=None, max_extent=None, inner=True, with
         with_position (bool): if True, also rescale node positions
     """
     if total_length is not None and max_extent is not None:
-        raise Exception("only one of total_length or max_extent is allowed")
+        raise ValueError("only one of total_length or max_extent is allowed")
     length_ratio = 1.0
     if total_length is not None:
         if inner:
@@ -358,7 +359,7 @@ def set_inner_edges(graph, params=None, outer_edges=None):
         outer_edges (list): if open_model == custom, pass the list of outer edges.
     """
     if params["open_model"] not in ["open", "closed", "custom", "directed", "directed_reversed"]:
-        raise Exception(f"open_model value not understood:{params['open_model']}")
+        raise ValueError(f"open_model value not understood:{params['open_model']}")
 
     params["inner"] = []
     for ei, (u, v) in enumerate(graph.edges()):

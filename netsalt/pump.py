@@ -260,7 +260,7 @@ def optimize_pump_linear_programming(
 def make_threshold_pump(graph, lasing_modes_id, modes_df, pump_min_size=None):
     """Create a pump profile using edges with most electric field on a mode to optimise cost."""
     if len(lasing_modes_id) > 1:
-        raise Exception("Threshold pump is only for single mode at the moment.")
+        raise NotImplementedError("Threshold pump is only for single mode at the moment.")
 
     edge_solution = mean_mode_on_edges(modes_df["passive"][lasing_modes_id[0]], graph)
     inner = np.array([graph[edge[0]][edge[1]]["inner"] for edge in graph.edges], dtype=int)

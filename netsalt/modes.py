@@ -1,4 +1,5 @@
 """Functions related to modes."""
+import contextlib
 import logging
 import multiprocessing
 import warnings
@@ -8,6 +9,25 @@ import numpy as np
 import pandas as pd
 import scipy as sc
 from tqdm import tqdm
+
+try:
+    from numpy.exceptions import ComplexWarning
+except ImportError:  # NumPy < 1.25
+    from numpy import ComplexWarning
+
+
+@contextlib.contextmanager
+def _scoped_warning_filters():
+    """Suppress noisy warnings and promote ComplexWarning to error, scoped to a block.
+
+    Module-level ``warnings.filterwarnings`` calls leak into the global warning
+    state of every consumer of this library, so filters are applied per-call
+    instead.
+    """
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        warnings.simplefilter("error", category=ComplexWarning)
+        yield
 
 from .algorithm import (
     clean_duplicate_modes,
@@ -23,9 +43,6 @@ from .quantum_graph import (
     mode_quality,
 )
 from .utils import from_complex, get_scan_grid, to_complex
-
-warnings.filterwarnings("ignore")
-warnings.filterwarnings("error", category=np.ComplexWarning)
 
 L = logging.getLogger(__name__)
 
@@ -93,7 +110,9 @@ def scan_frequencies(graph, quality_method="eigenvalue"):
 
     worker_scan = WorkerScan(graph, quality_method=quality_method)
     chunksize = max(1, int(0.1 * len(freqs) / graph.graph["params"]["n_workers"]))
-    with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
+    with _scoped_warning_filters(), multiprocessing.Pool(
+        graph.graph["params"]["n_workers"]
+    ) as pool:
         qualities_list = list(
             tqdm(
                 pool.imap(worker_scan, freqs, chunksize=chunksize),
@@ -113,7 +132,7 @@ def scan_frequencies(graph, quality_method="eigenvalue"):
 
 def _init_dataframe():
     """Initialize multicolumn dataframe."""
-    indexes = pd.MultiIndex(levels=[[], []], codes=[[], []], names=["data", "D0"], dtype=float)
+    indexes = pd.MultiIndex(levels=[[], []], codes=[[], []], names=["data", "D0"])
     return pd.DataFrame(columns=indexes)
 
 
@@ -128,7 +147,9 @@ def find_modes(graph, qualities, quality_method="eigenvalue", min_distance=2, th
     worker_modes = WorkerModes(
         estimated_modes, graph, search_radii=search_radii, quality_method=quality_method
     )
-    with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
+    with _scoped_warning_filters(), multiprocessing.Pool(
+        graph.graph["params"]["n_workers"]
+    ) as pool:
         refined_modes = list(
             tqdm(
                 pool.imap(worker_modes, range(len(estimated_modes))),
@@ -137,7 +158,7 @@ def find_modes(graph, qualities, quality_method="eigenvalue", min_distance=2, th
         )
 
     if len(refined_modes) == 0:
-        raise Exception("No mode found!")
+        raise ValueError("No mode found!")
 
     refined_modes = [refined_mode for refined_mode in refined_modes if refined_mode is not None]
 
@@ -270,7 +291,7 @@ def mode_on_nodes(mode, graph):
     )
     quality_thresh = graph.graph["params"].get("quality_threshold", 1e-4)
     if abs(min_eigenvalue[0]) > quality_thresh:
-        raise Exception(
+        raise ValueError(
             "Not a mode, as quality is too high: "
             + str(abs(min_eigenvalue[0]))
             + " > "
@@ -762,7 +783,9 @@ def pump_trajectories(modes_df, graph, return_approx=False, quality_method="eige
             D0s=n_modes * [D0s[d + 1]],
             quality_method=quality_method,
         )
-        with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
+        with _scoped_warning_filters(), multiprocessing.Pool(
+            graph.graph["params"]["n_workers"]
+        ) as pool:
             pumped_modes.append(list(tqdm(pool.imap(worker_modes, range(n_modes)), total=n_modes)))
         for i, mode in enumerate(pumped_modes[-1]):
             if mode is None:

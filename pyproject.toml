@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "netsalt"
+version = "0.2.0"
+description = "Simulate network lasers on quantum graphs using the SALT approximation."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+authors = [
+    { name = "Alexis Arnaudon", email = "alexis.arnaudon@epfl.ch" },
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Physics",
+]
+dependencies = [
+    "scipy>=1.2.0",
+    "networkx>=2.5",
+    "matplotlib>=3.3.0",
+    "scikit-image",
+    "tables",
+    "pandas<3",
+    "tqdm",
+    "h5py",
+    "numpy",
+    "luigi",
+    "pyyaml",
+    "seaborn",
+    "dir-content-diff",
+    "pulp",
+]
+
+[project.optional-dependencies]
+test = ["mock", "pytest"]
+
+[tool.setuptools.packages.find]
+include = ["netsalt*"]
+
+[tool.black]
+line-length = 100

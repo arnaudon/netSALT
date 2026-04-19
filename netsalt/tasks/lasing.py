@@ -64,7 +64,7 @@ class CreatePumpProfile(NetSaltTask):
             with open(self.custom_pump_path, "r") as yml:
                 pump = yaml.safe_load(yml)
         else:
-            raise Exception("Mode not understood")
+            raise ValueError("Mode not understood")
 
         with open(self.output().path, "w") as yml:
             yaml.safe_dump(pump, yml)

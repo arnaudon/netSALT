@@ -10,14 +10,19 @@ import numpy as np
 import yaml
 
 from dir_content_diff import assert_equal_trees
-import dir_content_diff.pandas
+
+try:
+    # dir-content-diff >= 1.x moved the pandas comparators submodule.
+    from dir_content_diff.comparators import pandas as dir_content_diff_pandas
+except ImportError:  # pragma: no cover - older dir-content-diff
+    import dir_content_diff.pandas as dir_content_diff_pandas
 
 import netsalt
 from netsalt.tasks.workflow import ComputeLasingModes
 
 TEST_ROOT = Path(__file__).parent
 DATA = TEST_ROOT / "data"
-dir_content_diff.pandas.register()
+dir_content_diff_pandas.register()
 
 
 @pytest.fixture(scope="function")
