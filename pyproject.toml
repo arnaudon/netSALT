@@ -58,8 +58,6 @@ ignore = [
     "E501",  # line too long - enforced by the formatter instead
     "E741",  # ambiguous variable name (physics uses l, k, m, etc.)
     "B008",  # function call in default argument (used in luigi tasks)
-    "B905",  # zip without strict= - requires a semantic audit, separate PR
-    "B007",  # unused loop control variable - mostly intentional (indices)
 ]
 
 [tool.ruff.lint.per-file-ignores]

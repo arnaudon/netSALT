@@ -206,7 +206,7 @@ def simplify_graph(graph):
     return nx.convert_node_labels_to_integers(graph)
 
 
-def oversample_graph(graph, edge_size):  # pylint: disable=too-many-locals
+def oversample_graph(graph, edge_size):
     """Oversample a graph by adding points on edges.
 
     Args:
@@ -356,15 +356,19 @@ def construct_weight_matrix(graph, with_k=True):
 
 
 def set_inner_edges(graph, params=None, outer_edges=None):
-    """Set the inner edges to True, according to a given model in params['open_model'].
+    """Set the inner edges based on ``params['open_model']``.
 
-    WARNING: this modifies params, which has to be set to graph with update_parameters
-    TODO: improve implementation along with update_parameters
+    Writes an ``inner`` list into ``params`` and tags each edge with an
+    ``inner`` boolean and an ``edgelabel`` integer. Callers are responsible
+    for persisting ``params`` onto the graph via :func:`update_parameters`
+    afterwards; this is the existing two-step pattern used by
+    :func:`create_quantum_graph`.
 
     Args:
         graph (graph): quantum graph
-        params (dict): has to contain 'open_model' of the form open, closed, custom
-        outer_edges (list): if open_model == custom, pass the list of outer edges.
+        params (dict or NetSaltParams): must contain ``open_model`` as one of
+            ``open``, ``closed``, ``custom``, ``directed``, ``directed_reversed``.
+        outer_edges (list): if ``open_model == "custom"``, list of outer edges.
     """
     if params["open_model"] not in ["open", "closed", "custom", "directed", "directed_reversed"]:
         raise ValueError(f"open_model value not understood:{params['open_model']}")

@@ -49,7 +49,16 @@ def _scoped_warning_filters():
 
 
 class WorkerModes:
-    """Worker to find modes."""
+    """Worker to find modes.
+
+    Note on state: ``self.params`` aliases ``graph.graph["params"]`` and is
+    mutated in place (``D0`` and search-window fields). Several downstream
+    consumers (``mode_on_nodes``, ``pump_linear``, the dispersion relations)
+    read those same fields back off ``graph.graph["params"]`` to reconstruct
+    the laplacian at the right ``D0``. Decoupling that coupling would
+    require carrying ``(mode, D0)`` pairs explicitly through the dataframe
+    — tracked for a follow-up refactor.
+    """
 
     def __init__(
         self,
@@ -75,7 +84,7 @@ class WorkerModes:
         self.params["k_max"] = mode[0] + self.search_radii[0]
         self.params["alpha_min"] = mode[1] - self.search_radii[1]
         self.params["alpha_max"] = mode[1] + self.search_radii[1]
-        # the 0.1 is hardcoded, and seems to be a good value
+        # the 0.1 factor is hardcoded and seems to be a good value
         self.params["search_stepsize"] = 0.1 * np.linalg.norm(self.search_radii)
 
     def __call__(self, mode_id):
@@ -566,7 +575,11 @@ def compute_mode_competition_matrix(graph, modes_df, with_gamma=True):
     with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
         precomp_results = list(
             tqdm(
-                pool.imap(precomp, zip(threshold_modes, lasing_thresholds), chunksize=chunksize),
+                pool.imap(
+                    precomp,
+                    zip(threshold_modes, lasing_thresholds, strict=True),
+                    chunksize=chunksize,
+                ),
                 total=len(lasing_thresholds),
             )
         )
@@ -658,7 +671,6 @@ def _find_next_lasing_mode(
     return next_lasing_mode_id, next_lasing_threshold
 
 
-# pylint: disable=too-many-statements
 def compute_modal_intensities(modes_df, max_pump_intensity, mode_competition_matrix):
     """Compute the modal intensities of the modes up to D0, with D0_steps."""
     lasing_thresholds = np.asarray(modes_df["lasing_thresholds"]).ravel()
@@ -802,13 +814,13 @@ def pump_trajectories(modes_df, graph, return_approx=False, quality_method="eige
 
     if "mode_trajectories" in modes_df:
         del modes_df["mode_trajectories"]
-    for D0, pumped_mode in zip(D0s, pumped_modes):
+    for D0, pumped_mode in zip(D0s, pumped_modes, strict=True):
         modes_df["mode_trajectories", D0] = [to_complex(mode) for mode in pumped_mode]
 
     if return_approx:
         if "mode_trajectories_approx" in modes_df:
             del modes_df["mode_trajectories_approx"]
-        for D0, pumped_mode_approx in zip(D0s, pumped_modes_approx):
+        for D0, pumped_mode_approx in zip(D0s, pumped_modes_approx, strict=True):
             modes_df["mode_trajectories_approx", D0] = [
                 to_complex(mode) for mode in pumped_mode_approx
             ]
@@ -833,7 +845,6 @@ def _get_new_D0(arg, graph=None, D0_steps=0.1):
 
 
 def find_threshold_lasing_modes(modes_df, graph, quality_method="eigenvalue"):
-    # pylint:disable=too-many-statements
     """Find the threshold lasing modes and associated lasing thresholds."""
     stepsize = graph.graph["params"]["search_stepsize"]
     D0_steps = graph.graph["params"]["D0_max"] / graph.graph["params"]["D0_steps"]

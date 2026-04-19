@@ -43,7 +43,7 @@ def plot_graph(graph, positions, ax=None):
 
 if __name__ == "__main__":
 
-    graph = load_graph("graph.gpickle")
+    graph = load_graph("graph.json")
     positions = [graph.nodes[u]["position"] for u in graph]
     plot_graph(graph, positions)
 

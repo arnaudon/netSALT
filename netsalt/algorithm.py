@@ -3,7 +3,7 @@
 import logging
 
 import numpy as np
-from skimage.feature import peak_local_max  # pylint: disable=no-name-in-module
+from skimage.feature import peak_local_max
 
 from .quantum_graph import mode_quality
 

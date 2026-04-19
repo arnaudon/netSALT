@@ -1,7 +1,5 @@
 """Tasks related to lasing."""
 
-import pickle
-
 import luigi
 import numpy as np
 import pandas as pd
@@ -54,8 +52,7 @@ class CreatePumpProfile(NetSaltTask):
             pump = pump.tolist()
 
         elif self.mode == "optimized":
-            with open(self.input()["optimize"].path, "rb") as pkl:
-                results = pickle.load(pkl)
+            results = np.load(self.input()["optimize"].path)
             pump = results["optimal_pump"].tolist()
 
         elif self.mode == "threshold":

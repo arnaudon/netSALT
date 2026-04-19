@@ -54,8 +54,8 @@ Contributors:
 Bibliography
 ************
 
-.. [paper] A. Arnaudon, D. Saxena, R. Sapienza, etc...
-                “Lasing on networks”, In preparation, 2020
+- D. Saxena *et al*, "Sensitivity and spectral control of network lasers",
+  Nat. Commun. 13, 6573 (2022). https://doi.org/10.1038/s41467-022-34073-3
 
 Code documentation
 ******************

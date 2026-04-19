@@ -16,8 +16,6 @@ from netsalt.utils import to_complex
 
 L = logging.getLogger(__name__)
 
-# pylint: disable=too-many-locals,too-many-statements
-
 
 def pump_cost(pump, modes_to_optimise, pump_overlapps, pump_min_size=None, epsilon=0):
     """Cost function to minimize."""
@@ -193,9 +191,12 @@ def optimize_pump_linear_programming(
         prob = pulp.LpProblem("pump optimisation", pulp.LpMinimize)
         prob += m + epsilon * t
 
-        prob += pulp.lpSum([o * Y for o, Y in zip(over_opt, Ys)]) == 1, "constant"
+        prob += pulp.lpSum([o * Y for o, Y in zip(over_opt, Ys, strict=True)]) == 1, "constant"
         for i, over in enumerate(over_others):
-            prob += pulp.lpSum([o * Y for o, Y in zip(over, Ys)]) <= m, f"maximum_{i}"
+            prob += (
+                pulp.lpSum([o * Y for o, Y in zip(over, Ys, strict=True)]) <= m,
+                f"maximum_{i}",
+            )
 
         inner = np.array([graph[edge[0]][edge[1]]["inner"] for edge in graph.edges], dtype=bool)
 

@@ -1,35 +1,37 @@
 """Some utils functions."""
 
+from typing import Any
+
 import networkx as nx
 import numpy as np
 
 
-def linewidth(k, k_center, width):
+def linewidth(k: float | np.ndarray, k_center: float, width: float) -> float | np.ndarray:
     """Linewidth function.
 
     Args:
-        k (float): wavenumber
-        k_center (float): wavenumber for center of linewidth
-        width (float): width of linewidth
+        k: wavenumber
+        k_center: wavenumber for center of linewidth
+        width: width of linewidth
     """
     return width**2 / ((k - k_center) ** 2 + width**2)
 
 
-def lorentzian(k, graph):
+def lorentzian(k: float | np.ndarray, graph: nx.Graph) -> float | np.ndarray:
     """Lorentzian function using linewidth.
 
     Args:
-        k (float): wavenumber
-        graph (graph): graph with linewidth parameters k_a and gamma_perp
+        k: wavenumber
+        graph: graph with linewidth parameters ``k_a`` and ``gamma_perp``
     """
-
     return linewidth(k, graph.graph["params"]["k_a"], graph.graph["params"]["gamma_perp"])
 
 
-def get_scan_grid(graph):
+def get_scan_grid(graph: nx.Graph) -> tuple[np.ndarray, np.ndarray]:
     """Return arrays of values to scan in complex plane from graph parameters.
 
-    graph (graph): graph with wavenumber scan parameters
+    Args:
+        graph: graph with wavenumber scan parameters
     """
     ks = np.linspace(
         graph.graph["params"]["k_min"],
@@ -44,23 +46,25 @@ def get_scan_grid(graph):
     return ks, alphas
 
 
-def to_complex(mode):
-    """Convert mode array to complex number."""
-    if isinstance(mode, (complex, float)):
+def to_complex(mode: Any) -> complex:
+    """Convert a ``(k, alpha)`` pair to a complex number.
+
+    Uses the netsalt sign convention ``k_complex = k - j*alpha``. Scalars
+    pass through unchanged.
+    """
+    if isinstance(mode, complex | float):
         return mode
     return mode[0] - 1.0j * mode[1]
 
 
-def from_complex(freq):
-    """Convert mode array to complex number."""
-    if isinstance(freq, list):
-        return freq
-    if isinstance(freq, np.ndarray):
+def from_complex(freq: Any) -> list[float] | np.ndarray:
+    """Convert a complex wavenumber to the ``[k, alpha]`` pair convention."""
+    if isinstance(freq, list | np.ndarray):
         return freq
     return [np.real(freq), -np.imag(freq)]
 
 
-def order_edges_by(graph, order_by_values):
+def order_edges_by(graph: nx.Graph, order_by_values: list[float]) -> list:
     """Order edges by using values in a list."""
     return [list(graph.edges)[i] for i in np.argsort(order_by_values)]
 
@@ -108,14 +112,14 @@ def remove_pixel(graph, center, size):
     )
     ps = {}
     for box_edge in box_edges:
-        for i, edge in enumerate(graph.edges):
+        for edge in graph.edges:
             p = _intersect(
                 box_edge, [graph.nodes[edge[0]]["position"], graph.nodes[edge[1]]["position"]]
             )
             if p is not None:
                 ps[edge] = p
 
-    for i, edge in enumerate(graph.edges):
+    for edge in graph.edges:
         if _in_box(graph.nodes[edge[0]]["position"], box) and _in_box(
             graph.nodes[edge[1]]["position"], box
         ):
@@ -153,7 +157,7 @@ def _get_line_points(points, angles, t, size):
     """
     all_points = {}
     edge_list = {}
-    for i, (point, angle) in enumerate(zip(points, angles)):
+    for i, (point, angle) in enumerate(zip(points, angles, strict=True)):
         _points = _to_points(point, angle, t, size)
         edge_list[i] = [(i, i + 1) for i in range(len(_points) - 1)]
         all_points[i] = _points
@@ -166,8 +170,8 @@ def _get_intersection_points(points, angles, size):
     For each point, we return a 2-tuple with the point and indices of the intersecting lines.
     """
     intersection_points = []
-    for i, (point1, angle1) in enumerate(zip(points, angles)):
-        for j, (point2, angle2) in enumerate(zip(points[i:], angles[i:])):
+    for i, (point1, angle1) in enumerate(zip(points, angles, strict=True)):
+        for j, (point2, angle2) in enumerate(zip(points[i:], angles[i:], strict=True)):
             x = (
                 point1[1] - point2[1] - np.tan(angle1) * point1[0] + np.tan(angle2) * point2[0]
             ) / (np.tan(angle2) - np.tan(angle1))

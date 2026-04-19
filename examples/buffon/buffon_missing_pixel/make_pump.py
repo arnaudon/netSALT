@@ -10,7 +10,7 @@ from netsalt.io import load_graph
 if __name__ == "__main__":
     mode_id = 1
     threshold =  0.007
-    graph = load_graph("../buffon_uniform_square/out/quantum_graph.gpickle")
+    graph = load_graph("../buffon_uniform_square/out/quantum_graph.json")
     graph.graph["params"]["quality_threshold"] = 1e-3
     modes_df = pd.read_hdf("../buffon_uniform_square/out/passive_modes.h5")
     mode = modes_df.loc[mode_id, "passive"].to_list()[0]

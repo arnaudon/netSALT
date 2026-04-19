@@ -1,6 +1,5 @@
 """Tasks for analysis of results."""
 
-import pickle
 from pathlib import Path
 
 import luigi
@@ -356,8 +355,7 @@ class PlotOptimizedPump(NetSaltTask):
             plt.tight_layout()
             plt.savefig(self.output().path)
         else:
-            with open(self.input()["pump"].path, "rb") as pkl:
-                results = pickle.load(pkl)
+            results = np.load(self.input()["pump"].path)
 
             with PdfPages(self.output().path) as pdf:
                 plot_pump_profile(qg, results["optimal_pump"])

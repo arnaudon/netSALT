@@ -235,6 +235,68 @@ class TestGraphIO:
         assert list(loaded.nodes) == list(g.nodes)
 
 
+class TestComputeCore:
+    """Smoke + structural tests for the compute primitives."""
+
+    def _line_graph(self, n_edges=5, dielectric=4.0):
+        """3-node line graph with unit edge lengths and a constant dispersion."""
+        import netsalt
+        from netsalt.physics import dispersion_relation_dielectric
+        from netsalt.quantum_graph import create_quantum_graph
+
+        g = nx.path_graph(n_edges + 1)
+        positions = np.array([[float(i), 0.0] for i in range(n_edges + 1)])
+        params = {
+            "open_model": "open",
+            "dielectric_params": {
+                "method": "uniform",
+                "inner_value": dielectric,
+                "loss": 0.0,
+                "outer_value": 1.0,
+            },
+            "c": 1.0,
+        }
+        create_quantum_graph(g, params, positions=positions)
+        netsalt.set_dispersion_relation(g, dispersion_relation_dielectric)
+        netsalt.set_dielectric_constant(g, g.graph["params"])
+        return g
+
+    def test_construct_laplacian_is_square(self):
+        from netsalt.quantum_graph import construct_laplacian
+
+        g = self._line_graph(n_edges=4)
+        L = construct_laplacian(1.0 + 0.0j, g)
+        assert L.shape == (len(g), len(g))
+
+    def test_weight_and_incidence_shapes(self):
+        from netsalt.quantum_graph import (
+            construct_incidence_matrix,
+            construct_weight_matrix,
+            set_wavenumber,
+        )
+
+        g = self._line_graph(n_edges=5)
+        set_wavenumber(g, 1.0 + 0.0j)
+        BT, B = construct_incidence_matrix(g)
+        W = construct_weight_matrix(g)
+        n_nodes, n_edges = len(g), len(g.edges)
+        # B rows = 2 * n_edges, cols = n_nodes; BT is the transpose of B.
+        assert B.shape == (2 * n_edges, n_nodes)
+        assert BT.shape == (n_nodes, 2 * n_edges)
+        assert W.shape == (2 * n_edges, 2 * n_edges)
+
+    def test_mode_quality_accepts_generator(self):
+        """Regression: threading an rng through should be deterministic."""
+        from netsalt.quantum_graph import mode_quality
+
+        g = self._line_graph(n_edges=3)
+        rng1 = np.random.default_rng(7)
+        rng2 = np.random.default_rng(7)
+        q1 = mode_quality([2.0, 0.1], g, rng=rng1)
+        q2 = mode_quality([2.0, 0.1], g, rng=rng2)
+        assert q1 == pytest.approx(q2, rel=1e-12)
+
+
 class TestPhysicsPrimitives:
     """Pure scalar helpers — targets of future regressions."""
 

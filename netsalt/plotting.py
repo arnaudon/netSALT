@@ -14,8 +14,6 @@ from tqdm import tqdm
 from .modes import mean_mode_on_edges, mode_on_nodes
 from .utils import get_scan_grid, linewidth, lorentzian, order_edges_by
 
-# pylint: disable=too-many-locals,too-many-arguments
-
 L = logging.getLogger(__name__)
 logging.getLogger("matplotlib").setLevel(logging.INFO)
 
@@ -36,7 +34,7 @@ def get_spectra(graph, modes_df, pump_index=-1, width=0.0005):
     modal_amplitudes = np.real(modes_df["modal_intensities"].iloc[:, pump_index])
     ks = np.linspace(graph.graph["params"]["k_min"], graph.graph["params"]["k_max"], 10000)
     spectra = np.zeros(len(ks))
-    for mode, amplitude in zip(threshold_modes, modal_amplitudes):
+    for mode, amplitude in zip(threshold_modes, modal_amplitudes, strict=True):
         if amplitude > 0:
             spectra += amplitude * linewidth(ks, np.real(mode), width)
     return ks, spectra
@@ -272,7 +270,7 @@ def plot_pump_profile(graph, pump, figsize=(5, 4), ax=None, node_size=1.0, c="0.
         ax = plt.gca()
 
     positions = [graph.nodes[u]["position"] for u in graph]
-    pumped_edges = [e for e, _pump in zip(graph.edges, pump) if _pump > 0.0]
+    pumped_edges = [e for e, _pump in zip(graph.edges, pump, strict=True) if _pump > 0.0]
     nx.draw_networkx_edges(
         graph,
         pos=positions,

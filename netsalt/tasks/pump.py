@@ -1,8 +1,7 @@
 """Tasks for lasing modes."""
 
-import pickle
-
 import luigi
+import numpy as np
 
 from netsalt.io import load_modes
 from netsalt.pump import optimize_pump_diff_evolution, optimize_pump_linear_programming
@@ -31,7 +30,7 @@ class OptimizePump(NetSaltTask):
     eps_max = luigi.FloatParameter(default=10.0)
     eps_n = luigi.IntParameter(default=10)
     cost_diff_min = luigi.FloatParameter(default=1e-4)
-    optimized_pump_path = luigi.Parameter(default="out/optimized_pump.pkl")
+    optimized_pump_path = luigi.Parameter(default="out/optimized_pump.npz")
 
     def requires(self):
         """ """
@@ -68,15 +67,14 @@ class OptimizePump(NetSaltTask):
         else:
             raise ValueError(f"unknown optimisation mode {self.optimisation_mode}")
 
-        results = {
-            "optimal_pump": optimal_pump,
-            "pump_overlapps": pump_overlapps,
-            "costs": costs,
-            "final_cost": final_cost,
-            "lasing_modes_id": self.lasing_modes_id,
-        }
-        with open(self.output().path, "wb") as pkl:
-            pickle.dump(results, pkl)
+        np.savez(
+            self.output().path,
+            optimal_pump=optimal_pump,
+            pump_overlapps=pump_overlapps,
+            costs=np.asarray(costs),
+            final_cost=final_cost,
+            lasing_modes_id=np.asarray(self.lasing_modes_id),
+        )
 
     def output(self):
         """ """

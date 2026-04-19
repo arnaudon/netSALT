@@ -1,6 +1,8 @@
 """All physics-related functions."""
 
 import logging
+from collections.abc import Mapping
+from typing import Any
 
 import numpy as np
 
@@ -9,7 +11,7 @@ from .utils import from_complex
 L = logging.getLogger(__name__)
 
 
-def gamma(freq, params):
+def gamma(freq: Any, params: Mapping[str, Any]) -> Any:
     r"""Gamma function.
 
     The gamma function is

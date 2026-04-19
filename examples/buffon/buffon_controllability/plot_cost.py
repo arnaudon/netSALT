@@ -26,7 +26,7 @@ def _check(mode_id, pump, pump_overlapps):
 
 if __name__ == "__main__":
     n_modes = 100
-    graph = load_graph("buffon_control_LP/out/quantum_graph.gpickle")
+    graph = load_graph("buffon_control_LP/out/quantum_graph.json")
     inner = np.array(graph.graph["params"]["inner"])
 
     df_uni = pd.read_hdf("../buffon_uniform/out/modal_intensities.h5")

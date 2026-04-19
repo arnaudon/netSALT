@@ -7,7 +7,7 @@ mkdir -p figures
 
 cp ../buffon_uniform/out/passive_modes.h5 out/passive_modes.h5
 cp ../buffon_uniform/out/qualities.h5 out/qualities.h5
-cp ../buffon_uniform/out/quantum_graph.gpickle out/quantum_graph.gpickle
+cp ../buffon_uniform/out/quantum_graph.json out/quantum_graph.json
 
 python make_pump.py
 luigi --module netsalt.tasks.workflow ComputeLasingModes --local-scheduler --log-level INFO

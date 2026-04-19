@@ -124,15 +124,45 @@ they are what an "old code" most needs before further work lands on top.
    `format="fixed", mode="a"` so it appends rather than silently
    overwriting the `modes` key.
 
-9. **Docs drift.** `tox -e docs` builds Sphinx from `doc/source`, which has
-   one `.rst` per module. Several docstrings are stale (`TODO: get rid of
-   params`, `force (bool): I forgot` in `update_parameters`). Worth a pass
-   once the API stabilises; until then, fix the "I forgot" placeholder.
+9. ~~**Docs drift.**~~ **Done.** `tox -e docs` builds clean, the stray
+   `[paper]` citation is replaced with the published Nat. Commun.
+   reference, and the stale ``I forgot`` / ``TODO`` placeholders in
+   ``quantum_graph.py`` were updated. ``netsalt/params.py`` has its own
+   `params.rst` in the autodoc tree.
 
-Lower priority but worth flagging: add type hints on the public API in
-`__init__.py`; remove the unused Python-2 `sys` import in `setup.py`; the
-luigi config files in `examples/` reference paths that only work from that
-directory — a one-line note in each README would save users time.
+## Lower-priority items landed
+
+- Example scripts, ``luigi.cfg`` files, and the functional-test fixture
+  all use ``.json``. The lone checked-in ``buffon.gpickle`` was
+  regenerated as ``buffon.json``. ``ComputeControllability`` writes
+  ``.npy`` (via ``np.save``) instead of pickle; the
+  ``ComputeOptimisedPump`` results file is now ``.npz``.
+- Dead ``# pylint: disable=…`` comments removed (pylint isn't in the
+  toolchain anymore).
+- ``B905`` / ``B007`` lint rules are on. All ``zip(...)`` call sites
+  that pair equal-length sequences carry ``strict=True``.
+- ``autoload_range: false`` set in every ``luigi.cfg`` to silence the
+  Luigi deprecation warning.
+- Type hints added to the simpler public helpers (``utils.py``,
+  ``physics.gamma``, ``io.py`` signatures). ``__init__.py`` now has an
+  explicit ``__all__``.
+- New ``TestComputeCore`` unit tests smoke-cover ``construct_laplacian``
+  / ``construct_weight_matrix`` / ``construct_incidence_matrix`` on a
+  fresh line graph, and assert ``mode_quality`` is deterministic given
+  the same ``rng`` seed.
+
+## Known design debt (follow-up PRs)
+
+- ``WorkerModes`` still mutates ``graph.graph["params"]`` in place to
+  stash the current ``D0`` and search window. Downstream consumers
+  (``mode_on_nodes``, ``pump_linear``, the dispersion relations) read
+  those fields back off the graph to reconstruct the laplacian at the
+  right ``D0``, so decoupling requires carrying ``(mode, D0)`` pairs
+  explicitly through the modes dataframe — tracked as architectural
+  debt rather than a quick fix.
+- Compute-core tests are still fairly shallow. Adding a test for
+  ``compute_mode_competition_matrix`` and ``find_threshold_lasing_modes``
+  on a tiny analytic graph would give more regression coverage.
 
 ## Git / branch policy for this repo
 
