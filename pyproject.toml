@@ -39,10 +39,37 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-test = ["mock", "pytest"]
+test = ["mock", "pytest", "pytest-cov"]
 
 [tool.setuptools.packages.find]
 include = ["netsalt*"]
+
+[tool.pytest.ini_options]
+# Coverage is opt-in (pass --cov=netsalt) so the fast default test loop
+# isn't slowed by coverage instrumentation.
+
+[tool.coverage.run]
+source = ["netsalt"]
+# Plotting and the Luigi task graph are end-to-end surfaces covered by
+# the functional test; the interesting correctness surface is the core
+# compute package. Keeping the report focused on that so the number
+# reflects code we actually unit-test.
+omit = [
+    "netsalt/plotting.py",
+    "netsalt/tasks/*",
+]
+
+[tool.coverage.report]
+# Only pragma-marked lines count as "excluded"; everything else we see
+# as uncovered if it didn't execute under the test suite.
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]
+precision = 1
+show_missing = true
+skip_covered = false
 
 [tool.ruff]
 line-length = 100

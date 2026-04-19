@@ -296,6 +296,253 @@ class TestComputeCore:
         q2 = mode_quality([2.0, 0.1], g, rng=rng2)
         assert q1 == pytest.approx(q2, rel=1e-12)
 
+    def test_mode_quality_determinant_path(self):
+        """Exercise the determinant-based quality branch."""
+        from netsalt.quantum_graph import mode_quality
+
+        g = self._line_graph(n_edges=3)
+        q = mode_quality([2.0, 0.1], g, quality_method="determinant")
+        assert q > 0
+
+    def test_mode_quality_singularvalue_path(self):
+        from netsalt.quantum_graph import mode_quality
+
+        g = self._line_graph(n_edges=3)
+        q = mode_quality([2.0, 0.1], g, quality_method="singularvalue")
+        assert q >= 0
+
+    def test_construct_weight_matrix_with_k_flag(self):
+        """``with_k=False`` is the branch used for edge-amplitude calculations."""
+        from netsalt.quantum_graph import construct_weight_matrix, set_wavenumber
+
+        g = self._line_graph(n_edges=4)
+        set_wavenumber(g, 2.0 + 0.1j)
+        W_with_k = construct_weight_matrix(g, with_k=True)
+        W_no_k = construct_weight_matrix(g, with_k=False)
+        # The "with_k" variant multiplies the diagonal by k, so the matrices differ
+        assert not np.allclose(W_with_k.toarray(), W_no_k.toarray())
+
+    def test_set_total_length_rescales(self):
+        """``set_total_length`` should rescale edges to match the target sum."""
+        from netsalt.quantum_graph import get_total_inner_length, set_total_length
+
+        g = self._line_graph(n_edges=5)
+        set_total_length(g, total_length=2.5)
+        assert get_total_inner_length(g) == pytest.approx(2.5, rel=1e-9)
+
+    def test_set_total_length_rejects_both_args(self):
+        from netsalt.quantum_graph import set_total_length
+
+        g = self._line_graph(n_edges=3)
+        with pytest.raises(ValueError, match="only one of"):
+            set_total_length(g, total_length=1.0, max_extent=2.0)
+
+    def test_oversample_graph_adds_nodes(self):
+        """Oversampling with a small edge_size should add intermediate nodes."""
+        from netsalt.quantum_graph import oversample_graph
+
+        g = self._line_graph(n_edges=3)
+        n_before = len(g)
+        g2 = oversample_graph(g, edge_size=0.1)
+        assert len(g2) > n_before
+
+    def test_refine_mode_brownian_ratchet_converges(self):
+        """The refine algorithm should converge to a mode from a nearby guess."""
+        from netsalt.algorithm import refine_mode_brownian_ratchet
+        from netsalt.quantum_graph import mode_quality
+
+        g = self._line_graph(n_edges=4)
+        # Pick an initial mode near a true solution for a dielectric=4 line
+        # graph; the exact location doesn't matter — we just need to check
+        # that the ratchet returns something with a lower quality than the
+        # initial guess.
+        initial = np.array([3.0, 0.05])
+        initial_q = mode_quality(initial, g)
+        params = dict(g.graph["params"])
+        params["quality_threshold"] = 1e-3
+        params["max_steps"] = 500
+        result = refine_mode_brownian_ratchet(
+            initial,
+            g,
+            params,
+            rng=np.random.default_rng(0),
+        )
+        final_q = mode_quality(result, g)
+        assert final_q < initial_q
+
+    def test_mode_on_nodes_returns_node_vector(self):
+        """mode_on_nodes solves the null-space problem on the laplacian."""
+        from netsalt.modes import mode_on_nodes
+
+        g = self._line_graph(n_edges=4)
+        # Loosen the quality gate so any grid point passes — this is a
+        # coverage / shape smoke test, not an accuracy test.
+        g.graph["params"]["quality_threshold"] = 10.0
+        solution = mode_on_nodes([3.0, 0.05], g)
+        assert solution.shape == (len(g),)
+
+    def test_mode_on_nodes_rejects_non_modes(self):
+        """If the quality at the supplied point exceeds the threshold, the
+        function should raise loudly rather than return a bogus vector."""
+        from netsalt.modes import mode_on_nodes
+
+        g = self._line_graph(n_edges=4)
+        g.graph["params"]["quality_threshold"] = 1e-12
+        with pytest.raises(ValueError, match="quality is too high"):
+            mode_on_nodes([3.0, 0.05], g)
+
+    def _pump_graph(self, n_edges=4, dielectric=4.0):
+        """Line graph wired up for pump-dispersion (k_a, gamma_perp, D0, pump)."""
+        import netsalt
+        from netsalt.physics import dispersion_relation_pump
+        from netsalt.quantum_graph import update_parameters
+
+        g = self._line_graph(n_edges=n_edges, dielectric=dielectric)
+        netsalt.set_dispersion_relation(g, dispersion_relation_pump)
+        update_parameters(
+            g,
+            {
+                "k_a": 3.0,
+                "gamma_perp": 1.0,
+                "D0": 0.0,
+                "pump": np.ones(len(g.edges)),
+            },
+        )
+        return g
+
+    def test_flux_and_mean_mode_on_edges(self):
+        """flux_on_edges and mean_mode_on_edges share plumbing with
+        compute_overlapping_factor — one test covers them all."""
+        from netsalt.modes import flux_on_edges, mean_mode_on_edges
+
+        g = self._pump_graph()
+        g.graph["params"]["quality_threshold"] = 10.0
+        mode = [3.0, 0.05]
+        flux = flux_on_edges(mode, g)
+        mean = mean_mode_on_edges(mode, g)
+        assert flux.shape == (2 * len(g.edges),)
+        assert mean.shape == (len(g.edges),)
+
+    def test_compute_overlapping_factor_and_pump_linear(self):
+        """pump_linear depends on compute_overlapping_factor and on gamma()."""
+        from netsalt.modes import compute_overlapping_factor, pump_linear
+
+        g = self._pump_graph()
+        g.graph["params"]["quality_threshold"] = 10.0
+        mode = [3.0, 0.05]
+        overlap = compute_overlapping_factor(mode, g)
+        # Overlap should be a scalar-like complex
+        assert np.ndim(overlap) == 0 or overlap.size == 1
+        new_mode = pump_linear(mode, g, D0_0=0.0, D0_1=0.1)
+        assert len(new_mode) == 2
+
+    def test_compute_overlapping_single_edges(self):
+        """Per-edge overlap vector has one entry per edge."""
+        from netsalt.modes import compute_overlapping_single_edges
+
+        g = self._pump_graph(n_edges=3)
+        g.graph["params"]["quality_threshold"] = 10.0
+        overlap = compute_overlapping_single_edges([3.0, 0.05], g)
+        assert overlap.shape == (len(g.edges),)
+
+    def test_compute_mode_IPR_returns_scalar(self):
+        """IPR is a scalar computed from mode energy integrals."""
+        import pandas as pd
+
+        from netsalt.modes import compute_mode_IPR
+
+        g = self._pump_graph(n_edges=3)
+        g.graph["params"]["quality_threshold"] = 10.0
+        modes_df = pd.DataFrame({"passive": [3.0 - 0.05j]})
+        ipr = compute_mode_IPR(g, modes_df, index=0)
+        assert np.isfinite(ipr)
+
+    def test_gamma_q_value(self):
+        """gamma_q_value = -Q(mode) * Im(gamma(mode, params))."""
+        import pandas as pd
+
+        from netsalt.modes import gamma_q_value
+
+        g = self._pump_graph(n_edges=3)
+        modes_df = pd.DataFrame({"passive": [3.0 - 0.05j]})
+        val = gamma_q_value(g, modes_df, index=0)
+        assert np.isfinite(val)
+
+
+class TestPumpCostAndOverlap:
+    """Exercise ``pump.py`` helpers that don't need a full Luigi pipeline."""
+
+    def _tiny_graph_with_modes(self):
+        """Return a (graph, modes_df) pair ready for pump helpers."""
+        import networkx as nx
+        import pandas as pd
+
+        import netsalt
+        from netsalt.physics import dispersion_relation_dielectric
+        from netsalt.quantum_graph import create_quantum_graph
+
+        g = nx.path_graph(5)
+        positions = np.array([[float(i), 0.0] for i in range(5)])
+        params = {
+            "open_model": "open",
+            "dielectric_params": {
+                "method": "uniform",
+                "inner_value": 4.0,
+                "loss": 0.0,
+                "outer_value": 1.0,
+            },
+            "c": 1.0,
+        }
+        create_quantum_graph(g, params, positions=positions)
+        netsalt.set_dispersion_relation(g, dispersion_relation_dielectric)
+        netsalt.set_dielectric_constant(g, g.graph["params"])
+
+        # A trivially-shaped modes_df with two fake passive modes
+        modes_df = pd.DataFrame({"passive": [2.0 - 0.1j, 3.5 - 0.15j]})
+        return g, modes_df
+
+    def test_pump_cost_penalises_large_overlaps(self):
+        """When optimising mode 0 but pumping mode-1 edges, cost should rise."""
+        from netsalt.pump import pump_cost
+
+        pump = np.array([0, 1])
+        pump_overlapps = np.array([[1.0, 0.0], [0.0, 1.0]])
+        cost_good = pump_cost(
+            np.array([1, 0]), modes_to_optimise=[0], pump_overlapps=pump_overlapps
+        )
+        cost_bad = pump_cost(pump, modes_to_optimise=[0], pump_overlapps=pump_overlapps)
+        # The "bad" pump pumps mode-1 edges when we want mode-0 → infinite cost
+        assert cost_bad > cost_good
+
+
+class TestBuffonAndPixel:
+    """Cover the graph-construction helpers in utils.py."""
+
+    def test_make_buffon_graph_returns_graph(self):
+        from netsalt.utils import make_buffon_graph
+
+        rng = np.random.default_rng(3)
+        graph, pos = make_buffon_graph(n_lines=5, size=(0.0, 1.0), resolution=0.2, rng=rng)
+        # Should produce at least a handful of nodes
+        assert len(graph) > 0
+        assert len(pos) == len(graph) or len(pos) >= len(graph) - 1
+
+    def test_remove_pixel_runs(self):
+        """remove_pixel executes without error and tags every edge with a
+        pump value. Whether the box actually overlaps edges depends on the
+        graph geometry; this test just covers the code path."""
+        import networkx as nx
+
+        from netsalt.utils import remove_pixel
+
+        g = nx.grid_2d_graph(4, 4)
+        g = nx.convert_node_labels_to_integers(g)
+        for i, u in enumerate(g.nodes):
+            g.nodes[u]["position"] = np.array([float(i % 4), float(i // 4)])
+        _, pump = remove_pixel(g, center=(1.5, 1.5), size=1.0)
+        assert len(pump) > 0
+        assert all(p in (0, 1) for p in pump)
+
 
 class TestPhysicsPrimitives:
     """Pure scalar helpers — targets of future regressions."""
