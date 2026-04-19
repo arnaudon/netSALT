@@ -85,21 +85,30 @@ class WorkerModes:
         mode = self.estimated_modes[mode_id]
         if self.search_radii is not None:
             self.set_search_radii(mode)
+        # Derive a per-mode seed so each call has an independent RNG stream
+        # rather than sharing ``self.seed`` across every mode in the pool.
+        rng = np.random.default_rng([self.seed, mode_id])
         return refine_mode_brownian_ratchet(
-            mode, self.graph, self.params, seed=self.seed, quality_method=self.quality_method
+            mode,
+            self.graph,
+            self.params,
+            quality_method=self.quality_method,
+            rng=rng,
         )
 
 
 class WorkerScan:
     """Worker to scan complex frequency."""
 
-    def __init__(self, graph, quality_method="eigenvalue"):
+    def __init__(self, graph, quality_method="eigenvalue", seed=42):
         self.graph = graph
         self.quality_method = quality_method
-        np.random.seed(42)
+        self.rng = np.random.default_rng(seed)
 
     def __call__(self, freq):
-        return mode_quality(to_complex(freq), self.graph, quality_method=self.quality_method)
+        return mode_quality(
+            to_complex(freq), self.graph, quality_method=self.quality_method, rng=self.rng
+        )
 
 
 def scan_frequencies(graph, quality_method="eigenvalue"):
@@ -809,7 +818,6 @@ def pump_trajectories(modes_df, graph, return_approx=False, quality_method="eige
 
 def _get_new_D0(arg, graph=None, D0_steps=0.1):
     """Internal function for multiprocessing."""
-    np.random.seed(42)
     mode_id, new_mode, D0 = arg
     increment = lasing_threshold_linear(new_mode, graph, D0)
     if increment > -D0_steps:

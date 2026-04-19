@@ -240,21 +240,26 @@ def _get_graph(edge_list, all_points, intersection_points):
     return graph, pos
 
 
-def make_buffon_graph(n_lines, size, resolution=1.0):
+def make_buffon_graph(n_lines, size, resolution=1.0, rng=None):
     """Make a buffon graph.
 
     Args:
         n_lines (int): number of lines to draw randomly
         size (2-tuple): min and max extent of the graph (it will be square only)
         resolution (float): distance between each points along lines
+        rng: optional ``numpy.random.Generator`` or seed. If None, a fresh
+            generator with fresh entropy is created. Pass an int or a seeded
+            generator for reproducibility.
 
     Warning: it is not exactly the same graph as in the Nat. Comm. Paper, which was done with
     a matlab code.
     """
+    if not isinstance(rng, np.random.Generator):
+        rng = np.random.default_rng(rng)
     diag = np.sqrt(2) * (size[1] - size[0])
     t = np.arange(-diag, diag, resolution)
-    points = np.random.uniform(size[0], size[1], size=(n_lines, 2))
-    angles = np.random.uniform(0, np.pi, n_lines)
+    points = rng.uniform(size[0], size[1], size=(n_lines, 2))
+    angles = rng.uniform(0, np.pi, n_lines)
 
     edge_list, all_points = _get_line_points(points, angles, t, size)
     intersection_points = _get_intersection_points(points, angles, size)

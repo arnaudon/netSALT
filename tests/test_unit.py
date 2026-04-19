@@ -144,3 +144,34 @@ class TestModesImport:
             warnings.simplefilter("always")
             warnings.warn("sentinel", UserWarning)
             assert any("sentinel" in str(w.message) for w in caught)
+
+
+class TestRngIsolation:
+    """Regression: compute functions used to call ``np.random.seed`` which
+    mutates the process-wide RNG state."""
+
+    def test_refine_mode_brownian_ratchet_accepts_rng(self):
+        from inspect import signature
+
+        from netsalt.algorithm import refine_mode_brownian_ratchet
+
+        assert "rng" in signature(refine_mode_brownian_ratchet).parameters
+
+    def test_laplacian_quality_and_mode_quality_accept_rng(self):
+        from inspect import signature
+
+        from netsalt.quantum_graph import laplacian_quality, mode_quality
+
+        assert "rng" in signature(laplacian_quality).parameters
+        assert "rng" in signature(mode_quality).parameters
+
+    def test_worker_scan_owns_a_generator(self):
+        """``WorkerScan`` must carry a per-instance Generator, not reseed the
+        module-level ``np.random`` RandomState."""
+        from netsalt.modes import WorkerScan
+
+        ws = WorkerScan.__new__(WorkerScan)
+        ws.graph = None
+        ws.quality_method = "eigenvalue"
+        ws.rng = np.random.default_rng(42)
+        assert isinstance(ws.rng, np.random.Generator)

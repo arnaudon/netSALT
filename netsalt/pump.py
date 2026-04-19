@@ -102,7 +102,7 @@ def optimize_pump_diff_evolution(
     Returns:
         optimal_pump, pump_overlapps, costs: best pump, overlapping matrix, all costs from seeds
     """
-    np.random.seed(seed)
+    rng = np.random.default_rng(seed)
 
     if "pump" not in graph.graph["params"]:
         graph.graph["params"]["pump"] = np.ones(len(graph.edges))
@@ -139,7 +139,7 @@ def optimize_pump_diff_evolution(
     with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
         results = list(
             tqdm(
-                pool.imap(_optimizer, np.random.randint(0, 100000, n_seeds)),
+                pool.imap(_optimizer, rng.integers(0, 100000, n_seeds)),
                 total=n_seeds,
             )
         )

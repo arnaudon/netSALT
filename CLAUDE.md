@@ -52,9 +52,10 @@ Luigi workflow driven by `luigi.cfg` files (see `examples/`).
   across processes, but in-process mutation does.
 - `to_complex(mode) == mode[0] - 1j*mode[1]` (note the **minus** sign: alpha is
   stored as `-imag(k)`). Keep this sign convention.
-- RNG: many functions do `np.random.seed(42)` at call time. That is a known
-  footgun (see "Improvements" below) — do not rely on it for reproducibility
-  guarantees when composing calls.
+- RNG: compute functions accept an `rng=` kwarg (a
+  `numpy.random.Generator`). If omitted, a fresh generator with fresh
+  entropy is used. Pass a seeded `np.random.default_rng(seed)` when you
+  need reproducibility.
 
 ## Important improvements to prioritise
 
@@ -92,13 +93,15 @@ they are what an "old code" most needs before further work lands on top.
    for nodes / edges / lengths / params). Keep a pickle fallback for
    in-process caching if needed, but do not load untrusted pickles.
 
-5. **Global `np.random.seed(42)` calls.** `WorkerScan.__init__`,
-   `refine_mode_brownian_ratchet`, `create_quantum_graph`, and others reset
-   the global NumPy RNG. This mutates process-wide state, defeats composition,
-   and is racy under the `multiprocessing.Pool` already in use. Port to
-   per-call `np.random.default_rng(seed)` generators and thread them through
-   explicitly. Related: `np.random.seed` is called inside the worker — every
-   scan point resets the RNG, which is almost certainly not intended.
+5. ~~**Global `np.random.seed(42)` calls.**~~ **Done.** All `np.random.seed`
+   calls in the package are gone. `laplacian_quality`, `mode_quality`,
+   `refine_mode_brownian_ratchet`, `set_dielectric_constant`, and
+   `make_buffon_graph` now accept an `rng` kwarg (a
+   `numpy.random.Generator`); `WorkerScan` / `WorkerModes` own a per-instance
+   `default_rng(seed)` and thread it through. `_verify_lengths` and
+   `optimise_pump` use local generators too. The functional-test fixtures
+   under `tests/data/run_simple/out/` were regenerated under the new PCG64
+   stream.
 
 6. **`graph.graph["params"]` as a shared mutable dict.** `update_parameters`
    carries a `TODO: improve this implementation` and `set_wavenumber` has the

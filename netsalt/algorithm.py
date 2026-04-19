@@ -33,13 +33,12 @@ def refine_mode_brownian_ratchet(
     save_mode_trajectories=False,
     seed=42,
     quality_method="eigenvalue",
+    rng=None,
 ):
     """Accurately find a mode from an initial guess, using brownian ratchet algorithm.
 
     This algorithm is quite complex, but generally randomly propose a move to a new mode location,
     and accept if the quality decreases.
-
-    TODO: get rid of params, or better handling of them, and complete the doc on the small details
 
     Args:
         initial_mode (complex): initial gues for a mode
@@ -48,15 +47,20 @@ def refine_mode_brownian_ratchet(
             reduction_factor
         disp (bool): to print some state of the search for debuing
         save_mode_trajectories (bool): true to save intermediate modes
-        seed (int): seed for rng
+        seed (int): seed used when ``rng`` is None; ignored otherwise.
+        quality_method (str): method for quality evaluation.
+        rng: optional ``numpy.random.Generator``. If None, one is created from
+            ``seed``. Passed through the recursive retry so a re-entry continues
+            from the same RNG stream rather than restarting.
     """
-    np.random.seed(seed)
+    if rng is None:
+        rng = np.random.default_rng(seed)
 
     current_mode = initial_mode.copy()
     if save_mode_trajectories:
         mode_trajectories = [current_mode.copy()]
 
-    initial_quality = mode_quality(current_mode, graph, quality_method=quality_method)
+    initial_quality = mode_quality(current_mode, graph, quality_method=quality_method, rng=rng)
     current_quality = initial_quality
 
     search_stepsize = params.get("search_stepsize", 0.01)
@@ -65,12 +69,11 @@ def refine_mode_brownian_ratchet(
     while current_quality > params.get("quality_threshold", 1e-4) and step_counter < params.get(
         "max_steps", 10000
     ):
-        new_mode = (
-            current_mode
-            + search_stepsize * current_quality / initial_quality * np.random.uniform(-1, 1, 2)
+        new_mode = current_mode + search_stepsize * current_quality / initial_quality * rng.uniform(
+            -1, 1, 2
         )
 
-        new_quality = mode_quality(new_mode, graph, quality_method=quality_method)
+        new_quality = mode_quality(new_mode, graph, quality_method=quality_method, rng=rng)
 
         if disp:
             L.debug(
@@ -119,6 +122,7 @@ def refine_mode_brownian_ratchet(
         disp=disp,
         save_mode_trajectories=save_mode_trajectories,
         quality_method=quality_method,
+        rng=rng,
     )
 
 

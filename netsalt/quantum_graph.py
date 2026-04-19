@@ -42,14 +42,14 @@ def _verify_lengths(graph, seed=42, noise_level=0.001):
     """Add noise to lengths if many edges have equal."""
     if noise_level > 0.0:
         lengths = [graph[u][v]["length"] for u, v in graph.edges]
-        np.random.seed(seed)
+        rng = np.random.default_rng(seed)
         if np.max(np.unique(np.around(lengths, 5), return_counts=True)) > 0.2 * len(graph.edges):
             L.info(
                 """You have more than 20% of edges of the same length,
                 so we add some small noise for safety for the numerics."""
             )
             for u in graph:
-                graph.nodes[u]["position"][0] += np.random.normal(0, noise_level * np.min(lengths))
+                graph.nodes[u]["position"][0] += rng.normal(0, noise_level * np.min(lengths))
             _set_edge_lengths(graph)
 
 
@@ -401,7 +401,7 @@ def _set_edge_lengths(graph, lengths=None):
     graph.graph["lengths"] = np.array([graph[u][v]["length"] for u, v in graph.edges])
 
 
-def laplacian_quality(laplacian, method="eigenvalue"):
+def laplacian_quality(laplacian, method="eigenvalue", rng=None):
     """Return the quality of a mode encoded in the quantum laplacian.
 
     If quality is low, the wavenumber of the laplacian is close to a solution of the quantum graph.
@@ -409,8 +409,13 @@ def laplacian_quality(laplacian, method="eigenvalue"):
     Args:
         laplacian (sparse matrix): laplacian matrix
         method (str): method for quality evaluation (eigenvalue, singular value or determinant)
+        rng: optional ``numpy.random.Generator`` used to draw the ARPACK
+            starting vector. If None, a fresh generator with fresh entropy is
+            created. Pass a seeded generator for reproducibility.
     """
-    v0 = np.random.random(laplacian.shape[0])
+    if rng is None:
+        rng = np.random.default_rng()
+    v0 = rng.random(laplacian.shape[0])
     if method == "eigenvalue":
         try:
             return abs(
@@ -449,13 +454,15 @@ def laplacian_quality(laplacian, method="eigenvalue"):
     return 1.0
 
 
-def mode_quality(mode, graph, quality_method="eigenvalue"):
+def mode_quality(mode, graph, quality_method="eigenvalue", rng=None):
     """Quality of a mode, small means good quality, thus the mode is close to a correct mode.
 
     Args:
         mode (complex): complex mode
         graph (graph): quantum graph
         quality_method (str): method for quality evaluation (eig, singular value or det)
+        rng: optional ``numpy.random.Generator`` threaded to
+            :func:`laplacian_quality` for reproducible results.
     """
     laplacian = construct_laplacian(to_complex(mode), graph)
-    return laplacian_quality(laplacian, method=quality_method)
+    return laplacian_quality(laplacian, method=quality_method, rng=rng)

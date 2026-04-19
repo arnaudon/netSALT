@@ -121,13 +121,15 @@ def dispersion_relation_pump(freq, params=None):
     )
 
 
-def set_dielectric_constant(graph, params, custom_values=None):
+def set_dielectric_constant(graph, params, custom_values=None, rng=None):
     """Set dielectric constant in params, from dielectric constant or refraction index.
 
     Args:
         graph (networkx graph): current graph
         params (dict): parameters
         custom_values (list): custum edge values for dielectric constant
+        rng: optional ``numpy.random.Generator`` used when ``method='random'``.
+            If None, a fresh generator is created.
     """
 
     if "dielectric_params" in params and "refraction_params" in params:
@@ -161,8 +163,10 @@ def set_dielectric_constant(graph, params, custom_values=None):
                 graph[u][v]["dielectric_constant"] = params["dielectric_params"]["outer_value"]
 
     if params["dielectric_params"]["method"] == "random":
+        if rng is None:
+            rng = np.random.default_rng()
         for u, v in graph.edges:
-            graph[u][v]["dielectric_constant"] = np.random.normal(
+            graph[u][v]["dielectric_constant"] = rng.normal(
                 params["dielectric_params"]["mean"],
                 params["dielectric_params"]["std"],
                 1,
