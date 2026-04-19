@@ -43,5 +43,27 @@ test = ["mock", "pytest"]
 [tool.setuptools.packages.find]
 include = ["netsalt*"]
 
-[tool.black]
+[tool.ruff]
 line-length = 100
+target-version = "py310"
+extend-exclude = ["doc", "examples"]
+
+[tool.ruff.lint]
+# Pyflakes (F), pycodestyle errors+warnings (E, W), isort (I), bugbear (B),
+# comprehensions (C4), pyupgrade (UP). Docstring rules (D) stay off for now;
+# the codebase has mixed docstring styles and enforcing them is a separate PR.
+select = ["E", "W", "F", "I", "B", "C4", "UP"]
+ignore = [
+    "E501",  # line too long - enforced by the formatter instead
+    "E741",  # ambiguous variable name (physics uses l, k, m, etc.)
+    "B008",  # function call in default argument (used in luigi tasks)
+    "B905",  # zip without strict= - requires a semantic audit, separate PR
+    "B007",  # unused loop control variable - mostly intentional (indices)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B"]
+"netsalt/__init__.py" = ["F401"]  # re-exports
+
+[tool.ruff.format]
+line-ending = "lf"

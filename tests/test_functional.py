@@ -1,14 +1,14 @@
 """Fuctional test of the workflow."""
 
-import shutil
 import os
+import shutil
 from pathlib import Path
-import pytest
+
 import luigi
 import networkx as nx
 import numpy as np
+import pytest
 import yaml
-
 from dir_content_diff import assert_equal_trees
 
 try:

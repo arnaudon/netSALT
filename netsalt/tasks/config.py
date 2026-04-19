@@ -1,4 +1,5 @@
 """Configuration classes for luigi tasks.."""
+
 import luigi
 
 

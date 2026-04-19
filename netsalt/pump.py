@@ -1,13 +1,14 @@
 """Pump optimisation module."""
+
 import logging
 import multiprocessing
 from functools import partial
 
-import pulp
+import matplotlib.pyplot as plt
 import numpy as np
+import pulp
 from scipy import optimize
 from tqdm import tqdm
-import matplotlib.pyplot as plt
 
 from netsalt.modes import compute_overlapping_single_edges, mean_mode_on_edges
 from netsalt.physics import gamma, q_value

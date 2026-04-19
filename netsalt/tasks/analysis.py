@@ -1,4 +1,5 @@
 """Tasks for analysis of results."""
+
 import pickle
 from pathlib import Path
 

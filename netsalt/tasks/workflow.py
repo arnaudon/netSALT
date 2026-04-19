@@ -1,4 +1,5 @@
 """Main tasks to run entire workflows."""
+
 import pickle
 
 import luigi
@@ -26,9 +27,9 @@ from .analysis import (
 from .lasing import (
     ComputeModalIntensities,
     ComputeModeCompetitionMatrix,
+    ComputeModeTrajectories,
     CreatePumpProfile,
     FindThresholdModes,
-    ComputeModeTrajectories,
 )
 from .netsalt_task import NetSaltTask, NetSaltWrapperTask
 from .passive import FindPassiveModes

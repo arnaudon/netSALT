@@ -1,11 +1,11 @@
 """Tasks for lasing modes."""
+
 import pickle
 
 import luigi
 
 from netsalt.io import load_modes
-from netsalt.pump import optimize_pump_linear_programming
-from netsalt.pump import optimize_pump_diff_evolution
+from netsalt.pump import optimize_pump_diff_evolution, optimize_pump_linear_programming
 
 from .netsalt_task import NetSaltTask
 from .passive import CreateQuantumGraph, FindPassiveModes

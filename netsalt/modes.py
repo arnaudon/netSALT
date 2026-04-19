@@ -1,4 +1,5 @@
 """Functions related to modes."""
+
 import contextlib
 import logging
 import multiprocessing
@@ -15,6 +16,23 @@ try:
 except ImportError:  # NumPy < 1.25
     from numpy import ComplexWarning
 
+from .algorithm import (
+    clean_duplicate_modes,
+    find_rough_modes_from_scan,
+    refine_mode_brownian_ratchet,
+)
+from .physics import gamma, q_value
+from .quantum_graph import (
+    construct_incidence_matrix,
+    construct_laplacian,
+    construct_weight_matrix,
+    mode_quality,
+    set_wavenumber,
+)
+from .utils import from_complex, get_scan_grid, to_complex
+
+L = logging.getLogger(__name__)
+
 
 @contextlib.contextmanager
 def _scoped_warning_filters():
@@ -28,25 +46,6 @@ def _scoped_warning_filters():
         warnings.simplefilter("ignore")
         warnings.simplefilter("error", category=ComplexWarning)
         yield
-
-from .algorithm import (
-    clean_duplicate_modes,
-    find_rough_modes_from_scan,
-    refine_mode_brownian_ratchet,
-)
-from .physics import gamma, q_value
-from .quantum_graph import (
-    construct_incidence_matrix,
-    construct_laplacian,
-    construct_weight_matrix,
-    set_wavenumber,
-    mode_quality,
-)
-from .utils import from_complex, get_scan_grid, to_complex
-
-L = logging.getLogger(__name__)
-
-# pylint: disable=too-many-locals
 
 
 class WorkerModes:
@@ -110,9 +109,10 @@ def scan_frequencies(graph, quality_method="eigenvalue"):
 
     worker_scan = WorkerScan(graph, quality_method=quality_method)
     chunksize = max(1, int(0.1 * len(freqs) / graph.graph["params"]["n_workers"]))
-    with _scoped_warning_filters(), multiprocessing.Pool(
-        graph.graph["params"]["n_workers"]
-    ) as pool:
+    with (
+        _scoped_warning_filters(),
+        multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool,
+    ):
         qualities_list = list(
             tqdm(
                 pool.imap(worker_scan, freqs, chunksize=chunksize),
@@ -147,9 +147,10 @@ def find_modes(graph, qualities, quality_method="eigenvalue", min_distance=2, th
     worker_modes = WorkerModes(
         estimated_modes, graph, search_radii=search_radii, quality_method=quality_method
     )
-    with _scoped_warning_filters(), multiprocessing.Pool(
-        graph.graph["params"]["n_workers"]
-    ) as pool:
+    with (
+        _scoped_warning_filters(),
+        multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool,
+    ):
         refined_modes = list(
             tqdm(
                 pool.imap(worker_modes, range(len(estimated_modes))),
@@ -783,9 +784,10 @@ def pump_trajectories(modes_df, graph, return_approx=False, quality_method="eige
             D0s=n_modes * [D0s[d + 1]],
             quality_method=quality_method,
         )
-        with _scoped_warning_filters(), multiprocessing.Pool(
-            graph.graph["params"]["n_workers"]
-        ) as pool:
+        with (
+            _scoped_warning_filters(),
+            multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool,
+        ):
             pumped_modes.append(list(tqdm(pool.imap(worker_modes, range(n_modes)), total=n_modes)))
         for i, mode in enumerate(pumped_modes[-1]):
             if mode is None:
@@ -844,7 +846,7 @@ def find_threshold_lasing_modes(modes_df, graph, quality_method="eigenvalue"):
             stuck_modes_count += 1
         prev_n_modes = len(current_modes)
         if max_modes > stuck_modes_count > 100:
-            warnings.warn("We stop here, some modes got stuck.")
+            warnings.warn("We stop here, some modes got stuck.", stacklevel=2)
             current_modes = []
             continue
         L.info("%s modes left to find", len(current_modes))

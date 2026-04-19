@@ -1,6 +1,7 @@
 """Some utils functions."""
-import numpy as np
+
 import networkx as nx
+import numpy as np
 
 
 def linewidth(k, k_center, width):

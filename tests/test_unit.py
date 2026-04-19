@@ -4,8 +4,9 @@ These are fast, graph-free tests intended to pin down the load-bearing
 utilities that the rest of the library composes. Extending this file with
 every new bug that slips past the functional test is the point.
 """
-import numpy as np
+
 import networkx as nx
+import numpy as np
 import pytest
 
 from netsalt.algorithm import clean_duplicate_modes

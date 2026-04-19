@@ -1,4 +1,5 @@
 """Generic tasks base don luigi.Task."""
+
 from pathlib import Path
 
 import luigi

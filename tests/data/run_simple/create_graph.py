@@ -1,6 +1,7 @@
+import networkx as nx
 import numpy as np
 import yaml
-import networkx as nx
+
 import netsalt
 
 if __name__ == "__main__":

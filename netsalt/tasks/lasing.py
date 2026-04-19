@@ -1,8 +1,10 @@
 """Tasks related to lasing."""
+
 import pickle
-import pandas as pd
+
 import luigi
 import numpy as np
+import pandas as pd
 import yaml
 
 from netsalt.io import load_modes, save_modes
@@ -13,6 +15,7 @@ from netsalt.modes import (
     pump_trajectories,
 )
 from netsalt.pump import make_threshold_pump
+
 from .config import ModeSearchConfig
 from .netsalt_task import NetSaltTask
 from .passive import CreateQuantumGraph, FindPassiveModes
@@ -61,7 +64,7 @@ class CreatePumpProfile(NetSaltTask):
             pump = make_threshold_pump(qg, self.lasing_modes_id, modes_df)
 
         elif self.mode == "custom":
-            with open(self.custom_pump_path, "r") as yml:
+            with open(self.custom_pump_path) as yml:
                 pump = yaml.safe_load(yml)
         else:
             raise ValueError("Mode not understood")

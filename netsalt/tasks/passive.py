@@ -1,4 +1,5 @@
 """Tasks for passive modes."""
+
 import luigi
 import numpy as np
 import yaml
@@ -14,8 +15,8 @@ from netsalt.quantum_graph import (
     create_quantum_graph,
     oversample_graph,
     set_total_length,
-    update_parameters,
     simplify_graph,
+    update_parameters,
 )
 
 from .config import ModeSearchConfig
@@ -76,7 +77,7 @@ class CreateQuantumGraph(NetSaltTask):
         )
         custom_index = None
         if self.method == "custom":
-            with open(self.custom_index, "r") as yml:
+            with open(self.custom_index) as yml:
                 custom_index = yaml.safe_load(yml)
 
         set_dielectric_constant(quantum_graph, params, custom_values=custom_index)

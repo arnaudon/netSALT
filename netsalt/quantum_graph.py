@@ -3,6 +3,7 @@
 A quantum graph is a networkx graph with additional parameters in graph.graph['param']
 and specific node/edges attributes.
 """
+
 import logging
 
 import networkx as nx

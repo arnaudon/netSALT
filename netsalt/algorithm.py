@@ -1,4 +1,5 @@
 """Search algorighms for mode detections."""
+
 import logging
 
 import numpy as np
