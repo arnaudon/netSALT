@@ -12,6 +12,17 @@ For a buffon-scale simulation (8 000 × 500 = 4 M grid points, ~100
 modes), this is a ~10 000× reduction in ARPACK calls — see the
 comparison in :func:`_benchmark_repr` and the notes in PR #38.
 
+Observations on the buffon_uniform workload (96-node graph,
+``k ∈ [10.35, 11.0]`` × ``α ∈ [0.006, 0.015]``):
+
+* True mode count in the region is ~410 (agrees between a fine
+  ``peak_local_max`` grid and Beyn with tuned subdivision).
+* Grid scan at 2000×250 finds 414 peaks in ~25 min serial.
+* Beyn subdivided (``n_k=130, n_α=2, probe_dim=30, n_quad=80``) finds
+  **406 real modes in 20 s** — ≥ 98 % coverage, ~75× faster than the
+  grid scan, and the returned modes already sit at
+  ``|λ₁| ≲ 1e-10`` so no refinement step is needed.
+
 References
 ----------
 Beyn, "An integral method for solving nonlinear eigenvalue problems",
