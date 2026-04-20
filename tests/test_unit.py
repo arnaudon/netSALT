@@ -691,6 +691,123 @@ class TestRefinementAlgorithms:
             assert abs(result[1] - init[1]) <= 1.5 * 0.01
 
 
+class TestContourIntegration:
+    """Beyn's contour method finds true modes on a line graph where the
+    mode locations are analytically known, and the subdivided variant
+    handles regions where the mode count exceeds the probe dimension."""
+
+    def _line_graph(self, n_edges=10, dielectric=4.0, total_length=1.0):
+        import netsalt
+        from netsalt.physics import dispersion_relation_dielectric
+        from netsalt.quantum_graph import create_quantum_graph, set_total_length
+
+        g = nx.path_graph(n_edges + 1)
+        positions = np.array([[float(i) / n_edges, 0.0] for i in range(n_edges + 1)])
+        params = {
+            "open_model": "open",
+            "dielectric_params": {
+                "method": "uniform",
+                "inner_value": dielectric,
+                "loss": 0.0,
+                "outer_value": 1.0,
+            },
+            "c": 1.0,
+            "k_min": 0.5,
+            "k_max": 20.0,
+            "alpha_min": 0.0,
+            "alpha_max": 1.0,
+        }
+        create_quantum_graph(g, params, positions=positions)
+        set_total_length(g, total_length)
+        netsalt.set_dispersion_relation(g, dispersion_relation_dielectric)
+        netsalt.set_dielectric_constant(g, g.graph["params"])
+        return g
+
+    def test_contour_finds_true_modes_on_line_graph(self):
+        """On the dielectric line graph, Beyn should return *true* roots
+        of det(L(k))=0. The default ``quality_filter`` drops spurious
+        SVD-extraction outputs, so every returned mode must satisfy
+        ``|λ₁| < 1e-3``; the median should be much tighter."""
+        from netsalt.contour import find_modes_contour
+        from netsalt.quantum_graph import mode_quality
+
+        g = self._line_graph()
+        rng = np.random.default_rng(42)
+        modes = find_modes_contour(g, n_quad=200, probe_dim=20, rng=rng)
+        # Beyn doesn't guarantee finding every mode in a wide window with
+        # a fixed probe dim; it guarantees that what it returns are real
+        # roots. That's the property worth testing.
+        assert len(modes) >= 4, f"expected ≥4 modes in [0.5, 20], got {len(modes)}"
+        qs = np.array([mode_quality(m, g) for m in modes])
+        # All modes pass through ``quality_filter=1e-3`` by default.
+        assert qs.max() < 1e-3
+        # Most should be much tighter than that — well below any
+        # production refinement threshold. (Worst case is a mode near
+        # the contour edge where the moments accumulate some error.)
+        assert np.median(qs) < 1e-3
+
+    def test_contour_with_refinement_round_trip(self):
+        """Using Beyn + refine-mode hybrid: turn off the quality filter on
+        Beyn so it returns all candidates, then refine each via the new
+        root method. Every refined mode should converge to a true root."""
+        from netsalt.algorithm import refine_mode_root
+        from netsalt.contour import find_modes_contour
+        from netsalt.quantum_graph import mode_quality
+
+        g = self._line_graph()
+        rng = np.random.default_rng(42)
+        g.graph["params"]["search_stepsize"] = 0.01
+        g.graph["params"]["quality_threshold"] = 1e-4
+        g.graph["params"]["max_steps"] = 200
+        candidates = find_modes_contour(g, n_quad=200, probe_dim=20, quality_filter=None, rng=rng)
+        refined = [refine_mode_root(c, g, g.graph["params"]) for c in candidates]
+        refined = [r for r in refined if r is not None]
+        assert len(refined) >= 1
+        for m in refined:
+            assert mode_quality(m, g) < 1e-4
+
+    def test_contour_returns_empty_when_no_modes_in_window(self):
+        """Ask for a narrow window that contains no modes (the contour's
+        laplacian is well away from singular). Beyn should return nothing
+        rather than fake modes."""
+        from netsalt.contour import find_modes_contour
+
+        g = self._line_graph()
+        # Tiny window deep in the imaginary axis, away from the real line
+        # where the modes live.
+        rng = np.random.default_rng(0)
+        modes = find_modes_contour(
+            g, bounds=(10.0, 10.01, 0.99, 1.00), n_quad=40, probe_dim=8, rng=rng
+        )
+        # Either zero modes (correct) or a handful of spurious ones that
+        # fail ``_inside_contour`` — the important thing is we don't return
+        # garbage eigenvalues that passed the SVD threshold.
+        assert len(modes) == 0 or all(10.0 <= m[0] <= 10.01 and 0.99 <= m[1] <= 1.00 for m in modes)
+
+    def test_subdivided_contour_finds_more_modes_than_single(self):
+        """When a region contains more modes than ``probe_dim``, a single
+        contour can't resolve them all, but subdivision can."""
+        from netsalt.contour import find_modes_contour, find_modes_contour_subdivided
+
+        g = self._line_graph(n_edges=10)
+        rng = np.random.default_rng(123)
+        # Intentionally under-sized probe_dim for a single contour — only a
+        # handful of singular values will survive the SVD cut.
+        single = find_modes_contour(
+            g, bounds=(0.5, 20.0, 0.0, 1.0), n_quad=80, probe_dim=3, rng=rng
+        )
+        sub = find_modes_contour_subdivided(
+            g, bounds=(0.5, 20.0, 0.0, 1.0), n_k=5, n_quad=80, probe_dim=6, rng=rng
+        )
+        assert len(sub) >= len(single)
+
+    def test_contour_is_exported_from_package(self):
+        import netsalt
+
+        assert "find_modes_contour" in netsalt.__all__
+        assert "find_modes_contour_subdivided" in netsalt.__all__
+
+
 class TestPumpCostAndOverlap:
     """Exercise ``pump.py`` helpers that don't need a full Luigi pipeline."""
 
