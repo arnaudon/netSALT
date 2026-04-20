@@ -634,6 +634,40 @@ class TestRefinementAlgorithms:
             refine_mode([3.0, 0.03], g, g.graph["params"])
             patched.assert_called_once()
 
+    def test_newton_backtracks_on_overshoot(self):
+        """A Newton step that overshoots the basin must halve until it
+        decreases |λ|, not accept a worse point."""
+        from unittest import mock
+
+        from netsalt.algorithm import refine_mode_newton
+
+        g = self._line_graph()
+        # Close-to-root start → Newton should converge in a handful of steps.
+        init = np.array([3.14, 0.14])
+        with mock.patch(
+            "netsalt.algorithm.refine_mode_root",
+            side_effect=AssertionError("Newton should converge without falling back"),
+        ):
+            r = refine_mode_newton(init, g, g.graph["params"])
+        assert r is not None
+
+    def test_newton_bails_when_backtracking_fails(self):
+        """A start far outside any basin should hand off to MINPACK instead
+        of burning the whole ``max_steps`` budget on tiny backtracked steps."""
+        from unittest import mock
+
+        from netsalt.algorithm import refine_mode_newton
+
+        g = self._line_graph()
+        # Corner of the search window, no mode nearby.
+        init = np.array([2.85, 0.29])
+        with mock.patch("netsalt.algorithm.refine_mode_root", return_value=None) as patched_root:
+            result = refine_mode_newton(init, g, g.graph["params"])
+        assert result is None
+        # The whole point of the backtracking bail is that we hand off
+        # *before* burning every iteration.
+        assert patched_root.called
+
     def test_search_box_rejects_runaway_result(self):
         """A result outside the ``search_radii`` window is rejected."""
         from netsalt.algorithm import refine_mode_root

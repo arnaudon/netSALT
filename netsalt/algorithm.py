@@ -353,19 +353,26 @@ def _laplacian_derivative_times_vector(graph, v):
 def refine_mode_newton(initial_mode, graph, params, quality_method="eigenvalue", rng=None):
     """Refine a mode via Newton's method using a Hellmann-Feynman derivative.
 
-    ``k_{n+1} = k_n − λ₁(k_n) / (dλ₁/dk)`` where ``dλ₁/dk =
-    (u₁ · dL/dk · v₁) / (u₁ · v₁)``; ``v₁`` is the right eigenvector of
-    ``L(k_n)`` at the smallest eigenvalue, and ``u₁`` is the right
-    eigenvector of ``Lᵀ`` (i.e. the left eigenvector of ``L``).
+    ``k_{n+1} = k_n − α · λ₁(k_n) / (dλ₁/dk)`` where
+    ``dλ₁/dk = (u₁ · dL/dk · v₁) / (u₁ · v₁)``; ``v₁`` is the right
+    eigenvector of ``L(k_n)`` at the smallest eigenvalue and ``u₁`` is the
+    right eigenvector of ``Lᵀ`` (i.e. the left eigenvector of ``L``).
 
-    Falls back to :func:`refine_mode_root` if three consecutive Newton
-    steps fail to decrease ``|λ₁|`` or if a step leaves the search
-    window, so pathological starts that Newton can't handle still
-    converge.
+    The scalar step is accepted via **Armijo backtracking**: try ``α=1``
+    first, then halve it (``0.5``, ``0.25``, …) until
+    ``|λ(k − α·step)| < (1 − c·α)·|λ(k)|`` with ``c = 0.1``. This keeps
+    Newton's quadratic convergence close to the root while preventing
+    full-step overshoots far from the root.
+
+    Falls back to :func:`refine_mode_root` when no α satisfies the Armijo
+    condition after ``max_backtracks`` halvings, or when ``uᵀv ≈ 0`` /
+    ``dλ₁/dk ≈ 0`` / the step leaves the search window.
     """
     del quality_method  # always uses the complex eigenpair
     tol = params.get("quality_threshold", 1e-4)
     max_steps = params.get("max_steps", 50)
+    max_backtracks = 10  # ½^10 ≈ 1e-3 — tiny steps don't help if we're stuck
+    armijo_c = 0.1
     trust_radius = max(
         params.get("search_stepsize", 0.01) * 10,
         tol * 100,
@@ -376,8 +383,6 @@ def refine_mode_newton(initial_mode, graph, params, quality_method="eigenvalue",
 
     x0 = np.asarray(initial_mode, dtype=float)
     mode = x0.copy()
-    prev_abs = np.inf
-    non_decrease = 0
 
     def _finalise(candidate):
         # Hand off to the robust solver if Newton stalls or leaves the box.
@@ -388,10 +393,14 @@ def refine_mode_newton(initial_mode, graph, params, quality_method="eigenvalue",
             return None
         return result
 
+    def _abs_lambda(point):
+        """``|λ₁(L(point))|`` without bothering to compute the eigenvector."""
+        val = mode_quality(point, graph, quality_method="complex_eigenvalue", rng=rng)
+        return abs(val)
+
     for _ in range(int(max_steps)):
         k = to_complex(mode)
         laplacian = construct_laplacian(k, graph)
-        # right eigenpair
         lam_r, v = sc.sparse.linalg.eigs(
             laplacian,
             k=1,
@@ -402,17 +411,11 @@ def refine_mode_newton(initial_mode, graph, params, quality_method="eigenvalue",
         )
         lam = complex(lam_r[0])
         v = v[:, 0]
-        if abs(lam) < tol:
+        current_abs = abs(lam)
+        if current_abs < tol:
             if not _within_search_box(x0, mode, params):
                 return None
             return mode
-        if abs(lam) > prev_abs:
-            non_decrease += 1
-            if non_decrease >= 3:
-                return _finalise(mode)
-        else:
-            non_decrease = 0
-        prev_abs = abs(lam)
 
         # left eigenvector = right eigenvector of Lᵀ
         _, u = sc.sparse.linalg.eigs(
@@ -433,13 +436,36 @@ def refine_mode_newton(initial_mode, graph, params, quality_method="eigenvalue",
         if abs(dlam_dk) < 1e-14:
             return _finalise(mode)
 
-        step = lam / dlam_dk
-        if abs(step) > trust_radius:
-            step = step * trust_radius / abs(step)
-        k_new = k - step
-        mode = np.asarray(from_complex(k_new), dtype=float)
-        if not _within_search_box(x0, mode, params):
+        full_step = lam / dlam_dk
+        if abs(full_step) > trust_radius:
+            full_step = full_step * trust_radius / abs(full_step)
+
+        # Armijo backtracking: find α ∈ {1, ½, ¼, …} with a sufficient decrease.
+        alpha = 1.0
+        accepted = None
+        alpha_min = 2.0**-max_backtracks
+        for _ in range(max_backtracks):
+            k_trial = k - alpha * full_step
+            trial = np.asarray(from_complex(k_trial), dtype=float)
+            if not _within_search_box(x0, trial, params):
+                alpha *= 0.5
+                continue
+            trial_abs = _abs_lambda(trial)
+            # Armijo sufficient-decrease: |λ_new| < (1 − c·α) |λ_old|.
+            if trial_abs < (1.0 - armijo_c * alpha) * current_abs:
+                accepted = trial
+                break
+            alpha *= 0.5
+
+        if accepted is None:
+            # No α along this direction gives a decrease — bail to MINPACK.
             return _finalise(mode)
+        # If backtracking kept shrinking α to near the floor, Newton's
+        # direction isn't useful any more; hand off to MINPACK which does
+        # its own linesearch.
+        if alpha <= alpha_min * 2:
+            return _finalise(accepted)
+        mode = accepted
 
     return _finalise(mode)
 
