@@ -218,8 +218,8 @@ def _get_dielectric_constant_matrix(params):
 
 def _get_mask_matrices(params):
     """Return sparse diagonal matrices of pump and inner edge masks."""
-    in_mask = sc.sparse.diags(_convert_edges(np.array(params["inner"])))
-    pump_mask = sc.sparse.diags(_convert_edges(params["pump"])).dot(in_mask)
+    in_mask = sc.sparse.diags(_convert_edges(np.asarray(params["inner"])))
+    pump_mask = sc.sparse.diags(_convert_edges(np.asarray(params["pump"]))).dot(in_mask)
     return in_mask, pump_mask
 
 

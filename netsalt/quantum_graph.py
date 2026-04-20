@@ -297,36 +297,62 @@ def set_wavenumber(graph, wavenumber):
     graph.graph["ks"] = graph.graph["dispersion_relation"](wavenumber, params=graph.graph["params"])
 
 
+def _incidence_topology(graph):
+    """Precompute the k-independent arrays used by ``construct_incidence_matrix``.
+
+    Row / column indices, node degrees, and the open-model boundary mask
+    depend only on the graph topology and ``params["open_model"]`` — not on
+    the wavenumber. The inner loop of :func:`scan_frequencies` and the
+    Brownian-ratchet refinement reconstruct these arrays tens of thousands
+    of times per run; caching them on ``graph.graph["_incidence_topology"]``
+    removes that overhead.
+    """
+    m = len(graph.edges)
+    edges = list(graph.edges)
+    row = np.repeat(np.arange(2 * m), 2)
+    col = np.repeat(edges, 2, axis=0).flatten()
+    deg_u = np.array([len(graph[e[0]]) for e in edges])
+    deg_v = np.array([len(graph[e[1]]) for e in edges])
+    topology = {
+        "row": row,
+        "col": col,
+        "open_mask": np.logical_or(deg_u == 1, deg_v == 1),
+        "m": m,
+        "n": len(graph.nodes),
+    }
+    graph.graph["_incidence_topology"] = topology
+    return topology
+
+
 def construct_incidence_matrix(graph):
     """Construct the quantum incidence matrix B(k).
 
     Args:
         graph (graph): quantum graph
     """
-    row = np.repeat(np.arange(len(graph.edges) * 2), 2)
-    col = np.repeat(graph.edges, 2, axis=0).flatten()
+    topo = graph.graph.get("_incidence_topology")
+    if topo is None or topo["m"] != len(graph.edges):
+        topo = _incidence_topology(graph)
+    m, n = topo["m"], topo["n"]
+    row, col = topo["row"], topo["col"]
+
     expl = np.exp(1.0j * graph.graph["lengths"] * graph.graph["ks"])
-    ones = np.ones(len(graph.edges))
-
+    ones = np.ones(m)
     data = np.dstack([-ones, expl, expl, -ones])[0].flatten()
-
-    deg_u = np.array([len(graph[e[0]]) for e in graph.edges])
-    deg_v = np.array([len(graph[e[1]]) for e in graph.edges])
-
     data_out = data.copy()
-    if graph.graph["params"]["open_model"] == "open":
-        mask = np.logical_or(deg_u == 1, deg_v == 1)
+
+    open_model = graph.graph["params"]["open_model"]
+    if open_model == "open":
+        mask = topo["open_mask"]
         data_out[1::4][mask] = 0
         data_out[2::4][mask] = 0
-    if graph.graph["params"]["open_model"] == "directed":
+    elif open_model == "directed":
         data_out[2::4] = 0
         data_out[3::4] = 0
-    if graph.graph["params"]["open_model"] == "directed_reversed":
+    elif open_model == "directed_reversed":
         data[2::4] = 0
         data[3::4] = 0
 
-    m = len(graph.edges)
-    n = len(graph.nodes)
     BT = sc.sparse.csr_matrix((data_out, (col, row)), shape=(n, 2 * m), dtype=np.complex128)
     B = sc.sparse.csr_matrix((data, (row, col)), shape=(2 * m, n), dtype=np.complex128)
     return BT, B
@@ -341,18 +367,14 @@ def construct_weight_matrix(graph, with_k=True):
         graph (graph): quantum graph
         with_k (bool): multiplies or not the laplacian by k
     """
-    data_tmp = np.zeros(len(graph.edges), dtype=np.complex128)
     data_tmp = 1.0 / (np.exp(2.0j * graph.graph["lengths"] * graph.graph["ks"]) - 1.0)
-    if any(data_tmp > 1e5):
+    if (data_tmp > 1e5).any():
         L.info("Large values in Winv, it may not work!")
     if with_k:
         data_tmp *= graph.graph["ks"]
 
-    row = np.arange(len(graph.edges) * 2)
-    data = np.repeat(data_tmp, 2)
-
-    m = len(graph.edges)
-    return sc.sparse.csc_matrix((data, (row, row)), shape=(2 * m, 2 * m), dtype=np.complex128)
+    # W^{-1} is diagonal; skip the general COO → CSR path.
+    return sc.sparse.diags(np.repeat(data_tmp, 2), format="csc", dtype=np.complex128)
 
 
 def set_inner_edges(graph, params=None, outer_edges=None):

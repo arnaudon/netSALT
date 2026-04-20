@@ -87,7 +87,7 @@ def dispersion_relation_dielectric(freq, params=None):
     """
     if not params:
         raise ValueError("Please provide dispersion parameters")
-    return freq * np.array(np.sqrt(params["dielectric_constant"])) / params.get("c", 1.0)
+    return freq * np.sqrt(np.asarray(params["dielectric_constant"])) / params.get("c", 1.0)
 
 
 def dispersion_relation_pump(freq, params=None):
@@ -114,12 +114,13 @@ def dispersion_relation_pump(freq, params=None):
     if not params:
         raise ValueError("Please provide dispersion parameters")
 
+    dielectric = np.asarray(params["dielectric_constant"])
+    c = params.get("c", 1.0)
     if "pump" not in params or "D0" not in params:
-        return freq * np.array(np.sqrt(params["dielectric_constant"])) / params.get("c", 1.0)
+        return freq * np.sqrt(dielectric) / c
 
     return freq * np.sqrt(
-        np.array(params["dielectric_constant"]) / params.get("c", 1.0)
-        + gamma(freq, params) * params["D0"] * params["pump"]
+        dielectric / c + gamma(freq, params) * params["D0"] * np.asarray(params["pump"])
     )
 
 
@@ -186,11 +187,17 @@ def set_dielectric_constant(graph, params, custom_values=None, rng=None):
 def update_params_dielectric_constant(graph, params):
     """Update the dielectric constant values in the params dictionary.
 
+    Stored as a ``numpy.ndarray`` so callers in the hot path (the
+    dispersion relations) don't pay a list-to-array conversion on every
+    ``mode_quality`` evaluation.
+
     Args:
         graph (networkx graph): current graph
         params (dict): parameters, must include 'gamma_perp' and 'k_a'
     """
-    params["dielectric_constant"] = [graph[u][v]["dielectric_constant"] for u, v in graph.edges]
+    params["dielectric_constant"] = np.asarray(
+        [graph[u][v]["dielectric_constant"] for u, v in graph.edges]
+    )
 
 
 def q_value(mode):
