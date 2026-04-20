@@ -15,13 +15,25 @@ comparison in :func:`_benchmark_repr` and the notes in PR #38.
 Observations on the buffon_uniform workload (96-node graph,
 ``k ∈ [10.35, 11.0]`` × ``α ∈ [0.006, 0.015]``):
 
-* True mode count in the region is ~410 (agrees between a fine
-  ``peak_local_max`` grid and Beyn with tuned subdivision).
-* Grid scan at 2000×250 finds 414 peaks in ~25 min serial.
+* True mode count in the region is ~454 (found by Beyn with tuned
+  subdivision; the grid scan at 2000×250 finds only 414 because the
+  ``peak_local_max`` filter merges modes within ``min_distance=2``
+  pixels — it undercounts).
+* Grid scan at 2000×250: 414 peaks in ~25 min serial.
 * Beyn subdivided (``n_k=130, n_α=2, probe_dim=30, n_quad=80``) finds
-  **406 real modes in 20 s** — ≥ 98 % coverage, ~75× faster than the
-  grid scan, and the returned modes already sit at
-  ``|λ₁| ≲ 1e-10`` so no refinement step is needed.
+  **454 real modes in ~30 s**, 100 % at ``|λ₁| ≤ 1e-7``. No refinement
+  step is needed.
+
+Close-mode separation
+---------------------
+Beyn's SVD resolves close modes cleanly as long as ``probe_dim`` exceeds
+the number of modes inside the contour. On a dense line graph with
+mode spacing ``π/20 ≈ 0.157``, seven consecutive modes in a single
+contour come out at quality ``1e-12``–``1e-14`` each — see
+``test_contour_separates_closely_spaced_modes``. When ``probe_dim``
+approaches the mode count, precision degrades (1e-5 instead of 1e-12)
+but the modes stay separated; subdivide the contour to recover
+precision.
 
 References
 ----------
@@ -46,16 +58,22 @@ def _elliptical_contour(
     k_min: float, k_max: float, alpha_min: float, alpha_max: float, n_quad: int
 ) -> tuple[np.ndarray, np.ndarray]:
     """Return complex quadrature nodes ``z_j`` and weighted derivatives ``w_j``
-    on an ellipse encircling the scan rectangle.
+    on an ellipse that **circumscribes** the scan rectangle.
 
     The netsalt sign convention stores a mode as ``[Re(k), -Im(k)]`` (i.e.
     ``k_complex = Re(k) - j·alpha``), so the contour lives in the lower
-    half-plane when ``alpha > 0``. The ellipse is inflated by a small
-    buffer factor so quadrature nodes don't sit exactly on a mode.
+    half-plane when ``alpha > 0``. The ellipse half-axes are ``√2`` times
+    the rectangle half-widths — that's the smallest axis-aligned ellipse
+    that contains every corner of the rectangle. Without this, modes at
+    the rectangle's horizontal extremes sit outside the inscribed
+    ellipse and get missed.
     """
-    pad = 1.02  # 2 % buffer so nodes stay off any mode on the contour edge
     cx = 0.5 * (k_min + k_max)
     cy = -0.5 * (alpha_max + alpha_min)  # note the minus sign
+    # ``sqrt(2) · half-width`` circumscribes the rectangle; a further 1.02
+    # factor keeps quadrature nodes off any mode sitting exactly on the
+    # rectangle boundary.
+    pad = 1.02 * np.sqrt(2.0)
     rx = pad * 0.5 * (k_max - k_min)
     ry = pad * 0.5 * (alpha_max - alpha_min)
     theta = np.linspace(0.0, 2.0 * np.pi, n_quad, endpoint=False)
@@ -68,18 +86,14 @@ def _elliptical_contour(
 
 
 def _inside_contour(k: complex, contour_bounds: tuple[float, float, float, float]) -> bool:
-    """True if a complex ``k`` lies inside the search ellipse. The ellipse
-    itself is slightly inflated in :func:`_elliptical_contour`, so here we
-    test against the original rectangle-inscribed ellipse — modes exactly
-    on the buffer ring are counted as inside."""
+    """True if a complex ``k`` lies inside the *rectangle* the caller
+    asked about. The contour itself is a circumscribed ellipse, so it can
+    legally pick up modes outside the rectangle but still inside the
+    ellipse; filter those out here so the function's semantics match the
+    ``bounds`` argument.
+    """
     k_min, k_max, alpha_min, alpha_max = contour_bounds
-    cx = 0.5 * (k_min + k_max)
-    cy = -0.5 * (alpha_max + alpha_min)
-    rx = 0.5 * (k_max - k_min)
-    ry = 0.5 * (alpha_max - alpha_min)
-    dx = k.real - cx
-    dy = k.imag - cy
-    return (dx / rx) ** 2 + (dy / ry) ** 2 <= 1.0
+    return k_min <= k.real <= k_max and -alpha_max <= k.imag <= -alpha_min
 
 
 def find_modes_contour(

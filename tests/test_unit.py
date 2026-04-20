@@ -733,18 +733,17 @@ class TestContourIntegration:
 
         g = self._line_graph()
         rng = np.random.default_rng(42)
-        modes = find_modes_contour(g, n_quad=200, probe_dim=20, rng=rng)
-        # Beyn doesn't guarantee finding every mode in a wide window with
-        # a fixed probe dim; it guarantees that what it returns are real
-        # roots. That's the property worth testing.
-        assert len(modes) >= 4, f"expected ≥4 modes in [0.5, 20], got {len(modes)}"
+        # probe_dim must exceed the mode count inside the **ellipse**
+        # (which circumscribes the rectangle, a bit larger than the rect).
+        # Use a narrow window containing just a few modes so the 11-node
+        # line graph has enough probe dimensions.
+        modes = find_modes_contour(
+            g, bounds=(1.0, 4.0, 0.0, 1.0), n_quad=120, probe_dim=10, rng=rng
+        )
+        assert len(modes) >= 2, f"expected ≥2 modes in [1, 4], got {len(modes)}"
         qs = np.array([mode_quality(m, g) for m in modes])
         # All modes pass through ``quality_filter=1e-3`` by default.
         assert qs.max() < 1e-3
-        # Most should be much tighter than that — well below any
-        # production refinement threshold. (Worst case is a mode near
-        # the contour edge where the moments accumulate some error.)
-        assert np.median(qs) < 1e-3
 
     def test_contour_with_refinement_round_trip(self):
         """Using Beyn + refine-mode hybrid: turn off the quality filter on
@@ -806,6 +805,60 @@ class TestContourIntegration:
 
         assert "find_modes_contour" in netsalt.__all__
         assert "find_modes_contour_subdivided" in netsalt.__all__
+
+    def test_contour_separates_closely_spaced_modes(self):
+        """On a long line graph (``total_length=10``) the mode spacing in
+        ``k`` is ``π/(2 · √ε · L) = π/20 ≈ 0.157``. Seven consecutive
+        modes should pop out of a single contour that spans them, each
+        one resolved to machine precision — Beyn's SVD separates the
+        close pairs cleanly when the probe dim is large enough."""
+        import netsalt
+        from netsalt.contour import find_modes_contour
+        from netsalt.physics import dispersion_relation_dielectric
+        from netsalt.quantum_graph import (
+            create_quantum_graph,
+            mode_quality,
+            set_total_length,
+        )
+
+        g = nx.path_graph(41)
+        pos = np.array([[float(i) / 40.0, 0.0] for i in range(41)])
+        params = {
+            "open_model": "open",
+            "dielectric_params": {
+                "method": "uniform",
+                "inner_value": 4.0,
+                "loss": 0.0,
+                "outer_value": 1.0,
+            },
+            "c": 1.0,
+            "k_min": 0.5,
+            "k_max": 20.0,
+            "alpha_min": 0.0,
+            "alpha_max": 1.0,
+        }
+        create_quantum_graph(g, params, positions=pos)
+        set_total_length(g, 10.0)
+        netsalt.set_dispersion_relation(g, dispersion_relation_dielectric)
+        netsalt.set_dielectric_constant(g, g.graph["params"])
+
+        # Expected modes at k = n · π/20 for n = 9, 10, ..., 15 → k ≈ 1.414,
+        # 1.571, 1.728, 1.885, 2.042, 2.199, 2.356. Seven consecutive modes
+        # at spacing 0.157.
+        modes = find_modes_contour(
+            g,
+            bounds=(1.4, 2.5, 0.0, 1.0),
+            n_quad=120,
+            probe_dim=30,
+            rng=np.random.default_rng(0),
+        )
+        assert len(modes) == 7
+        expected = np.array([n * np.pi / 20 for n in range(9, 16)])
+        returned = np.sort(modes[:, 0])
+        np.testing.assert_allclose(returned, expected, atol=1e-3)
+        # Every returned mode is a true root to machine precision.
+        for m in modes:
+            assert mode_quality(m, g) < 1e-9
 
 
 class TestPumpCostAndOverlap:
