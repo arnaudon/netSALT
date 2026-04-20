@@ -501,6 +501,162 @@ class TestComputeCore:
         assert np.isfinite(val)
 
 
+class TestRefinementAlgorithms:
+    """All four refiners converge to the same root from the same initial
+    guess; the dispatcher picks the one named in ``params``."""
+
+    def _line_graph(self, n_edges=6, dielectric=4.0):
+        import netsalt
+        from netsalt.physics import dispersion_relation_dielectric
+        from netsalt.quantum_graph import create_quantum_graph
+
+        g = nx.path_graph(n_edges + 1)
+        positions = np.array([[float(i), 0.0] for i in range(n_edges + 1)])
+        params = {
+            "open_model": "open",
+            "dielectric_params": {
+                "method": "uniform",
+                "inner_value": dielectric,
+                "loss": 0.0,
+                "outer_value": 1.0,
+            },
+            "c": 1.0,
+            "quality_threshold": 1e-4,
+            "search_stepsize": 0.05,
+            "max_steps": 500,
+            # ``_search_box`` uses these to build the locality bound; set a
+            # generous window around the mode we're targeting so the refiners
+            # can actually move to the root.
+            "k_min": 2.8,
+            "k_max": 3.4,
+            "alpha_min": 0.0,
+            "alpha_max": 0.3,
+        }
+        create_quantum_graph(g, params, positions=positions)
+        netsalt.set_dispersion_relation(g, dispersion_relation_dielectric)
+        netsalt.set_dielectric_constant(g, g.graph["params"])
+        return g
+
+    def _count_evals(self, fn, *args, **kwargs):
+        """Monkey-patch ``mode_quality`` to count evaluations inside *fn*."""
+        import netsalt.algorithm as alg
+
+        orig = alg.mode_quality
+        count = [0]
+
+        def wrapper(*a, **kw):
+            count[0] += 1
+            return orig(*a, **kw)
+
+        alg.mode_quality = wrapper
+        try:
+            result = fn(*args, **kwargs)
+        finally:
+            alg.mode_quality = orig
+        return result, count[0]
+
+    def test_all_methods_converge(self):
+        from netsalt.algorithm import (
+            refine_mode_brownian_ratchet,
+            refine_mode_nelder_mead,
+            refine_mode_newton,
+            refine_mode_root,
+        )
+        from netsalt.quantum_graph import mode_quality
+
+        g = self._line_graph()
+        init = np.array([3.0, 0.03])
+        tol = g.graph["params"]["quality_threshold"]
+
+        r_root, n_root = self._count_evals(refine_mode_root, init, g, g.graph["params"])
+        r_nm, n_nm = self._count_evals(refine_mode_nelder_mead, init, g, g.graph["params"])
+        r_new, n_new = self._count_evals(refine_mode_newton, init, g, g.graph["params"])
+        r_br, n_br = self._count_evals(
+            refine_mode_brownian_ratchet,
+            init,
+            g,
+            g.graph["params"],
+            rng=np.random.default_rng(0),
+        )
+
+        for name, r in [("root", r_root), ("nm", r_nm), ("newton", r_new), ("brownian", r_br)]:
+            assert r is not None, f"{name} returned None"
+            assert mode_quality(r, g) < tol, f"{name} above threshold"
+
+        # Sanity upper bounds so the test catches regressions without flaking
+        # on scipy minor-version changes.
+        assert n_root <= 80, f"root took {n_root} evals"
+        assert n_new <= 80, f"newton took {n_new} evals"
+        assert n_nm <= 400, f"nm took {n_nm} evals"
+        # And a relative sanity check: all three beat the ratchet
+        assert n_root < n_br
+        assert n_new < n_br
+        assert n_nm < n_br
+
+    def test_dispatch_honours_refine_method(self):
+        """``refine_mode`` must route to the named implementation."""
+        from unittest import mock
+
+        from netsalt.algorithm import refine_mode
+
+        g = self._line_graph()
+        init = np.array([3.0, 0.03])
+        for name, target in [
+            ("root", "netsalt.algorithm.refine_mode_root"),
+            ("newton", "netsalt.algorithm.refine_mode_newton"),
+            ("nelder_mead", "netsalt.algorithm.refine_mode_nelder_mead"),
+            ("brownian", "netsalt.algorithm.refine_mode_brownian_ratchet"),
+        ]:
+            g.graph["params"]["refine_method"] = name
+            with mock.patch(target, return_value=init) as patched:
+                refine_mode(init, g, g.graph["params"])
+                patched.assert_called_once()
+
+    def test_dispatch_rejects_unknown_method(self):
+        from netsalt.algorithm import refine_mode
+
+        g = self._line_graph()
+        g.graph["params"]["refine_method"] = "does-not-exist"
+        with pytest.raises(ValueError, match="Unknown refine_method"):
+            refine_mode([3.0, 0.03], g, g.graph["params"])
+
+    def test_default_method_is_root(self):
+        """When ``refine_method`` is absent, root is the default."""
+        from unittest import mock
+
+        from netsalt.algorithm import refine_mode
+
+        g = self._line_graph()
+        g.graph["params"]["refine_method"] = None
+        with mock.patch(
+            "netsalt.algorithm.refine_mode_root", return_value=np.array([3.0, 0.03])
+        ) as patched:
+            refine_mode([3.0, 0.03], g, g.graph["params"])
+            patched.assert_called_once()
+
+    def test_search_box_rejects_runaway_result(self):
+        """A result outside the ``search_radii`` window is rejected."""
+        from netsalt.algorithm import refine_mode_root
+
+        g = self._line_graph()
+        g.graph["params"]["k_min"] = 2.99
+        g.graph["params"]["k_max"] = 3.01
+        g.graph["params"]["alpha_min"] = 0.02
+        g.graph["params"]["alpha_max"] = 0.04
+        # Start far from the box; root will converge to something way outside
+        init = np.array([3.0, 0.03])
+        # Shrink tol so root converges to a root; box is tiny, should reject
+        g.graph["params"]["quality_threshold"] = 1e-4
+        result = refine_mode_root(init, g, g.graph["params"])
+        # Either the result is within the tight box, or None (rejected).
+        # If a root happened to exist right at the initial guess, the result
+        # would be accepted; the important thing is we don't get a result
+        # far outside the claimed search window.
+        if result is not None:
+            assert abs(result[0] - init[0]) <= 1.5 * 0.01
+            assert abs(result[1] - init[1]) <= 1.5 * 0.01
+
+
 class TestPumpCostAndOverlap:
     """Exercise ``pump.py`` helpers that don't need a full Luigi pipeline."""
 

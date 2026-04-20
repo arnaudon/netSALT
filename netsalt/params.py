@@ -60,10 +60,15 @@ class NetSaltParams(BaseModel):
     inner: list | None = None
     pump: Any | None = None
 
-    # --- Brownian-ratchet search knobs -------------------------------------
+    # --- Mode-refinement knobs ---------------------------------------------
+    # ``refine_method`` picks the algorithm used by :func:`netsalt.refine_mode`.
+    # Accepted values: "root" (default, MINPACK hybr), "newton" (Hellmann-
+    # Feynman derivative), "nelder_mead" (simplex), "brownian" (random-walk).
+    refine_method: str | None = None
     search_stepsize: float | None = None
     quality_threshold: float | None = None
     max_steps: int | None = None
+    # Legacy knobs, only read by refine_mode_brownian_ratchet:
     max_tries_reduction: int | None = None
     reduction_factor: float | None = None
     n_modes_max: int | None = None

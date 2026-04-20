@@ -19,7 +19,11 @@ Luigi workflow driven by `luigi.cfg` files (see `examples/`).
     `compute_mode_competition_matrix`, `compute_modal_intensities`). Runs
     `multiprocessing.Pool` over the scan grid.
   - `algorithm.py` — rough mode detection (skimage `peak_local_max`) and
-    Brownian-ratchet refinement
+    four refinement algorithms: `refine_mode_root` (MINPACK ``hybr``,
+    default), `refine_mode_newton` (Hellmann-Feynman derivative),
+    `refine_mode_nelder_mead`, and `refine_mode_brownian_ratchet`. The
+    dispatcher ``refine_mode(...)`` picks one based on
+    ``params["refine_method"]``.
   - `physics.py` — dispersion relations, gamma function, dielectric setter
   - `pump.py` — pump optimisation (`scipy.optimize.differential_evolution`,
     `pulp` LP)

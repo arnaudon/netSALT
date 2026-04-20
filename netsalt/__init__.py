@@ -1,5 +1,6 @@
 """Public API for netsalt."""
 
+from .algorithm import refine_mode
 from .io import (
     load_graph,
     load_modes,
@@ -43,6 +44,7 @@ __all__ = [
     "mode_on_nodes",
     "oversample_graph",
     "pump_trajectories",
+    "refine_mode",
     "save_graph",
     "save_modes",
     "save_qualities",

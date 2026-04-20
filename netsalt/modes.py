@@ -19,7 +19,7 @@ except ImportError:  # NumPy < 1.25
 from .algorithm import (
     clean_duplicate_modes,
     find_rough_modes_from_scan,
-    refine_mode_brownian_ratchet,
+    refine_mode,
 )
 from .physics import gamma, q_value
 from .quantum_graph import (
@@ -97,7 +97,7 @@ class WorkerModes:
         # Derive a per-mode seed so each call has an independent RNG stream
         # rather than sharing ``self.seed`` across every mode in the pool.
         rng = np.random.default_rng([self.seed, mode_id])
-        return refine_mode_brownian_ratchet(
+        return refine_mode(
             mode,
             self.graph,
             self.params,
