@@ -5,7 +5,7 @@ import numpy as np
 import yaml
 
 from netsalt.io import load_graph, load_qualities, save_graph, save_modes, save_qualities
-from netsalt.modes import find_modes, scan_frequencies
+from netsalt.modes import find_passive_modes, scan_frequencies
 from netsalt.physics import (
     dispersion_relation_pump,
     set_dielectric_constant,
@@ -124,14 +124,22 @@ class FindPassiveModes(NetSaltTask):
     def run(self):
         """ """
         qg = self.get_graph(self.input()["graph"].path)
-        qualities = load_qualities(filename=self.input()["qualities"].path)
-        modes_df = find_modes(
-            qg,
-            qualities,
-            quality_method=ModeSearchConfig().quality_method,
-            min_distance=ModeSearchConfig().min_distance,
-            threshold_abs=ModeSearchConfig().threshold_abs,
-        )
+        method = qg.graph["params"].get("mode_search_method") or "contour"
+        if method == "grid":
+            qualities = load_qualities(filename=self.input()["qualities"].path)
+            modes_df = find_passive_modes(
+                qg,
+                qualities,
+                method="grid",
+                quality_method=ModeSearchConfig().quality_method,
+                min_distance=ModeSearchConfig().min_distance,
+                threshold_abs=ModeSearchConfig().threshold_abs,
+            )
+        else:
+            # Contour doesn't need the qualities field, but ScanFrequencies
+            # still ran as a dependency — keep it for the scan-visualisation
+            # tasks downstream.
+            modes_df = find_passive_modes(qg, method=method)
         save_modes(modes_df, filename=self.output().path)
 
     def output(self):

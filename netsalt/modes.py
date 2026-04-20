@@ -203,6 +203,76 @@ def find_modes(graph, qualities, quality_method="eigenvalue", min_distance=2, th
     return modes_df
 
 
+def find_passive_modes(graph, qualities=None, method=None, **kwargs):
+    """Find all passive modes in the scan rectangle.
+
+    Dispatches based on ``method`` (or ``params["mode_search_method"]``
+    if ``method`` is None). Two paths are available:
+
+    * ``"contour"`` — Beyn's contour integration via
+      :func:`netsalt.find_modes_contour_subdivided`. No refinement step
+      needed; modes come back at quality ``1e-8`` or better. This is the
+      default and ~75× faster than the grid path on production buffon.
+    * ``"grid"`` — legacy: :func:`scan_frequencies` (already done, pass
+      via ``qualities``) + :func:`find_modes` with its peak-detection and
+      per-mode refinement.
+
+    Args:
+        graph: a fully-configured netsalt quantum graph.
+        qualities: the grid-scan quality field, required for
+            ``method="grid"`` and ignored for ``"contour"``.
+        method: ``"contour"``, ``"grid"``, or None to pick from
+            ``graph.graph["params"]["mode_search_method"]`` (falling back
+            to ``"contour"``).
+        **kwargs: forwarded to the chosen implementation (e.g. ``n_k``,
+            ``n_alpha``, ``n_quad``, ``probe_dim`` for contour; ``min_distance``,
+            ``threshold_abs``, ``quality_method`` for grid).
+
+    Returns:
+        A modes dataframe with a ``passive`` column of complex ``k`` and
+        a ``q_factor`` column.
+    """
+    if method is None:
+        method = graph.graph["params"].get("mode_search_method") or "contour"
+
+    if method == "contour":
+        from .contour import find_modes_contour_subdivided
+
+        # Reasonable defaults; callers can override via kwargs.
+        contour_defaults = {
+            "n_k": kwargs.pop("n_k", None),
+            "n_alpha": kwargs.pop("n_alpha", 2),
+            "n_quad": kwargs.pop("n_quad", 80),
+            "probe_dim": kwargs.pop("probe_dim", None),
+        }
+        if contour_defaults["n_k"] is None:
+            # Rule of thumb: roughly one sub-cell per ~5 expected modes.
+            # Without an accurate prior we fall back to 1 cell per unit k
+            # (sensible for the small ranges netsalt normally scans).
+            k_min = graph.graph["params"]["k_min"]
+            k_max = graph.graph["params"]["k_max"]
+            contour_defaults["n_k"] = max(int(round(k_max - k_min)), 1)
+        modes = find_modes_contour_subdivided(graph, **contour_defaults, **kwargs)
+        # Build modes_df in the same shape find_modes returns.
+        modes_df = _init_dataframe()
+        modes_df["passive"] = [to_complex(m) for m in modes]
+        # q_factor = -Im(gamma) * Re(k) / (2 * alpha) — the same formula
+        # find_modes uses, applied to our contour output.
+        if len(modes):
+            _g = gamma(to_complex(modes.T), graph.graph["params"])
+            modes_df["q_factor"] = -np.imag(_g) * modes[:, 0] / (2 * modes[:, 1])
+        return modes_df
+
+    if method == "grid":
+        if qualities is None:
+            raise ValueError(
+                "method='grid' requires the qualities grid; call scan_frequencies first."
+            )
+        return find_modes(graph, qualities, **kwargs)
+
+    raise ValueError(f"Unknown mode_search_method {method!r}; expected 'contour' or 'grid'.")
+
+
 def _convert_edges(vector):
     """Convert single edge values to double edges."""
     edge_vector = np.zeros(2 * len(vector), dtype=np.complex128)

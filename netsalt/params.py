@@ -61,7 +61,20 @@ class NetSaltParams(BaseModel):
     pump: Any | None = None
 
     # --- Mode-refinement knobs ---------------------------------------------
-    # ``refine_method`` picks the algorithm used by :func:`netsalt.refine_mode`.
+    # ``mode_search_method`` picks how :func:`netsalt.find_passive_modes`
+    # locates modes in the scan rectangle. Accepted values:
+    #   ``"contour"`` (default) — Beyn's contour integration via
+    #     ``find_modes_contour_subdivided``. Directly returns modes at
+    #     ``|λ₁| ≲ 1e-8`` with no per-mode refinement step.
+    #   ``"grid"`` — legacy path: ``scan_frequencies`` + ``find_modes``
+    #     (grid scan + ``peak_local_max`` + ``refine_mode``). Kept for
+    #     backward compatibility and for callers who want to visualise
+    #     the quality field.
+    mode_search_method: str | None = None
+    # ``refine_method`` picks the algorithm used by :func:`netsalt.refine_mode`
+    # when refinement is explicitly invoked — primarily by
+    # ``pump_trajectories`` and ``find_threshold_lasing_modes`` tracking a
+    # single mode as ``D0`` varies, not for the passive-scan step.
     # Accepted values: "root" (default, MINPACK hybr), "newton" (Hellmann-
     # Feynman derivative), "nelder_mead" (simplex), "brownian" (random-walk).
     refine_method: str | None = None

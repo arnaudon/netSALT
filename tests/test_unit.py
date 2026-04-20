@@ -806,6 +806,57 @@ class TestContourIntegration:
         assert "find_modes_contour" in netsalt.__all__
         assert "find_modes_contour_subdivided" in netsalt.__all__
 
+    def test_find_passive_modes_defaults_to_contour(self):
+        """With no ``mode_search_method`` set, ``find_passive_modes`` should
+        use Beyn and return a populated modes dataframe without needing a
+        ``qualities`` grid."""
+        import netsalt
+        from netsalt.modes import find_passive_modes
+        from netsalt.physics import dispersion_relation_dielectric
+        from netsalt.quantum_graph import create_quantum_graph, set_total_length
+
+        g = nx.path_graph(11)
+        pos = np.array([[float(i) / 10.0, 0.0] for i in range(11)])
+        params = {
+            "open_model": "open",
+            "dielectric_params": {
+                "method": "uniform",
+                "inner_value": 4.0,
+                "loss": 0.0,
+                "outer_value": 1.0,
+            },
+            "c": 1.0,
+            "k_min": 1.0,
+            "k_max": 4.0,
+            "alpha_min": 0.0,
+            "alpha_max": 1.0,
+        }
+        create_quantum_graph(g, params, positions=pos)
+        set_total_length(g, 1.0)
+        netsalt.set_dispersion_relation(g, dispersion_relation_dielectric)
+        netsalt.set_dielectric_constant(g, g.graph["params"])
+        modes_df = find_passive_modes(g)
+        # Has at least one mode, columns are 'passive' and 'q_factor'.
+        assert "passive" in modes_df.columns.get_level_values(0)
+        assert "q_factor" in modes_df.columns.get_level_values(0)
+        assert len(modes_df) >= 1
+
+    def test_find_passive_modes_grid_requires_qualities(self):
+        from netsalt.modes import find_passive_modes
+
+        g = nx.path_graph(3)
+        g.graph["params"] = {"mode_search_method": "grid"}
+        with pytest.raises(ValueError, match="method='grid' requires"):
+            find_passive_modes(g, method="grid")
+
+    def test_find_passive_modes_rejects_unknown_method(self):
+        from netsalt.modes import find_passive_modes
+
+        g = nx.path_graph(3)
+        g.graph["params"] = {}
+        with pytest.raises(ValueError, match="Unknown mode_search_method"):
+            find_passive_modes(g, method="not-a-method")
+
     def test_contour_separates_closely_spaced_modes(self):
         """On a long line graph (``total_length=10``) the mode spacing in
         ``k`` is ``π/(2 · √ε · L) = π/20 ≈ 0.157``. Seven consecutive
