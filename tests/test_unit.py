@@ -884,15 +884,11 @@ class TestContourIntegration:
         adaptive = find_modes_contour_adaptive(
             g, bounds=bounds, n_quad=120, probe_dim=10, rng=rng_a
         )
-        single = find_modes_contour(
-            g, bounds=bounds, n_quad=120, probe_dim=10, rng=rng_b
-        )
+        single = find_modes_contour(g, bounds=bounds, n_quad=120, probe_dim=10, rng=rng_b)
         # Same RNG seed and never-saturated single contour → identical sets.
         assert len(adaptive) == len(single)
         if len(adaptive):
-            np.testing.assert_allclose(
-                np.sort(adaptive[:, 0]), np.sort(single[:, 0]), atol=1e-9
-            )
+            np.testing.assert_allclose(np.sort(adaptive[:, 0]), np.sort(single[:, 0]), atol=1e-9)
 
     def test_adaptive_contour_terminates_at_max_depth(self):
         """A stupidly small ``probe_dim`` forces every cell to saturate;
