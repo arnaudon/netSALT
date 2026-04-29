@@ -1,4 +1,5 @@
 """plotting function"""
+
 import logging
 import os
 from itertools import cycle
@@ -12,8 +13,6 @@ from tqdm import tqdm
 
 from .modes import mean_mode_on_edges, mode_on_nodes
 from .utils import get_scan_grid, linewidth, lorentzian, order_edges_by
-
-# pylint: disable=too-many-locals,too-many-arguments
 
 L = logging.getLogger(__name__)
 logging.getLogger("matplotlib").setLevel(logging.INFO)
@@ -35,7 +34,7 @@ def get_spectra(graph, modes_df, pump_index=-1, width=0.0005):
     modal_amplitudes = np.real(modes_df["modal_intensities"].iloc[:, pump_index])
     ks = np.linspace(graph.graph["params"]["k_min"], graph.graph["params"]["k_max"], 10000)
     spectra = np.zeros(len(ks))
-    for mode, amplitude in zip(threshold_modes, modal_amplitudes):
+    for mode, amplitude in zip(threshold_modes, modal_amplitudes, strict=True):
         if amplitude > 0:
             spectra += amplitude * linewidth(ks, np.real(mode), width)
     return ks, spectra
@@ -234,8 +233,11 @@ def plot_scan(
     ax.set_ylabel(r"$\alpha = -Im(k)$")
     if modes_df is not None:
         for index, modes in modes_df.iterrows():
-            k = np.real(modes["passive"][0])
-            alpha = -np.imag(modes["passive"][0])
+            passive = modes["passive"]
+            if hasattr(passive, "iloc"):
+                passive = passive.iloc[0]
+            k = np.real(passive)
+            alpha = -np.imag(passive)
             ax.scatter(k, alpha, marker="+", color="r")
             ax.annotate(index, (k, alpha), size="x-small")
         if "threshold_lasing_modes" in modes_df:
@@ -268,7 +270,7 @@ def plot_pump_profile(graph, pump, figsize=(5, 4), ax=None, node_size=1.0, c="0.
         ax = plt.gca()
 
     positions = [graph.nodes[u]["position"] for u in graph]
-    pumped_edges = [e for e, _pump in zip(graph.edges, pump) if _pump > 0.0]
+    pumped_edges = [e for e, _pump in zip(graph.edges, pump, strict=True) if _pump > 0.0]
     nx.draw_networkx_edges(
         graph,
         pos=positions,
@@ -321,12 +323,6 @@ def plot_quantum_graph(
 
     else:
         nx.draw_networkx_nodes(graph, pos=positions, node_size=node_size, node_color="k")
-
-    # nx.draw_networkx_edges(graph, pos=positions)
-    # for edge labeling:
-    # labels = nx.get_edge_attributes(graph,'edgelabel')
-    # labels = dict([((u, v), i) for i, (u, v) in enumerate(graph.edges())])
-    # nx.draw_networkx_edge_labels(graph, pos=positions, edge_labels=labels)
 
     if edge_colors is not None:
         edge_colors = np.real(edge_colors)

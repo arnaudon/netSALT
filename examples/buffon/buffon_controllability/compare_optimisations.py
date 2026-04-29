@@ -30,7 +30,7 @@ import matplotlib.pyplot as plt
 def get_ratios(base_path):
     clip = 20
     clip_ipr = 15
-    graph = load_graph("../buffon_uniform/out/quantum_graph.gpickle")
+    graph = load_graph("../buffon_uniform/out/quantum_graph.json")
     graph.graph["params"]["k_min"] = 10.35
     graph.graph["params"]["k_max"] = 11.0
     graph.graph["params"]["k_n"] = 1500

@@ -18,12 +18,21 @@ and Nat. Comm.: https://www.nature.com/articles/s41467-022-34073-3
 
 ## Installation
 
-Then to install the package, just run (preferably in a virtualenv)
+We recommend [uv](https://docs.astral.sh/uv/) for managing the environment.
+From a checkout:
 ```bash
-pip install -e . 
+uv venv
+uv pip install -e .
 ```
 or from pypi:
 ```bash
+uv pip install netsalt
+```
+
+Plain `pip` still works if you prefer:
+```bash
+pip install -e .
+# or
 pip install netsalt
 ```
 

@@ -1,6 +1,7 @@
+import networkx as nx
 import numpy as np
 import yaml
-import networkx as nx
+
 import netsalt
 
 if __name__ == "__main__":
@@ -10,7 +11,7 @@ if __name__ == "__main__":
     pos = np.array([[i / (len(graph) - 1), 0] for i in range(len(graph))])
     for n, _pos in zip(graph.nodes, pos):
         graph.nodes[n]["position"] = _pos
-    netsalt.save_graph(graph, "graph.pkl")
+    netsalt.save_graph(graph, "graph.json")
 
     # create the index of refraction profile
     custom_index = len(graph.edges) * [3.0**2]
@@ -23,11 +24,13 @@ if __name__ == "__main__":
         for i in range(round(count_inedges / 4)):
             custom_index[i + 1] = 1.5**2
 
-    yaml.dump({"constant": custom_index, "loss": custom_loss}, open("index.yaml", "w"))
+    with open("index.yaml", "w") as f:
+        yaml.dump({"constant": custom_index, "loss": custom_loss}, f)
 
     # create the pump profile
     pump_edges = round(len(graph.edges()) / 2)
     nopump_edges = len(graph.edges()) - pump_edges
     pump = np.append(np.ones(pump_edges), np.zeros(nopump_edges))
     pump[0] = 0
-    yaml.dump(pump.astype(int).tolist(), open("pump.yaml", "w"))
+    with open("pump.yaml", "w") as f:
+        yaml.dump(pump.astype(int).tolist(), f)

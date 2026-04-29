@@ -1,21 +1,20 @@
 """Pump optimisation module."""
+
 import logging
 import multiprocessing
 from functools import partial
 
-import pulp
+import matplotlib.pyplot as plt
 import numpy as np
+import pulp
 from scipy import optimize
 from tqdm import tqdm
-import matplotlib.pyplot as plt
 
 from netsalt.modes import compute_overlapping_single_edges, mean_mode_on_edges
 from netsalt.physics import gamma, q_value
 from netsalt.utils import to_complex
 
 L = logging.getLogger(__name__)
-
-# pylint: disable=too-many-locals,too-many-statements
 
 
 def pump_cost(pump, modes_to_optimise, pump_overlapps, pump_min_size=None, epsilon=0):
@@ -101,7 +100,7 @@ def optimize_pump_diff_evolution(
     Returns:
         optimal_pump, pump_overlapps, costs: best pump, overlapping matrix, all costs from seeds
     """
-    np.random.seed(seed)
+    rng = np.random.default_rng(seed)
 
     if "pump" not in graph.graph["params"]:
         graph.graph["params"]["pump"] = np.ones(len(graph.edges))
@@ -138,7 +137,7 @@ def optimize_pump_diff_evolution(
     with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
         results = list(
             tqdm(
-                pool.imap(_optimizer, np.random.randint(0, 100000, n_seeds)),
+                pool.imap(_optimizer, rng.integers(0, 100000, n_seeds)),
                 total=n_seeds,
             )
         )
@@ -192,9 +191,12 @@ def optimize_pump_linear_programming(
         prob = pulp.LpProblem("pump optimisation", pulp.LpMinimize)
         prob += m + epsilon * t
 
-        prob += pulp.lpSum([o * Y for o, Y in zip(over_opt, Ys)]) == 1, "constant"
+        prob += pulp.lpSum([o * Y for o, Y in zip(over_opt, Ys, strict=True)]) == 1, "constant"
         for i, over in enumerate(over_others):
-            prob += pulp.lpSum([o * Y for o, Y in zip(over, Ys)]) <= m, f"maximum_{i}"
+            prob += (
+                pulp.lpSum([o * Y for o, Y in zip(over, Ys, strict=True)]) <= m,
+                f"maximum_{i}",
+            )
 
         inner = np.array([graph[edge[0]][edge[1]]["inner"] for edge in graph.edges], dtype=bool)
 
@@ -260,9 +262,9 @@ def optimize_pump_linear_programming(
 def make_threshold_pump(graph, lasing_modes_id, modes_df, pump_min_size=None):
     """Create a pump profile using edges with most electric field on a mode to optimise cost."""
     if len(lasing_modes_id) > 1:
-        raise Exception("Threshold pump is only for single mode at the moment.")
+        raise NotImplementedError("Threshold pump is only for single mode at the moment.")
 
-    edge_solution = mean_mode_on_edges(modes_df["passive"][lasing_modes_id[0]], graph)
+    edge_solution = mean_mode_on_edges(modes_df["passive"].iloc[lasing_modes_id[0]], graph)
     inner = np.array([graph[edge[0]][edge[1]]["inner"] for edge in graph.edges], dtype=int)
 
     pump_overlapps = compute_pump_overlapping_matrix(graph, modes_df)

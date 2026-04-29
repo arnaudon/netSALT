@@ -39,7 +39,7 @@ def _plot_single_mode(graph, mode, ax=None, c="r", th=0.7, lw=10):
 
 
 if __name__ == "__main__":
-    graph = load_graph("out/quantum_graph.gpickle")
+    graph = load_graph("out/quantum_graph.json")
     df = load_modes("out/passive_modes.h5")
 
     plt.figure()

@@ -3,12 +3,14 @@
 A quantum graph is a networkx graph with additional parameters in graph.graph['param']
 and specific node/edges attributes.
 """
+
 import logging
 
 import networkx as nx
 import numpy as np
 import scipy as sc
 
+from .params import NetSaltParams
 from .physics import update_params_dielectric_constant
 from .utils import to_complex
 
@@ -41,14 +43,14 @@ def _verify_lengths(graph, seed=42, noise_level=0.001):
     """Add noise to lengths if many edges have equal."""
     if noise_level > 0.0:
         lengths = [graph[u][v]["length"] for u, v in graph.edges]
-        np.random.seed(seed)
+        rng = np.random.default_rng(seed)
         if np.max(np.unique(np.around(lengths, 5), return_counts=True)) > 0.2 * len(graph.edges):
             L.info(
                 """You have more than 20% of edges of the same length,
                 so we add some small noise for safety for the numerics."""
             )
             for u in graph:
-                graph.nodes[u]["position"][0] += np.random.normal(0, noise_level * np.min(lengths))
+                graph.nodes[u]["position"][0] += rng.normal(0, noise_level * np.min(lengths))
             _set_edge_lengths(graph)
 
 
@@ -62,16 +64,20 @@ def _not_equal(data1, data2, force=False):
 
 
 def update_parameters(graph, params, force=False):
-    """Set the parameter dictionary to the graph.
+    """Set the parameter dictionary to the graph, validating via pydantic.
 
-    TODO: improve this implementation
+    Unknown keys are allowed (``NetSaltParams`` uses ``extra="allow"``), but
+    typed fields (``k_min``, ``D0``, …) get validated on assignment so a
+    wrong-type value fails loudly at the seam rather than silently floating
+    through the compute path.
 
     Args:
         graph (graph): quantum graph
-        params (dict): specific parameters to setup the quantum graph (depends on use cases)
-        force (bool): I forgot
+        params (dict or NetSaltParams): parameters to merge in.
+        force (bool): if True, overwrite values for keys in ``warning_params``
+            that would otherwise be preserved when the graph already has them.
     """
-    warning_params = [
+    warning_params = {
         "k_min",
         "k_max",
         "k_n",
@@ -82,21 +88,24 @@ def update_parameters(graph, params, force=False):
         "gamma_perp",
         "dielectric_params",
         "edgelabel",
-    ]
+    }
+    validated = NetSaltParams.from_dict(params)
     if "params" not in graph.graph:
-        graph.graph["params"] = params
-    else:
-        for param, value in params.items():
-            if param not in graph.graph["params"]:
-                graph.graph["params"][param] = value
-            elif _not_equal(graph.graph["params"][param], value, force=force):
-                if param in warning_params:
-                    if force:
-                        graph.graph["params"][param] = value
-                    else:
-                        pass
-                else:
-                    graph.graph["params"][param] = value
+        graph.graph["params"] = validated
+        return
+    existing = graph.graph["params"]
+    if not isinstance(existing, NetSaltParams):
+        existing = NetSaltParams.from_dict(existing)
+        graph.graph["params"] = existing
+    for param, value in validated.items():
+        if param not in existing:
+            existing[param] = value
+        elif _not_equal(existing[param], value, force=force):
+            if param in warning_params:
+                if force:
+                    existing[param] = value
+            else:
+                existing[param] = value
 
 
 def get_total_length(graph):
@@ -130,7 +139,7 @@ def set_total_length(graph, total_length=None, max_extent=None, inner=True, with
         with_position (bool): if True, also rescale node positions
     """
     if total_length is not None and max_extent is not None:
-        raise Exception("only one of total_length or max_extent is allowed")
+        raise ValueError("only one of total_length or max_extent is allowed")
     length_ratio = 1.0
     if total_length is not None:
         if inner:
@@ -197,7 +206,7 @@ def simplify_graph(graph):
     return nx.convert_node_labels_to_integers(graph)
 
 
-def oversample_graph(graph, edge_size):  # pylint: disable=too-many-locals
+def oversample_graph(graph, edge_size):
     """Oversample a graph by adding points on edges.
 
     Args:
@@ -347,18 +356,22 @@ def construct_weight_matrix(graph, with_k=True):
 
 
 def set_inner_edges(graph, params=None, outer_edges=None):
-    """Set the inner edges to True, according to a given model in params['open_model'].
+    """Set the inner edges based on ``params['open_model']``.
 
-    WARNING: this modifies params, which has to be set to graph with update_parameters
-    TODO: improve implementation along with update_parameters
+    Writes an ``inner`` list into ``params`` and tags each edge with an
+    ``inner`` boolean and an ``edgelabel`` integer. Callers are responsible
+    for persisting ``params`` onto the graph via :func:`update_parameters`
+    afterwards; this is the existing two-step pattern used by
+    :func:`create_quantum_graph`.
 
     Args:
         graph (graph): quantum graph
-        params (dict): has to contain 'open_model' of the form open, closed, custom
-        outer_edges (list): if open_model == custom, pass the list of outer edges.
+        params (dict or NetSaltParams): must contain ``open_model`` as one of
+            ``open``, ``closed``, ``custom``, ``directed``, ``directed_reversed``.
+        outer_edges (list): if ``open_model == "custom"``, list of outer edges.
     """
     if params["open_model"] not in ["open", "closed", "custom", "directed", "directed_reversed"]:
-        raise Exception(f"open_model value not understood:{params['open_model']}")
+        raise ValueError(f"open_model value not understood:{params['open_model']}")
 
     params["inner"] = []
     for ei, (u, v) in enumerate(graph.edges()):
@@ -399,7 +412,7 @@ def _set_edge_lengths(graph, lengths=None):
     graph.graph["lengths"] = np.array([graph[u][v]["length"] for u, v in graph.edges])
 
 
-def laplacian_quality(laplacian, method="eigenvalue"):
+def laplacian_quality(laplacian, method="eigenvalue", rng=None):
     """Return the quality of a mode encoded in the quantum laplacian.
 
     If quality is low, the wavenumber of the laplacian is close to a solution of the quantum graph.
@@ -407,8 +420,13 @@ def laplacian_quality(laplacian, method="eigenvalue"):
     Args:
         laplacian (sparse matrix): laplacian matrix
         method (str): method for quality evaluation (eigenvalue, singular value or determinant)
+        rng: optional ``numpy.random.Generator`` used to draw the ARPACK
+            starting vector. If None, a fresh generator with fresh entropy is
+            created. Pass a seeded generator for reproducibility.
     """
-    v0 = np.random.random(laplacian.shape[0])
+    if rng is None:
+        rng = np.random.default_rng()
+    v0 = rng.random(laplacian.shape[0])
     if method == "eigenvalue":
         try:
             return abs(
@@ -447,13 +465,15 @@ def laplacian_quality(laplacian, method="eigenvalue"):
     return 1.0
 
 
-def mode_quality(mode, graph, quality_method="eigenvalue"):
+def mode_quality(mode, graph, quality_method="eigenvalue", rng=None):
     """Quality of a mode, small means good quality, thus the mode is close to a correct mode.
 
     Args:
         mode (complex): complex mode
         graph (graph): quantum graph
         quality_method (str): method for quality evaluation (eig, singular value or det)
+        rng: optional ``numpy.random.Generator`` threaded to
+            :func:`laplacian_quality` for reproducible results.
     """
     laplacian = construct_laplacian(to_complex(mode), graph)
-    return laplacian_quality(laplacian, method=quality_method)
+    return laplacian_quality(laplacian, method=quality_method, rng=rng)

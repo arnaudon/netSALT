@@ -38,7 +38,7 @@ if __name__ == "__main__":
         | ~df_missing[("modal_intensities", 0.01)].isna()
     )
 
-    graph = load_graph("out/quantum_graph.gpickle")
+    graph = load_graph("out/quantum_graph.json")
     graph.graph["params"]["k_min"] = 10.35
     graph.graph["params"]["k_max"] = 11.0
     graph.graph["params"]["k_n"] = 1500

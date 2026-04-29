@@ -1,4 +1,5 @@
 """Tasks for passive modes."""
+
 import luigi
 import numpy as np
 import yaml
@@ -14,8 +15,8 @@ from netsalt.quantum_graph import (
     create_quantum_graph,
     oversample_graph,
     set_total_length,
-    update_parameters,
     simplify_graph,
+    update_parameters,
 )
 
 from .config import ModeSearchConfig
@@ -25,7 +26,7 @@ from .netsalt_task import NetSaltTask
 class CreateQuantumGraph(NetSaltTask):
     """Create a quantum graph."""
 
-    graph_path = luigi.Parameter(default="graph.gpickle")
+    graph_path = luigi.Parameter(default="graph.json")
     graph_mode = luigi.ChoiceParameter(default="open", choices=["open", "closed", "custom"])
     inner_total_length = luigi.FloatParameter(default=None)
     max_extent = luigi.FloatParameter(default=None)
@@ -44,7 +45,7 @@ class CreateQuantumGraph(NetSaltTask):
 
     noise_level = luigi.FloatParameter(default=0.001)
 
-    quantum_graph_path = luigi.Parameter(default="out/quantum_graph.gpickle")
+    quantum_graph_path = luigi.Parameter(default="out/quantum_graph.json")
 
     def run(self):
         """ """
@@ -76,7 +77,7 @@ class CreateQuantumGraph(NetSaltTask):
         )
         custom_index = None
         if self.method == "custom":
-            with open(self.custom_index, "r") as yml:
+            with open(self.custom_index) as yml:
                 custom_index = yaml.safe_load(yml)
 
         set_dielectric_constant(quantum_graph, params, custom_values=custom_index)

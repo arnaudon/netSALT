@@ -1,5 +1,5 @@
 """Tasks for analysis of results."""
-import pickle
+
 from pathlib import Path
 
 import luigi
@@ -192,8 +192,7 @@ class PlotScanWithModeTrajectories(NetSaltTask):
         modes_df = load_modes(self.input()["trajectories"].path)
 
         plot_scan(qg, qualities, modes_df, relax_upper=True)
-        plt.tight_layout()
-        plt.savefig(self.output().path)
+        plt.savefig(self.output().path, bbox_inches="tight")
 
     def output(self):
         """ """
@@ -221,8 +220,7 @@ class PlotScanWithThresholdModes(NetSaltTask):
         modes_df = load_modes(self.input()["thresholds"].path)
 
         plot_scan(qg, qualities, modes_df, relax_upper=True, with_approx=False)
-        plt.tight_layout()
-        plt.savefig(self.output().path)
+        plt.savefig(self.output().path, bbox_inches="tight")
 
     def output(self):
         """ """
@@ -264,8 +262,10 @@ class PlotThresholdModes(NetSaltTask):
             modes_df = load_modes(self.input()["modes"].path).head(self.n_modes)
         if not Path(self.output().path).exists():
             Path(self.output().path).mkdir()
-        pd.options.mode.use_inf_as_na = True
-        modes_df = modes_df[~modes_df["lasing_thresholds"].isna()]
+        # `use_inf_as_na` was removed in pandas 3.0 — treat +/-inf as missing
+        # explicitly rather than flipping a global option.
+        thresholds = modes_df["lasing_thresholds"].replace([np.inf, -np.inf], np.nan)
+        modes_df = modes_df[~thresholds.isna()]
         plot_modes(
             qg,
             modes_df,
@@ -353,8 +353,7 @@ class PlotOptimizedPump(NetSaltTask):
             plt.tight_layout()
             plt.savefig(self.output().path)
         else:
-            with open(self.input()["pump"].path, "rb") as pkl:
-                results = pickle.load(pkl)
+            results = np.load(self.input()["pump"].path)
 
             with PdfPages(self.output().path) as pdf:
                 plot_pump_profile(qg, results["optimal_pump"])

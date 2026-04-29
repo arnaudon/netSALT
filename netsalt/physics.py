@@ -1,5 +1,8 @@
 """All physics-related functions."""
+
 import logging
+from collections.abc import Mapping
+from typing import Any
 
 import numpy as np
 
@@ -8,7 +11,7 @@ from .utils import from_complex
 L = logging.getLogger(__name__)
 
 
-def gamma(freq, params):
+def gamma(freq: Any, params: Mapping[str, Any]) -> Any:
     r"""Gamma function.
 
     The gamma function is
@@ -51,7 +54,7 @@ def dispersion_relation_linear(freq, params=None):
         params (dict): parameters, must include wavespeed 'c'
     """
     if not params or "c" not in params:
-        raise Exception("Please correct provide dispersion parameters")
+        raise ValueError("Please provide dispersion parameters")
     return freq / np.array(params["c"])
 
 
@@ -69,7 +72,7 @@ def dispersion_relation_resistance(freq, params=None):
         params (dict): parameters, must include wavespeed 'c', compliance C and edge resistances R
     """
     if not params or "c" not in params:
-        raise Exception("Please correct provide dispersion parameters")
+        raise ValueError("Please provide dispersion parameters")
     return np.sqrt(
         (freq / params["c"]) ** 2 + 1.0j * freq * params.get("C", 1.0) * params.get("R", 0.0)
     )
@@ -83,7 +86,7 @@ def dispersion_relation_dielectric(freq, params=None):
         params (dict): parameters, must include 'gamma_perp' and 'k_a'
     """
     if not params:
-        raise Exception("Please provide dispersion parameters")
+        raise ValueError("Please provide dispersion parameters")
     return freq * np.array(np.sqrt(params["dielectric_constant"])) / params.get("c", 1.0)
 
 
@@ -109,7 +112,7 @@ def dispersion_relation_pump(freq, params=None):
             for the computation of :math:`gamma`
     """
     if not params:
-        raise Exception("Please provide dispersion parameters")
+        raise ValueError("Please provide dispersion parameters")
 
     if "pump" not in params or "D0" not in params:
         return freq * np.array(np.sqrt(params["dielectric_constant"])) / params.get("c", 1.0)
@@ -120,13 +123,15 @@ def dispersion_relation_pump(freq, params=None):
     )
 
 
-def set_dielectric_constant(graph, params, custom_values=None):
+def set_dielectric_constant(graph, params, custom_values=None, rng=None):
     """Set dielectric constant in params, from dielectric constant or refraction index.
 
     Args:
         graph (networkx graph): current graph
         params (dict): parameters
         custom_values (list): custum edge values for dielectric constant
+        rng: optional ``numpy.random.Generator`` used when ``method='random'``.
+            If None, a fresh generator is created.
     """
 
     if "dielectric_params" in params and "refraction_params" in params:
@@ -137,7 +142,7 @@ def set_dielectric_constant(graph, params, custom_values=None):
 
     if "dielectric_params" not in params:
         if "refraction_params" not in params:
-            raise Exception("Please provide dielectric_params or refraction_params!")
+            raise ValueError("Please provide dielectric_params or refraction_params!")
         params["dielectric_params"] = {}
         params["dielectric_params"]["method"] = params["refraction_params"]["method"]
         params["dielectric_params"]["inner_value"] = (
@@ -160,8 +165,10 @@ def set_dielectric_constant(graph, params, custom_values=None):
                 graph[u][v]["dielectric_constant"] = params["dielectric_params"]["outer_value"]
 
     if params["dielectric_params"]["method"] == "random":
+        if rng is None:
+            rng = np.random.default_rng()
         for u, v in graph.edges:
-            graph[u][v]["dielectric_constant"] = np.random.normal(
+            graph[u][v]["dielectric_constant"] = rng.normal(
                 params["dielectric_params"]["mean"],
                 params["dielectric_params"]["std"],
                 1,

@@ -1,5 +1,4 @@
 """Main tasks to run entire workflows."""
-import pickle
 
 import luigi
 import matplotlib
@@ -26,9 +25,9 @@ from .analysis import (
 from .lasing import (
     ComputeModalIntensities,
     ComputeModeCompetitionMatrix,
+    ComputeModeTrajectories,
     CreatePumpProfile,
     FindThresholdModes,
-    ComputeModeTrajectories,
 )
 from .netsalt_task import NetSaltTask, NetSaltWrapperTask
 from .passive import FindPassiveModes
@@ -86,7 +85,7 @@ class ComputeControllability(NetSaltTask):
 
     n_top_modes = luigi.IntParameter(default=4)
     pump_path = luigi.Parameter(default="pumps")
-    single_mode_matrix_path = luigi.Parameter(default="out/single_mode_matrix.pkl")
+    single_mode_matrix_path = luigi.Parameter(default="out/single_mode_matrix.npy")
 
     def requires(self):
         """ """
@@ -117,8 +116,7 @@ class ComputeControllability(NetSaltTask):
             spectra_matrix.append(spectra)
 
         spectra_matrix = np.array(spectra_matrix)
-        with open(self.output().path, "wb") as pkl:
-            pickle.dump(spectra_matrix, pkl)
+        np.save(self.output().path, spectra_matrix)
 
     def output(self):
         """ """
@@ -136,8 +134,7 @@ class PlotControllability(NetSaltTask):
 
     def run(self):
         """ """
-        with open(self.input().path, "rb") as pkl:
-            data = pickle.load(pkl)
+        data = np.load(self.input().path)
 
         plt.figure(figsize=(6, 5))
         sns.heatmap(

@@ -15,7 +15,7 @@ from tqdm import tqdm
 
 if __name__ == "__main__":
     df_uni = pd.read_hdf("../buffon_uniform/out/modal_intensities.h5")
-    graph = load_graph("../buffon_uniform/out/quantum_graph.gpickle")
+    graph = load_graph("../buffon_uniform/out/quantum_graph.json")
     plt.figure(figsize=(4, 3))
     counter = 0
     df = pd.DataFrame()
