@@ -20,10 +20,9 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip setuptools
-        pip install tox tox-gh-actions
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+    - name: Install tox
+      run: uv pip install --system tox tox-gh-actions tox-uv
     - name: Run tox
-      run: |
-        tox
+      run: tox

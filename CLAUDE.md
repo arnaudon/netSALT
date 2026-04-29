@@ -36,10 +36,12 @@ Luigi workflow driven by `luigi.cfg` files (see `examples/`).
 
 ## Running things
 
-- Install: `pip install -e .`
-- Full lint + test matrix: `tox` (envs: `lint`, `py38`, `py39`, `docs`)
+- Install: `uv pip install -e .` (or `pip install -e .`). `uv venv` to make a
+  fresh environment first.
+- Full lint + test matrix: `tox` (envs: `lint`, `py310`, `py311`, `py312`,
+  `coverage`, `docs`). `tox-uv` is picked up automatically when present.
 - Just the test: `pytest tests/` (requires `mock`, `pytest`, `dir-content-diff`)
-- Format: `tox -e format` (black, line length 100)
+- Format: `tox -e format` (ruff, line length 100)
 - Run an example workflow: `cd examples/buffon/buffon_uniform && bash run.sh`
   (sets `OMP_NUM_THREADS=1`; netsalt does its own multiprocessing)
 
