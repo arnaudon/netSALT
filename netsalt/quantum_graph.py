@@ -373,7 +373,6 @@ def construct_weight_matrix(graph, with_k=True):
     if with_k:
         data_tmp *= graph.graph["ks"]
 
-    # W^{-1} is diagonal; skip the general COO → CSR path.
     return sc.sparse.diags(np.repeat(data_tmp, 2), format="csc", dtype=np.complex128)
 
 
