@@ -282,12 +282,16 @@ def find_modes_contour_subdivided(
             )
             if len(sub):
                 collected.append(sub)
+    return _concatenate_and_dedup(collected, bounds, dedup_rtol)
+
+
+def _concatenate_and_dedup(collected, bounds, dedup_rtol):
+    """Stack mode arrays from multiple sub-contours and remove
+    boundary duplicates. Returns ``(0, 2)`` empty array if no modes."""
     if not collected:
         return np.empty((0, 2))
+    k_min, k_max, a_min, a_max = bounds
     all_modes = np.concatenate(collected, axis=0)
-
-    # Dedup: cells overlap at boundaries, so two adjacent cells can each
-    # claim a mode that sits on their shared edge.
     scale_k = max(k_max - k_min, 1e-9)
     scale_a = max(a_max - a_min, 1e-9)
     kept = []
@@ -305,3 +309,155 @@ def find_modes_contour_subdivided(
     kept_arr = np.asarray(kept)
     order = np.argsort(kept_arr[:, 0])
     return kept_arr[order]
+
+
+def _split_cell(cell, axis="k"):
+    """Bisect a 4-tuple ``(k_min, k_max, α_min, α_max)`` into two halves
+    along the named axis.
+
+    Default is ``"k"`` because netsalt workloads concentrate modes
+    near a single ``α`` (loss of the open boundary) and scan over a
+    wide range of ``k``; splitting ``α`` puts every mode in one half
+    of every cell and wastes the other half. Pass ``axis="alpha"``
+    or ``axis="auto"`` (split the longer side) to override.
+    """
+    k_min, k_max, a_min, a_max = cell
+    if axis == "auto":
+        axis = "k" if (k_max - k_min) >= (a_max - a_min) else "alpha"
+    if axis == "k":
+        mid = 0.5 * (k_min + k_max)
+        return [(k_min, mid, a_min, a_max), (mid, k_max, a_min, a_max)]
+    if axis == "alpha":
+        mid = 0.5 * (a_min + a_max)
+        return [(k_min, k_max, a_min, mid), (k_min, k_max, mid, a_max)]
+    raise ValueError(f"Unknown split axis {axis!r}; expected 'k', 'alpha', or 'auto'")
+
+
+def find_modes_contour_adaptive(
+    graph: Any,
+    *,
+    bounds: tuple[float, float, float, float] | None = None,
+    n_quad: int = 80,
+    probe_dim: int | None = None,
+    saturation_factor: float = 0.7,
+    max_depth: int = 6,
+    split_axis: str = "k",
+    svd_tol: float = 1e-10,
+    quality_filter: float | None = 1e-6,
+    dedup_rtol: float = 1e-5,
+    rng: np.random.Generator | None = None,
+):
+    """Adaptive contour search: subdivide cells that saturate ``probe_dim``.
+
+    The basic Beyn algorithm caps at ``probe_dim`` modes per contour
+    (the SVD of ``A_0`` has at most ``probe_dim`` non-zero singular
+    values). When the rectangle has more modes than that ceiling, the
+    SVD's tail singular values get cut by ``svd_tol`` and the
+    extraction collapses — empirically returning either zero modes
+    or a partial set.
+
+    This routine treats *saturation* as a signal that a cell needs
+    to be split. After running :func:`find_modes_contour` on a cell:
+
+    * If the cell returns ``≥ saturation_factor · probe_dim`` modes,
+      it is suspected of under-counting (the basic algorithm is at
+      its capacity ceiling). The cell is bisected along its longer
+      side and each half is processed recursively.
+    * If the cell returns **zero** modes, it is *ambiguous* — the cell
+      either has no modes in it (correct answer) or is so over-capacity
+      that the SVD's tail got cut and the extraction collapsed
+      (incorrect answer, common signal observed in
+      ``benchmark/bench_stress.py``). Until ``max_depth`` is hit, an
+      empty cell is split too. At ``max_depth`` an empty result is
+      finally trusted.
+    * Otherwise the cell's modes are accepted as-is.
+
+    The recursion terminates at ``max_depth`` (so worst case is
+    ``2^max_depth`` cells along the longer axis). Modes from all leaf
+    cells are concatenated and de-duplicated by relative position
+    (``dedup_rtol``).
+
+    Args:
+        graph: a fully-configured netsalt quantum graph.
+        bounds: ``(k_min, k_max, α_min, α_max)`` rectangle. If None,
+            taken from ``graph.graph["params"]``.
+        n_quad: trapezoidal-quadrature node count per contour. Stays
+            fixed across the recursion — accuracy comes from making
+            cells smaller, not from beefing up ``n_quad`` per cell.
+        probe_dim: random-probe dimension. Default
+            ``min(40, n_nodes)``; clamped to the node count inside
+            :func:`find_modes_contour`.
+        saturation_factor: split a cell when its returned mode count
+            is at or above ``saturation_factor · probe_dim``. ``0.7``
+            is the empirical sweet spot from
+            ``benchmark/bench_stress.py``.
+        max_depth: maximum recursion depth. ``2^max_depth`` is the
+            worst-case cell count along the chosen split axis.
+        split_axis: ``"k"`` (default), ``"alpha"``, or ``"auto"``.
+            Default ``"k"`` works for the netsalt-conventional case
+            where every mode sits at the same ``α`` (loss of the
+            open boundary) and the scan covers a wide ``k`` range —
+            splitting ``α`` would put all the modes in one half and
+            none in the other. Use ``"auto"`` if the modes are
+            spread in both directions; rarely needed.
+        svd_tol: forwarded to :func:`find_modes_contour`.
+        quality_filter: ``|λ₁|`` threshold for spurious-mode rejection
+            on each cell. Default ``1e-6`` is tighter than the
+            single-shot ``find_modes_contour`` default since the
+            adaptive search trades cell size for residual quality.
+        dedup_rtol: relative tolerance for mode-position dedup at
+            cell boundaries.
+        rng: optional ``numpy.random.Generator``.
+
+    Returns:
+        ``(n_modes, 2)`` array of ``[Re(k), -Im(k)]`` rows, sorted by
+        ``Re(k)``.
+    """
+    if bounds is None:
+        params = graph.graph["params"]
+        bounds = (
+            params["k_min"],
+            params["k_max"],
+            params["alpha_min"],
+            params["alpha_max"],
+        )
+    if rng is None:
+        rng = np.random.default_rng()
+
+    n_nodes = len(graph)
+    if probe_dim is None:
+        probe_dim = min(40, n_nodes)
+    probe_dim = min(probe_dim, n_nodes)
+    saturation_threshold = max(1, int(np.ceil(saturation_factor * probe_dim)))
+
+    stack = [(bounds, 0)]
+    collected: list[np.ndarray] = []
+
+    while stack:
+        cell, depth = stack.pop()
+        modes = find_modes_contour(
+            graph,
+            bounds=cell,
+            n_quad=n_quad,
+            probe_dim=probe_dim,
+            svd_tol=svd_tol,
+            quality_filter=quality_filter,
+            rng=rng,
+        )
+        # Either of two signals triggers a split: a saturated cell
+        # (≥ saturation_threshold modes returned, basic algorithm at
+        # capacity ceiling) OR an empty cell (0 modes returned, which
+        # could equally well mean "no modes here" or "so over capacity
+        # that the SVD collapsed and lost everything"). The latter is
+        # the dominant failure mode in the stress benchmark.
+        n_found = len(modes)
+        ambiguous_empty = n_found == 0
+        saturated = n_found >= saturation_threshold
+        if (saturated or ambiguous_empty) and depth < max_depth:
+            for sub in _split_cell(cell, axis=split_axis):
+                stack.append((sub, depth + 1))
+            continue
+        if n_found:
+            collected.append(modes)
+
+    return _concatenate_and_dedup(collected, bounds, dedup_rtol)

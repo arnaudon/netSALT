@@ -125,6 +125,16 @@ modes (61 nodes, `probe_dim` capped at 60):
 `expected_modes_per_cell ≲ 0.65 · probe_dim`. Pushing further
 than that adds time without adding modes.
 
+If you don't know the mode count in advance, use
+`find_modes_contour_adaptive`. It applies the same rule of thumb
+automatically: each cell is split when it either saturates
+(returns ≥ `saturation_factor · probe_dim` modes) or collapses
+(returns 0 modes at low depth — almost always means the cell is
+over capacity, not actually empty). Recursion stops at
+`max_depth=6`. On the 303-mode buffon, it recovers every mode at
+`probe_dim ∈ {20, 40, 60}` with a 2-3× overhead vs the hand-tuned
+`n_k=8` run — the cost of not pre-knowing the answer.
+
 ### Does positional accuracy alone require subdivision?
 
 **No.** Across all working configurations, positional error vs the

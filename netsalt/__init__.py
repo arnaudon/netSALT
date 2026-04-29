@@ -1,7 +1,11 @@
 """Public API for netsalt."""
 
 from .algorithm import refine_mode
-from .contour import find_modes_contour, find_modes_contour_subdivided
+from .contour import (
+    find_modes_contour,
+    find_modes_contour_adaptive,
+    find_modes_contour_subdivided,
+)
 from .io import (
     load_graph,
     load_modes,
@@ -38,6 +42,7 @@ __all__ = [
     "create_quantum_graph",
     "find_modes",
     "find_modes_contour",
+    "find_modes_contour_adaptive",
     "find_modes_contour_subdivided",
     "find_passive_modes",
     "find_threshold_lasing_modes",

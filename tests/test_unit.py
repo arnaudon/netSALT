@@ -833,6 +833,95 @@ class TestContourIntegration:
         # garbage eigenvalues that passed the SVD threshold.
         assert len(modes) == 0 or all(10.0 <= m[0] <= 10.01 and 0.99 <= m[1] <= 1.00 for m in modes)
 
+    def test_adaptive_contour_recovers_all_modes_without_n_k(self):
+        """``find_modes_contour_adaptive`` should match the explicit
+        subdivided run on a workload where the rectangle's mode count
+        exceeds ``probe_dim``. The user picks ``probe_dim`` and the
+        algorithm picks ``n_k`` automatically by saturation."""
+        from netsalt.contour import (
+            find_modes_contour_adaptive,
+            find_modes_contour_subdivided,
+        )
+
+        # n_edges=10 + total_length=2 → ~25 modes in [0.5, 20]; the
+        # single contour saturates at probe_dim=8 (well below the 25
+        # modes inside) and adaptive must split until each cell fits
+        # under the capacity ceiling.
+        from netsalt.quantum_graph import mode_quality
+
+        g = self._line_graph(n_edges=10, total_length=2.0)
+        bounds = (0.5, 20.0, 0.0, 1.0)
+        adaptive = find_modes_contour_adaptive(
+            g, bounds=bounds, n_quad=80, probe_dim=8, rng=np.random.default_rng(1)
+        )
+        # Gold reference: very-deep manual subdivision.
+        gold = find_modes_contour_subdivided(
+            g,
+            bounds=bounds,
+            n_k=16,
+            n_alpha=1,
+            n_quad=120,
+            probe_dim=8,
+            rng=np.random.default_rng(1),
+        )
+        # Adaptive should match gold within a couple of boundary-dedup
+        # edge-effects.
+        assert len(adaptive) >= len(gold) - 2
+        # And every returned mode is a true root.
+        for m in adaptive:
+            assert mode_quality(m, g) < 1e-3
+
+    def test_adaptive_contour_does_not_subdivide_unnecessarily(self):
+        """When the rectangle has comfortably fewer modes than
+        ``probe_dim``, adaptive must accept the single-contour result
+        without spending a single split."""
+        from netsalt.contour import find_modes_contour, find_modes_contour_adaptive
+
+        g = self._line_graph(n_edges=10)
+        bounds = (1.0, 4.0, 0.0, 1.0)
+        rng_a = np.random.default_rng(2)
+        rng_b = np.random.default_rng(2)
+        adaptive = find_modes_contour_adaptive(
+            g, bounds=bounds, n_quad=120, probe_dim=10, rng=rng_a
+        )
+        single = find_modes_contour(
+            g, bounds=bounds, n_quad=120, probe_dim=10, rng=rng_b
+        )
+        # Same RNG seed and never-saturated single contour → identical sets.
+        assert len(adaptive) == len(single)
+        if len(adaptive):
+            np.testing.assert_allclose(
+                np.sort(adaptive[:, 0]), np.sort(single[:, 0]), atol=1e-9
+            )
+
+    def test_adaptive_contour_terminates_at_max_depth(self):
+        """A stupidly small ``probe_dim`` forces every cell to saturate;
+        ``max_depth`` must guarantee termination rather than recursing
+        forever."""
+        from netsalt.contour import find_modes_contour_adaptive
+
+        g = self._line_graph(n_edges=10)
+        bounds = (1.0, 4.0, 0.0, 1.0)
+        # probe_dim=1 plus low saturation_factor → every cell triggers
+        # subdivision until max_depth is reached. Test passes if the
+        # call returns without exception.
+        modes = find_modes_contour_adaptive(
+            g,
+            bounds=bounds,
+            n_quad=80,
+            probe_dim=1,
+            saturation_factor=0.5,
+            max_depth=3,
+            rng=np.random.default_rng(0),
+        )
+        # No assertion on len — the point is termination.
+        assert isinstance(modes, np.ndarray)
+
+    def test_adaptive_contour_is_exported(self):
+        import netsalt
+
+        assert "find_modes_contour_adaptive" in netsalt.__all__
+
     def test_subdivided_contour_finds_more_modes_than_single(self):
         """When a region contains more modes than ``probe_dim``, a single
         contour can't resolve them all, but subdivision can."""

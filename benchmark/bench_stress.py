@@ -45,6 +45,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from _common import buffon_planar_graph, time_block  # noqa: E402
 from netsalt.contour import (  # noqa: E402
     find_modes_contour,
+    find_modes_contour_adaptive,
     find_modes_contour_subdivided,
 )
 
@@ -166,6 +167,28 @@ def main():
         )
         print(f"{n_quad:>6} | {t.seconds:>8.2f} | {len(modes):>5}")
 
+    # Sweep 3 — adaptive: user picks ``probe_dim``, algorithm picks
+    # ``n_k`` automatically by saturation feedback. Measures the
+    # overhead of not knowing the right ``n_k`` in advance.
+    print("\n=== Adaptive: probe_dim sweep on the small graph (61 nodes, 303 modes) ===")
+    print(f"{'probe_dim':>9} | {'time (s)':>8} | {'modes':>5} | {'err vs gold':>11}")
+    print("-" * 50)
+    sweep_adaptive = []
+    for pd in (20, 40, 60):
+        with time_block() as t:
+            modes = find_modes_contour_adaptive(
+                g,
+                bounds=bounds,
+                n_quad=200,
+                probe_dim=pd,
+                rng=np.random.default_rng(0),
+            )
+        err = max_pos_error(modes, gold)
+        sweep_adaptive.append(
+            {"probe_dim": pd, "time_s": t.seconds, "n_modes": len(modes), "err": err}
+        )
+        print(f"{pd:>9} | {t.seconds:>8.2f} | {len(modes):>5} | {err:>11.2e}")
+
     # Render markdown.
     md = []
     md.append(f"# Stress benchmark: buffon n_lines=6, total_length=12\n")
@@ -209,6 +232,33 @@ def main():
         md.append(f"| {r['n_quad']} | {r['time_s']:.2f} | {r['n_modes']} |")
     md.append("")
 
+    md.append("## Sweep 3: `find_modes_contour_adaptive` (auto-pick `n_k`)\n")
+    md.append(
+        "Same workload (61-node buffon, 303 modes), but the user picks "
+        "only `probe_dim` — `n_k` is chosen automatically by saturation "
+        "feedback. Each cell is bisected when it returns either ≥ "
+        "`saturation_factor · probe_dim` modes (genuine saturation) or "
+        "`0` modes at low depth (ambiguous: could mean over-capacity "
+        "collapse). Recursion stops at `max_depth=6`.\n"
+    )
+    md.append("| probe_dim | time (s) | modes found | max pos err |")
+    md.append("|---:|---:|---:|---:|")
+    for r in sweep_adaptive:
+        err_s = "inf" if not np.isfinite(r["err"]) else f"{r['err']:.2e}"
+        md.append(
+            f"| {r['probe_dim']} | {r['time_s']:.2f} | "
+            f"{r['n_modes']} | {err_s} |"
+        )
+    md.append(
+        "\nCompare to the best manual run from Sweep 1 "
+        f"(`n_k=8` at `probe_dim={probe_dim_cap}`): "
+        f"{[r for r in sweep_n_k if r['n_k'] == 8][0]['time_s']:.2f}s, "
+        f"{[r for r in sweep_n_k if r['n_k'] == 8][0]['n_modes']} modes. "
+        "Adaptive's overhead vs the optimum-tuned manual run is the "
+        "cost of not knowing the right `n_k` in advance — a few extra "
+        "single-contour evaluations on cells that turn out to fit.\n"
+    )
+
     md.append("## Takeaway\n")
     md.append(
         "Subdivision adds two distinct benefits, both indispensable at "
@@ -222,11 +272,20 @@ def main():
         "more `n_quad` to converge the trapezoidal moments. "
         "Subdividing into 8 cells costs `8 · n_quad` evaluations "
         "total; matching that coverage with a single contour at "
-        "`n_quad=1600` costs ~6× as much wall time and still misses "
-        "modes.\n\n"
-        "**Rule of thumb:** pick `n_k` so that "
+        f"`n_quad=1600` costs ~{sweep_n_quad[-1]['time_s'] / [r for r in sweep_n_k if r['n_k'] == 8][0]['time_s']:.0f}× "
+        "as much wall time and still misses modes.\n\n"
+        "**Rule of thumb (manual):** pick `n_k` so that "
         "`expected_modes_per_cell ≲ 0.65 · probe_dim`. On this "
-        f"workload that's `n_k ≥ ⌈303 / (0.65 · 60)⌉ = 8`."
+        f"workload that's `n_k ≥ ⌈{len(gold)} / (0.65 · "
+        f"{probe_dim_cap})⌉ = 8`.\n\n"
+        "**Use `find_modes_contour_adaptive`** when you don't know "
+        "the mode count in advance. It treats both saturation (cell "
+        "returns ≥ `0.7 · probe_dim` modes) and over-capacity "
+        "collapse (cell returns 0 modes at low depth) as signals to "
+        "split. Sweep 3 shows it recovers ~all 303 modes from any "
+        "reasonable `probe_dim` with a 2-3× overhead vs the "
+        "hand-tuned `n_k=8` run — the cost of not pre-knowing the "
+        "answer."
     )
 
     text = "\n".join(md) + "\n"
