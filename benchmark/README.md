@@ -58,18 +58,41 @@ matrix; representative line graph numbers (n_edges=20, mode k≈π/2):
 
 ### Mode search
 
-Beyn (single contour) is ~25–40× faster than `grid+root` on these
-workloads while landing every mode within `1e-2` of the
-gold-reference subdivided-contour run. Subdivision adds overhead
-without finding extra modes when the single contour's `probe_dim`
-already exceeds the in-rectangle mode count, so for small graphs the
-single contour wins.
+Workloads sized to put 22–50 modes inside the rectangle, so the
+mode-count-vs-`probe_dim` ceiling actually bites. Beyn caps at
+`probe_dim` modes per contour as a fundamental property of its
+SVD-extraction step, and `find_modes_contour` clamps `probe_dim` to
+the node count — so on a small graph (16/21 nodes) a wide rectangle
+containing more modes than nodes makes the *single* contour
+under-count to 0. Subdivision is what fixes that.
 
-| workload | contour | contour-subdiv | grid+root |
-|---|---:|---:|---:|
-| line n=15 | 104 ms (9 modes) | 191 ms (9) | 3843 ms (9) |
-| line n=20 | 110 ms (9) | 193 ms (9) | 4152 ms (9) |
-| buffon ~60 nodes | 222 ms (9) | 430 ms (9) | 4818 ms (8 — missed 1) |
+| workload                     | contour       | contour-subdiv  | grid+root              |
+|------------------------------|--------------:|----------------:|-----------------------:|
+| line n=15, 38 modes, k ≤ 60  | 197 ms (**0**) | 1576 ms (38)   | 25537 ms (36 — missed 2) |
+| line n=20, 50 modes, k ≤ 80  | 212 ms (**0**) | 3039 ms (50)   | 35782 ms (48 — missed 2) |
+| buffon ~60 nodes, 22 modes   | 298 ms (22)    | 1070 ms (22)   | 26492 ms (22)          |
+
+Single contour wins handily on the buffon graph (60 nodes ≫ 22 modes,
+plenty of headroom); subdivision is overhead. On the cramped
+line graphs, single returns nothing useful and subdivision is
+mandatory. `grid+root` is consistently 10–30× slower than the
+contour methods and consistently misses a couple of modes that
+`peak_local_max` merged at `min_distance=2`.
+
+### Does positional accuracy require subdivision?
+
+**No, not for accuracy** — only for *coverage*. Across all working
+configurations (single contour on the buffon graph, subdivision on
+the line graphs), positional error vs the gold reference is
+`~1e-11`–`1e-8` regardless of `n_k`. Tightening the match tolerance
+from `1e-2` to `1e-6` doesn't change which methods agree. The
+subdivision sweep in `results_search.md` shows it directly: on
+buffon, every `n_k ∈ {1, 2, 4, 8, 16}` returns the same 22 modes at
+indistinguishable accuracy. On the line graphs, `n_k` controls
+whether you find the modes at all; once you cross the
+modes-per-cell ≤ `probe_dim` threshold (`n_k=4` for the n=15 case,
+`n_k=8` for n=20), additional subdivision adds time without adding
+information.
 
 The grid path missed one mode on the buffon graph: a near-corner mode
 that `peak_local_max` merged into a neighbour at `min_distance=2`.

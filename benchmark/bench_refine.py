@@ -176,7 +176,7 @@ def render_md(rows: list[dict]) -> str:
     for graph_name, group in by_graph.items():
         lines.append(f"### {graph_name}\n")
         lines.append(
-            "| true_mode | perturb | method | time (ms) | evals | final |λ| | error |"
+            "| true_mode | perturb | method | time (ms) | evals | final `\\|λ\\|` | error |"
         )
         lines.append("|---|---|---|---:|---:|---:|---:|")
         for r in group:
