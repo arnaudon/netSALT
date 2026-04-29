@@ -40,9 +40,9 @@ from netsalt.utils import get_scan_grid  # noqa: E402
 
 
 MATCH_TOL = 1e-6  # consider modes equal if Euclidean distance ≤ this
-GOLD_QUAD = 240   # quadrature nodes for the gold-reference subdivided run
-GOLD_NK = 8       # k-direction subdivisions for the gold reference
-GOLD_NA = 2       # α-direction subdivisions for the gold reference
+GOLD_QUAD = 240  # quadrature nodes for the gold-reference subdivided run
+GOLD_NK = 8  # k-direction subdivisions for the gold reference
+GOLD_NA = 2  # α-direction subdivisions for the gold reference
 
 
 def median_time(fn, n_repeats=3):
@@ -59,9 +59,7 @@ def grid_path(graph, params):
     """Reproduce the legacy mode-search pipeline."""
     qualities = scan_frequencies(graph)
     ks, alphas = get_scan_grid(graph)
-    rough = find_rough_modes_from_scan(
-        ks, alphas, qualities, min_distance=2, threshold_abs=1.0
-    )
+    rough = find_rough_modes_from_scan(ks, alphas, qualities, min_distance=2, threshold_abs=1.0)
     refined = []
     for r in rough:
         out = refine_mode_root(np.array(r, dtype=float), graph, params)
@@ -228,14 +226,10 @@ def render_md(rows):
         by_graph.setdefault(r["graph"], []).append(r)
     for graph_name, group in by_graph.items():
         lines.append(f"### {graph_name}\n")
-        lines.append(
-            "| method | time (ms) | n_modes | worst `\\|λ\\|` | max pos err vs gold |"
-        )
+        lines.append("| method | time (ms) | n_modes | worst `\\|λ\\|` | max pos err vs gold |")
         lines.append("|---|---:|---:|---:|---:|")
         for r in group:
-            err = (
-                "n/a" if not np.isfinite(r["max_pos_err"]) else f"{r['max_pos_err']:.2e}"
-            )
+            err = "n/a" if not np.isfinite(r["max_pos_err"]) else f"{r['max_pos_err']:.2e}"
             lines.append(
                 f"| {r['method']} | {r['time_ms']:.1f} | "
                 f"{r['n_modes']} | {r['worst_q']:.2e} | {err} |"
@@ -244,8 +238,9 @@ def render_md(rows):
     return "\n".join(lines)
 
 
-def subdivision_sweep(graph_name, graph, bounds, probe_dim, gold_modes,
-                      n_quad=200, sweeps=(1, 2, 4, 8, 16)):
+def subdivision_sweep(
+    graph_name, graph, bounds, probe_dim, gold_modes, n_quad=200, sweeps=(1, 2, 4, 8, 16)
+):
     """Vary ``n_k`` on a single graph and report mode count + position
     error vs the gold reference, so the user can see when subdivision
     actually starts to matter.
@@ -290,12 +285,8 @@ def render_sweep_md(rows):
         lines.append("| n_k | time (ms) | n_modes | max pos err vs gold |")
         lines.append("|---:|---:|---:|---:|")
         for r in group:
-            err = (
-                "n/a" if not np.isfinite(r["max_pos_err"]) else f"{r['max_pos_err']:.2e}"
-            )
-            lines.append(
-                f"| {r['n_k']} | {r['time_ms']:.1f} | {r['n_modes']} | {err} |"
-            )
+            err = "n/a" if not np.isfinite(r["max_pos_err"]) else f"{r['max_pos_err']:.2e}"
+            lines.append(f"| {r['n_k']} | {r['time_ms']:.1f} | {r['n_modes']} | {err} |")
         lines.append("")
     return "\n".join(lines)
 
@@ -327,15 +318,20 @@ def main():
         # probe_dim caps at ``len(graph)`` inside ``find_modes_contour``,
         # so on small graphs (16/21 nodes) the single contour can't
         # possibly resolve ~40 modes — subdivision is mandatory.
-        ("line n=15 (k ∈ [0.5,60], α ∈ [0,5]) — ~38 modes",
-         line_graph_15, 60.0, 5.0, 240, 16, 8),
-        ("line n=20 (k ∈ [0.5,80], α ∈ [0,5]) — ~50 modes",
-         line_graph_20, 80.0, 5.0, 280, 21, 12),
+        ("line n=15 (k ∈ [0.5,60], α ∈ [0,5]) — ~38 modes", line_graph_15, 60.0, 5.0, 240, 16, 8),
+        ("line n=20 (k ∈ [0.5,80], α ∈ [0,5]) — ~50 modes", line_graph_20, 80.0, 5.0, 280, 21, 12),
         # Buffon has ~60 nodes, so probe_dim has plenty of headroom for
         # the rectangle's mode count — single contour should still
         # resolve everything, and subdivision becomes pure overhead.
-        ("buffon n_lines=6, ~60 nodes (k ∈ [0.5,40], α ∈ [0,5]) — ~22 modes",
-         buffon_g, 40.0, 5.0, 240, 40, 4),
+        (
+            "buffon n_lines=6, ~60 nodes (k ∈ [0.5,40], α ∈ [0,5]) — ~22 modes",
+            buffon_g,
+            40.0,
+            5.0,
+            240,
+            40,
+            4,
+        ),
     ]
     for label, graph, kmax, amax, n_quad, probe_dim, n_k in cases:
         params = dict(graph.graph["params"])
@@ -367,7 +363,11 @@ def main():
         )
         sweep_rows.extend(
             subdivision_sweep(
-                label, graph, (0.5, kmax, 0.0, amax), probe_dim, gold_modes,
+                label,
+                graph,
+                (0.5, kmax, 0.0, amax),
+                probe_dim,
+                gold_modes,
                 n_quad=n_quad,
             )
         )

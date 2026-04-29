@@ -128,10 +128,7 @@ def main():
     # both slower than subdivision and still misses modes.
     g_big = buffon_planar_graph(n_lines=20, total_length=12.0, seed=2)
     n_nodes_big = len(g_big)
-    print(
-        f"\n=== Sweep 2 setup: buffon n_lines=20, total_length=12 → "
-        f"{n_nodes_big} nodes ==="
-    )
+    print(f"\n=== Sweep 2 setup: buffon n_lines=20, total_length=12 → {n_nodes_big} nodes ===")
     print("computing gold reference for the bigger graph ...")
     with time_block() as t_gold_big:
         gold_big = find_modes_contour_subdivided(
@@ -162,9 +159,7 @@ def main():
                 probe_dim=artificial_pd,
                 rng=np.random.default_rng(0),
             )
-        sweep_n_quad.append(
-            {"n_quad": n_quad, "time_s": t.seconds, "n_modes": len(modes)}
-        )
+        sweep_n_quad.append({"n_quad": n_quad, "time_s": t.seconds, "n_modes": len(modes)})
         print(f"{n_quad:>6} | {t.seconds:>8.2f} | {len(modes):>5}")
 
     # Sweep 3 — adaptive: user picks ``probe_dim``, algorithm picks
@@ -245,10 +240,7 @@ def main():
     md.append("|---:|---:|---:|---:|")
     for r in sweep_adaptive:
         err_s = "inf" if not np.isfinite(r["err"]) else f"{r['err']:.2e}"
-        md.append(
-            f"| {r['probe_dim']} | {r['time_s']:.2f} | "
-            f"{r['n_modes']} | {err_s} |"
-        )
+        md.append(f"| {r['probe_dim']} | {r['time_s']:.2f} | {r['n_modes']} | {err_s} |")
     md.append(
         "\nCompare to the best manual run from Sweep 1 "
         f"(`n_k=8` at `probe_dim={probe_dim_cap}`): "

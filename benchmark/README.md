@@ -23,9 +23,13 @@ algorithms shipped in this branch.
   61-node buffon graph) that isolates the *two* mechanisms by which
   subdivision helps Beyn: the probe-dim ceiling and the trapezoidal
   quadrature accuracy. See "What does subdivision add?" below.
-- `results_refine.md`, `results_search.md`, `results_stress.md` —
-  captured results from a recent run; regenerate via the commands
-  below.
+- `bench_tune_then_batch.py` — demonstrates the
+  `tune_contour_parameters` workflow: run the adaptive search once on
+  a representative graph, splat the returned parameter dict into
+  `find_modes_contour_subdivided` for the rest of the batch.
+- `results_refine.md`, `results_search.md`, `results_stress.md`,
+  `results_tune_then_batch.md` — captured results from a recent run;
+  regenerate via the commands below.
 
 ## Running
 
@@ -36,6 +40,7 @@ editable (`uv pip install -e .`):
 .venv/bin/python benchmark/bench_refine.py --output benchmark/results_refine.md
 .venv/bin/python benchmark/bench_search.py --output benchmark/results_search.md
 .venv/bin/python benchmark/bench_stress.py --output benchmark/results_stress.md
+.venv/bin/python benchmark/bench_tune_then_batch.py --output benchmark/results_tune_then_batch.md
 ```
 
 Each script prints the same table it writes to disk; runs in well under
@@ -134,6 +139,42 @@ over capacity, not actually empty). Recursion stops at
 `max_depth=6`. On the 303-mode buffon, it recovers every mode at
 `probe_dim ∈ {20, 40, 60}` with a 2-3× overhead vs the hand-tuned
 `n_k=8` run — the cost of not pre-knowing the answer.
+
+### Batches of similar-density graphs: `tune_contour_parameters`
+
+If you have many graphs of the same topology / density (e.g. a
+sweep over RNG seeds for a buffon-style construction), tune once
+and reuse:
+
+```python
+from netsalt import (
+    buffon_planar_graph_or_your_factory,  # your code
+    tune_contour_parameters,
+    find_modes_contour_subdivided,
+)
+
+representative = make_graph(seed=0)
+params, info = tune_contour_parameters(representative, bounds=bounds, probe_dim=40)
+print(f"{info['discovered_modes']} modes, batch params: {params}")
+
+for seed in seeds:
+    g = make_graph(seed)
+    modes = find_modes_contour_subdivided(g, bounds=bounds, **params)
+```
+
+`tune_contour_parameters` runs `find_modes_contour_adaptive` once,
+observes the mode count, and picks `n_k` so that
+`expected_modes_per_cell ≤ 0.65 · probe_dim / safety_factor`
+(default `safety_factor=1.5` leaves 50% headroom for batch-instance
+variation). `bench_tune_then_batch.py` shows the pattern: tuning
+takes ~4 s on a representative buffon graph; each subsequent batch
+instance runs in ~2 s vs ~4 s for per-call adaptive — 1.8× median
+speedup with 100% mode coverage on the batch.
+
+Re-tune only when graph density / topology changes substantially.
+If your graph generator can produce occasional outliers (e.g. tiny
+graphs from rare seeds), filter them out before passing to the
+batch pipeline; the tuned parameters assume similar instance size.
 
 ### Does positional accuracy alone require subdivision?
 

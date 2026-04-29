@@ -5,6 +5,7 @@ from .contour import (
     find_modes_contour,
     find_modes_contour_adaptive,
     find_modes_contour_subdivided,
+    tune_contour_parameters,
 )
 from .io import (
     load_graph,
@@ -62,5 +63,6 @@ __all__ = [
     "set_dielectric_constant",
     "set_dispersion_relation",
     "set_total_length",
+    "tune_contour_parameters",
     "update_parameters",
 ]

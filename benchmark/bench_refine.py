@@ -60,8 +60,9 @@ REFINERS = [
 AGREEMENT_TOL = 5e-3
 
 
-def true_modes(graph, k_min=0.5, k_max=20.0, alpha_min=0.0, alpha_max=5.0,
-               n_quad=200, probe_dim=None):
+def true_modes(
+    graph, k_min=0.5, k_max=20.0, alpha_min=0.0, alpha_max=5.0, n_quad=200, probe_dim=None
+):
     """Use Beyn (high probe_dim, fine quadrature) as the ground-truth
     mode locator. Beyn is configured tighter than what any of the
     refiners produce, so it serves as the consensus reference.
@@ -124,14 +125,8 @@ def bench_graph(graph_name, graph, params, perturbations, ground_truth=None):
             for name, fn, kwargs in REFINERS:
                 t, ne, res = run_refiner(name, fn, kwargs, init, graph, params)
                 results[name] = (t, ne, res)
-                final_q = (
-                    mode_quality(res, graph)
-                    if isinstance(res, np.ndarray)
-                    else float("nan")
-                )
-                pos = (
-                    f"{res[0]:.5f},{res[1]:.5f}" if isinstance(res, np.ndarray) else str(res)
-                )
+                final_q = mode_quality(res, graph) if isinstance(res, np.ndarray) else float("nan")
+                pos = f"{res[0]:.5f},{res[1]:.5f}" if isinstance(res, np.ndarray) else str(res)
                 err = (
                     np.linalg.norm(np.asarray(res) - mode)
                     if isinstance(res, np.ndarray)
@@ -220,18 +215,22 @@ def main():
     # Pump dispersion (D0=0 reduces to dielectric, but the dispersion
     # function itself is the more complex one — exercises the chain-rule
     # path in the Newton derivative).
-    workloads.append((
-        "line + pump dispersion (D0=0), n_edges=20",
-        line_graph_with_pump(n_edges=20),
-    ))
+    workloads.append(
+        (
+            "line + pump dispersion (D0=0), n_edges=20",
+            line_graph_with_pump(n_edges=20),
+        )
+    )
 
     # Random planar buffon graph — irregular topology, modes
     # nondegenerate, each at its own ``alpha``. Stress-tests refiners on
     # something less symmetric than the line.
-    workloads.append((
-        "buffon planar (n_lines=6 → ~60 nodes)",
-        buffon_planar_graph(n_lines=6, total_length=1.0, seed=2),
-    ))
+    workloads.append(
+        (
+            "buffon planar (n_lines=6 → ~60 nodes)",
+            buffon_planar_graph(n_lines=6, total_length=1.0, seed=2),
+        )
+    )
 
     for gname, graph in workloads:
         params = dict(graph.graph["params"])
@@ -262,8 +261,7 @@ def main():
         for line in failures:
             print(" ", line)
     else:
-        print("\n[ok] all converged refiners agree within "
-              f"{AGREEMENT_TOL:.0e} of each other.")
+        print(f"\n[ok] all converged refiners agree within {AGREEMENT_TOL:.0e} of each other.")
 
     if args.output:
         Path(args.output).write_text(md + "\n", encoding="utf-8")

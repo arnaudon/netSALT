@@ -918,6 +918,41 @@ class TestContourIntegration:
 
         assert "find_modes_contour_adaptive" in netsalt.__all__
 
+    def test_tune_contour_parameters_returns_usable_settings(self):
+        """``tune_contour_parameters`` runs adaptive once and returns a
+        param dict that splats directly into
+        ``find_modes_contour_subdivided``. Verify the round trip
+        recovers the same modes."""
+        from netsalt.contour import (
+            find_modes_contour_subdivided,
+            tune_contour_parameters,
+        )
+
+        # 25-mode line graph; probe_dim=8 forces non-trivial subdivision.
+        g = self._line_graph(n_edges=10, total_length=2.0)
+        bounds = (0.5, 20.0, 0.0, 1.0)
+        params, info = tune_contour_parameters(
+            g, bounds=bounds, probe_dim=8, n_quad=120, rng=np.random.default_rng(3)
+        )
+        # Sanity on the returned settings.
+        assert params["probe_dim"] == 8
+        assert params["n_quad"] == 120
+        assert params["n_alpha"] == 1
+        assert params["n_k"] >= 1
+        assert info["discovered_modes"] >= 5
+
+        # Splat the params into the non-adaptive entry point and check
+        # we recover ~the same mode set as the tuning run did.
+        modes = find_modes_contour_subdivided(
+            g, bounds=bounds, **params, rng=np.random.default_rng(3)
+        )
+        assert abs(len(modes) - info["discovered_modes"]) <= 2
+
+    def test_tune_contour_is_exported(self):
+        import netsalt
+
+        assert "tune_contour_parameters" in netsalt.__all__
+
     def test_subdivided_contour_finds_more_modes_than_single(self):
         """When a region contains more modes than ``probe_dim``, a single
         contour can't resolve them all, but subdivision can."""

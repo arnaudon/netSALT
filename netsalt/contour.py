@@ -333,6 +333,105 @@ def _split_cell(cell, axis="k"):
     raise ValueError(f"Unknown split axis {axis!r}; expected 'k', 'alpha', or 'auto'")
 
 
+def tune_contour_parameters(
+    graph: Any,
+    *,
+    bounds: tuple[float, float, float, float] | None = None,
+    probe_dim: int | None = None,
+    n_quad: int = 200,
+    safety_factor: float = 1.5,
+    saturation_factor: float = 0.7,
+    max_depth: int = 6,
+    split_axis: str = "k",
+    rng: np.random.Generator | None = None,
+):
+    """Run :func:`find_modes_contour_adaptive` once to discover the mode
+    count on a representative graph, then return parameters suitable
+    for the cheaper :func:`find_modes_contour_subdivided` on similar
+    instances.
+
+    Use case: you have many graphs of the same topology / density (say,
+    different random seeds for a buffon planar graph) and want to skip
+    the adaptive overhead on every call. Tune once on one
+    representative — or a few, taking the max — and reuse the
+    parameters across the batch.
+
+    Args:
+        graph: the representative graph to tune on.
+        bounds: ``(k_min, k_max, α_min, α_max)`` rectangle. If None,
+            taken from ``graph.graph["params"]``.
+        probe_dim: probe dimension to use for both the adaptive
+            discovery pass and the recommended output. Default
+            ``min(40, n_nodes)``; clamped to the node count by
+            ``find_modes_contour``.
+        n_quad: quadrature node count, fixed across the recursion
+            and reused in the output. 200 is a safe baseline for
+            netsalt workloads with up to ~50 modes per cell.
+        safety_factor: target ``modes_per_cell ≤ 0.65 · probe_dim /
+            safety_factor`` when sizing ``n_k``. ``1.5`` gives 50%
+            headroom — useful when the batch's randomized instances
+            may have slightly more modes than the representative
+            graph used for tuning.
+        saturation_factor / max_depth / split_axis / rng: forwarded
+            to :func:`find_modes_contour_adaptive`.
+
+    Returns:
+        Tuple ``(params, info)``:
+
+        * ``params`` — dict ready to splat into
+          :func:`find_modes_contour_subdivided`:
+          ``{"n_k", "n_alpha", "n_quad", "probe_dim"}``.
+        * ``info`` — dict with ``discovered_modes`` (mode count from
+          the adaptive run), ``modes`` (the actual mode positions),
+          and ``modes_per_cell`` (the design target after applying
+          ``safety_factor``).
+    """
+    n_nodes = len(graph)
+    if probe_dim is None:
+        probe_dim = min(40, n_nodes)
+    probe_dim = min(probe_dim, n_nodes)
+
+    modes = find_modes_contour_adaptive(
+        graph,
+        bounds=bounds,
+        n_quad=n_quad,
+        probe_dim=probe_dim,
+        saturation_factor=saturation_factor,
+        max_depth=max_depth,
+        split_axis=split_axis,
+        rng=rng,
+    )
+    n_modes = len(modes)
+
+    # Pick ``n_k`` so each cell has comfortably fewer than
+    # ``probe_dim`` modes, with ``safety_factor`` headroom for
+    # batch-instance variation.
+    target_modes_per_cell = max(1.0, 0.65 * probe_dim / safety_factor)
+    if split_axis == "k":
+        n_k = max(1, int(np.ceil(n_modes / target_modes_per_cell)))
+        n_alpha = 1
+    elif split_axis == "alpha":
+        n_k = 1
+        n_alpha = max(1, int(np.ceil(n_modes / target_modes_per_cell)))
+    else:  # split_axis == "auto"
+        # Distribute the splits roughly along whichever side is longer.
+        n_total_cells = max(1, int(np.ceil(n_modes / target_modes_per_cell)))
+        n_k = n_alpha = max(1, int(np.ceil(np.sqrt(n_total_cells))))
+
+    params = {
+        "n_k": n_k,
+        "n_alpha": n_alpha,
+        "n_quad": n_quad,
+        "probe_dim": probe_dim,
+    }
+    info = {
+        "discovered_modes": n_modes,
+        "modes": modes,
+        "target_modes_per_cell": target_modes_per_cell,
+    }
+    return params, info
+
+
 def find_modes_contour_adaptive(
     graph: Any,
     *,

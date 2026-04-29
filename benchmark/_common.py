@@ -40,16 +40,16 @@ def line_graph(n_edges: int, dielectric: float = 4.0, total_length: float = 1.0)
     return g
 
 
-def grid_planar_graph(rows: int = 3, cols: int = 3, dielectric: float = 4.0, total_length: float = 1.0):
+def grid_planar_graph(
+    rows: int = 3, cols: int = 3, dielectric: float = 4.0, total_length: float = 1.0
+):
     """Small planar graph (``rows × cols`` grid, ``rows·cols`` nodes,
     deterministic topology). Less symmetric than the line graph — modes
     don't degenerate, so it stresses the refiners differently.
     """
     g = nx.grid_2d_graph(rows, cols)
     g = nx.convert_node_labels_to_integers(g)
-    pos = np.array(
-        [[float(i % cols), float(i // cols)] for i in range(rows * cols)]
-    )
+    pos = np.array([[float(i % cols), float(i // cols)] for i in range(rows * cols)])
     params = {
         "open_model": "open",
         "dielectric_params": {
@@ -67,8 +67,9 @@ def grid_planar_graph(rows: int = 3, cols: int = 3, dielectric: float = 4.0, tot
     return g
 
 
-def buffon_planar_graph(n_lines: int = 4, dielectric: float = 4.0, total_length: float = 1.0,
-                        seed: int = 7):
+def buffon_planar_graph(
+    n_lines: int = 4, dielectric: float = 4.0, total_length: float = 1.0, seed: int = 7
+):
     """Small random buffon-style planar graph (intersecting line segments).
 
     Stress-test for the refiners on irregular topology where modes are
