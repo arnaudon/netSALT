@@ -285,6 +285,38 @@ class TestComputeCore:
         assert BT.shape == (n_nodes, 2 * n_edges)
         assert W.shape == (2 * n_edges, 2 * n_edges)
 
+    def test_incidence_topology_cache_is_stable_across_calls(self):
+        """Second call to construct_incidence_matrix should reuse the cache
+        but still produce the same matrix values as the first call."""
+        from netsalt.quantum_graph import construct_incidence_matrix, set_wavenumber
+
+        g = self._line_graph(n_edges=5)
+        set_wavenumber(g, 2.0 + 0.1j)
+        BT1, B1 = construct_incidence_matrix(g)
+        assert "_incidence_topology" in g.graph
+        # Same k → identical matrices on the second call.
+        BT2, B2 = construct_incidence_matrix(g)
+        assert (BT1 != BT2).nnz == 0
+        assert (B1 != B2).nnz == 0
+
+    def test_incidence_topology_cache_invalidates_on_resize(self):
+        """If ``len(edges)`` changes after the cache was populated, the
+        cache must be rebuilt to match the new graph."""
+        from netsalt.quantum_graph import construct_incidence_matrix, set_wavenumber
+
+        g_small = self._line_graph(n_edges=3)
+        set_wavenumber(g_small, 1.0 + 0.0j)
+        construct_incidence_matrix(g_small)
+        assert g_small.graph["_incidence_topology"]["m"] == 3
+
+        # Simulate a caller reusing the stale cache on a graph with one more edge
+        g_big = self._line_graph(n_edges=4)
+        g_big.graph["_incidence_topology"] = g_small.graph["_incidence_topology"]
+        set_wavenumber(g_big, 1.0 + 0.0j)
+        _BT, B = construct_incidence_matrix(g_big)
+        # The matrix should match the bigger graph, not the stale m=3 cache.
+        assert B.shape == (2 * 4, len(g_big))
+
     def test_mode_quality_accepts_generator(self):
         """Regression: threading an rng through should be deterministic."""
         from netsalt.quantum_graph import mode_quality
