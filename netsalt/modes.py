@@ -211,11 +211,23 @@ def find_passive_modes(graph, qualities=None, method=None, **kwargs):
 
     * ``"contour"`` — Beyn's contour integration via
       :func:`netsalt.find_modes_contour_subdivided`. No refinement step
-      needed; modes come back at quality ``1e-8`` or better. This is the
-      default and ~75× faster than the grid path on production buffon.
+      needed; modes come back at quality ``1e-8`` or better. ~75× faster
+      than the grid path on production buffon.
     * ``"grid"`` — legacy: :func:`scan_frequencies` (already done, pass
       via ``qualities``) + :func:`find_modes` with its peak-detection and
       per-mode refinement.
+
+    Default selection mirrors the call signature so the legacy
+    ``find_passive_modes(graph, qualities)`` keeps working:
+
+    * ``method`` argument explicit → that wins.
+    * else ``params["mode_search_method"]`` set → that wins.
+    * else if ``qualities`` was supplied → ``"grid"`` (legacy default).
+    * else → ``"contour"``.
+
+    A loud ``UserWarning`` fires when ``method="contour"`` is chosen with
+    a non-None ``qualities`` argument, since the qualities field is
+    ignored by Beyn and the caller likely expected it to be used.
 
     Args:
         graph: a fully-configured netsalt quantum graph.
@@ -223,7 +235,8 @@ def find_passive_modes(graph, qualities=None, method=None, **kwargs):
             ``method="grid"`` and ignored for ``"contour"``.
         method: ``"contour"``, ``"grid"``, or None to pick from
             ``graph.graph["params"]["mode_search_method"]`` (falling back
-            to ``"contour"``).
+            to ``"grid"`` when ``qualities`` is provided, ``"contour"``
+            otherwise).
         **kwargs: forwarded to the chosen implementation (e.g. ``n_k``,
             ``n_alpha``, ``n_quad``, ``probe_dim`` for contour; ``min_distance``,
             ``threshold_abs``, ``quality_method`` for grid).
@@ -233,7 +246,16 @@ def find_passive_modes(graph, qualities=None, method=None, **kwargs):
         a ``q_factor`` column.
     """
     if method is None:
-        method = graph.graph["params"].get("mode_search_method") or "contour"
+        method = graph.graph["params"].get("mode_search_method")
+    if method is None:
+        method = "grid" if qualities is not None else "contour"
+
+    if method == "contour" and qualities is not None:
+        warnings.warn(
+            "find_passive_modes(method='contour') ignores the supplied qualities field; "
+            "pass method='grid' if you want the legacy peak-detection path on that scan.",
+            stacklevel=2,
+        )
 
     if method == "contour":
         from .contour import find_modes_contour_subdivided

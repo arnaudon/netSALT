@@ -182,6 +182,22 @@ class TestNetSaltParams:
         p = NetSaltParams.from_dict(None)
         assert len(list(p.keys())) == 0
 
+    def test_literal_fields_reject_typos(self):
+        """``refine_method`` and ``mode_search_method`` are typed as
+        ``Literal[...]`` so a typo in ``luigi.cfg`` fails on construction
+        rather than silently propagating to the dispatcher."""
+        from pydantic import ValidationError
+
+        from netsalt.params import NetSaltParams
+
+        # Valid values pass.
+        NetSaltParams.from_dict({"refine_method": "newton", "mode_search_method": "grid"})
+
+        with pytest.raises(ValidationError):
+            NetSaltParams.from_dict({"refine_method": "newotn"})  # typo
+        with pytest.raises(ValidationError):
+            NetSaltParams.from_dict({"mode_search_method": "Grid"})  # case mismatch
+
     def test_update_parameters_converts_dict(self):
         """``update_parameters`` should upgrade a bare dict on the graph to
         a ``NetSaltParams`` instance so subsequent access gets validated."""
@@ -613,12 +629,22 @@ class TestRefinementAlgorithms:
                 patched.assert_called_once()
 
     def test_dispatch_rejects_unknown_method(self):
+        """``refine_method`` is typed as a Literal on ``NetSaltParams`` so a
+        typo fails at the graph boundary (pydantic validation on assignment)
+        rather than after a slow descent into ``refine_mode``."""
+        from pydantic import ValidationError
+
         from netsalt.algorithm import refine_mode
 
         g = self._line_graph()
-        g.graph["params"]["refine_method"] = "does-not-exist"
+        with pytest.raises(ValidationError):
+            g.graph["params"]["refine_method"] = "does-not-exist"
+
+        # And the dispatcher itself still raises if someone bypasses the
+        # boundary (e.g. ``refine_mode(..., params={"refine_method": "x"})``
+        # with a bare dict that never went through pydantic).
         with pytest.raises(ValueError, match="Unknown refine_method"):
-            refine_mode([3.0, 0.03], g, g.graph["params"])
+            refine_mode([3.0, 0.03], g, {"refine_method": "does-not-exist"})
 
     def test_default_method_is_root(self):
         """When ``refine_method`` is absent, root is the default."""
@@ -667,6 +693,30 @@ class TestRefinementAlgorithms:
         # The whole point of the backtracking bail is that we hand off
         # *before* burning every iteration.
         assert patched_root.called
+
+    def test_newton_handles_non_trivial_dispersion(self):
+        """The Hellmann-Feynman derivative includes the chain-rule factor
+        ``dks/dk`` so Newton converges on dispersion relations where
+        ``ks(k) ≠ k`` (e.g. ``dispersion_relation_dielectric`` scales by
+        ``√ε``). Without the chain rule the derivative is wrong by that
+        scale and Armijo absorbs the slack — so this test pins the eval
+        budget tightly to catch a regression that returns to silent
+        Armijo-rescued behaviour."""
+        from netsalt.algorithm import refine_mode_newton
+        from netsalt.quantum_graph import mode_quality
+
+        # eps=4 → ks/k = √4 = 2; the old code's derivative was off by
+        # this factor on every Newton step.
+        g = self._line_graph(dielectric=4.0)
+        init = np.array([3.05, 0.05])
+        result, n_eval = self._count_evals(refine_mode_newton, init, g, g.graph["params"])
+        assert result is not None
+        assert mode_quality(result, g) < g.graph["params"]["quality_threshold"]
+        # With chain rule: ~6–8 mode_quality evaluations on this graph.
+        # Without it, Armijo halves until the step is small enough,
+        # roughly doubling the count. Keep the bound loose enough to
+        # absorb scipy noise but tight enough to catch a regression.
+        assert n_eval <= 25, f"Newton with chain rule should be tight; got {n_eval}"
 
     def test_search_box_rejects_runaway_result(self):
         """A result outside the ``search_radii`` window is rejected."""
@@ -856,6 +906,47 @@ class TestContourIntegration:
         g.graph["params"] = {}
         with pytest.raises(ValueError, match="Unknown mode_search_method"):
             find_passive_modes(g, method="not-a-method")
+
+    def test_find_passive_modes_defaults_to_grid_when_qualities_provided(self):
+        """Legacy behaviour: ``find_passive_modes(g, qualities)`` with no
+        explicit method should use the grid path, not silently switch to
+        Beyn and ignore the supplied qualities."""
+        from unittest import mock
+
+        from netsalt.modes import find_passive_modes
+
+        g = nx.path_graph(3)
+        g.graph["params"] = {}
+        qualities = np.zeros((3, 3))
+        with mock.patch("netsalt.modes.find_modes", return_value="MODES_DF") as patched:
+            result = find_passive_modes(g, qualities)
+        patched.assert_called_once()
+        assert result == "MODES_DF"
+
+    def test_find_passive_modes_warns_when_contour_ignores_qualities(self):
+        """Caller passes both ``qualities`` and ``method='contour'``: contour
+        ignores the qualities, so warn loudly rather than swallow the
+        argument."""
+        import warnings as _warnings
+        from unittest import mock
+
+        from netsalt.modes import find_passive_modes
+
+        g = nx.path_graph(3)
+        g.graph["params"] = {"k_min": 1.0, "k_max": 2.0}
+        qualities = np.zeros((3, 3))
+        # Patch the contour entry point: we only care about the warning
+        # firing, not the actual mode search.
+        with (
+            mock.patch(
+                "netsalt.contour.find_modes_contour_subdivided",
+                return_value=np.empty((0, 2)),
+            ),
+            _warnings.catch_warnings(record=True) as caught,
+        ):
+            _warnings.simplefilter("always")
+            find_passive_modes(g, qualities, method="contour")
+        assert any("ignores the supplied qualities" in str(w.message) for w in caught)
 
     def test_contour_separates_closely_spaced_modes(self):
         """On a long line graph (``total_length=10``) the mode spacing in

@@ -278,29 +278,41 @@ def refine_mode_nelder_mead(initial_mode, graph, params, quality_method="eigenva
     return np.asarray(result.x)
 
 
-def _laplacian_derivative_times_vector(graph, v):
+def _laplacian_derivative_times_vector(graph, v, k):
     r"""Return ``dL/dk · v`` at the current ``graph.graph["ks"]``.
 
     Used by :func:`refine_mode_newton` to form the Hellmann-Feynman
     derivative without materialising the full ``dL/dk`` matrix.
 
     The quantum laplacian is ``L(k) = Bᵀ(k) · W⁻¹(k) · B(k)`` with
-    ``expl = exp(jℓk)`` and ``1 / (exp(2jℓk) − 1)`` as the only
-    k-dependent pieces. This function builds ``dB/dk``, ``dBT/dk``, and
-    ``dW⁻¹/dk`` as CSR sparse matrices and chains them via the product
-    rule, contracting against ``v`` so the caller avoids paying for a
-    sparse-sparse matmul.
+    ``expl = exp(jℓ·ks(k))`` and ``1 / (exp(2jℓ·ks(k)) − 1)`` as the only
+    k-dependent pieces, where ``ks(k) = dispersion_relation(k)`` may be
+    non-trivial (``dispersion_relation_dielectric`` scales by ``√ε``,
+    ``dispersion_relation_pump`` mixes in gain terms). Chain rule:
+
+        d(expl_i)/dk = j·ℓ_i · (dks_i/dk) · expl_i
+
+    ``dks/dk`` is estimated by a one-sided forward difference on the
+    dispersion relation (one extra cheap evaluation, no ARPACK), so the
+    derivative is correct for any dispersion the rest of the codebase
+    supports — not just the trivial ``ks = k`` case.
     """
     from .quantum_graph import construct_incidence_matrix, construct_weight_matrix
 
     lengths = graph.graph["lengths"]
     ks = graph.graph["ks"]
+
+    # Numerical dks/dk via the dispersion relation. Forward difference is
+    # accurate enough — Newton's quadratic convergence dominates the O(eps)
+    # error so long as eps is well above machine precision and well below
+    # the scale of k.
+    dispersion = graph.graph["dispersion_relation"]
+    eps = 1e-7 * (abs(k) + 1.0)
+    ks_plus = dispersion(k + eps, params=graph.graph["params"])
+    dks_dk = (np.asarray(ks_plus) - np.asarray(ks)) / eps
+
     expl = np.exp(1.0j * lengths * ks)
-    # d(expl)/dk = j·ℓ · expl (per edge, same dispersion as for expl itself
-    # since ks = dispersion_relation(freq); we treat ks as the wavenumber
-    # directly here because mode_quality was constructed with that same
-    # convention — we're differentiating in ``k`` not in ``freq``).
-    dexpl = 1.0j * lengths * expl
+    dexpl = 1.0j * lengths * dks_dk * expl
 
     topo = graph.graph.get("_incidence_topology")
     if topo is None or topo["m"] != len(graph.edges):
@@ -330,17 +342,13 @@ def _laplacian_derivative_times_vector(graph, v):
     dBT = sc.sparse.csr_matrix((dB_data_out, (col, row)), shape=(n, 2 * m), dtype=np.complex128)
     dB = sc.sparse.csr_matrix((dB_data, (row, col)), shape=(2 * m, n), dtype=np.complex128)
 
-    # dW⁻¹/dk: if W⁻¹ = 1 / (exp(2jℓk) − 1), then d/dk = −2jℓ·exp(2jℓk)
-    # / (exp(2jℓk) − 1)² = −2jℓ·(1 + W⁻¹) · W⁻¹.  W also carries a
-    # multiplicative ``ks`` factor when with_k=True; product-rule both.
+    # W⁻¹ at with_k=True is data = ks · 1/(e^{2jℓks} − 1). With chain rule:
+    #   d(ks_i · winv_i)/dk = (dks_i/dk) · winv_i + ks_i · (dwinv_i/dk)
+    # and  dwinv_i/dk = −2jℓ_i · (dks_i/dk) · e^{2jℓks_i} · winv_i².
     e2 = np.exp(2.0j * lengths * ks)
     winv = 1.0 / (e2 - 1.0)
-    dwinv_nok = -2.0j * lengths * e2 * winv * winv  # d/dk of 1/(e^{2jℓk} − 1)
-    # For L, construct_weight_matrix uses with_k=True: data = ks * winv.
-    # d/dk[ks * winv] = winv + ks * dwinv_nok  (ks is the scalar wavenumber
-    # here; for vector ks (one per edge via dispersion) it's still the
-    # diagonal derivative, computed elementwise).
-    dwinv_data = winv + ks * dwinv_nok
+    dwinv = -2.0j * lengths * dks_dk * e2 * winv * winv
+    dwinv_data = dks_dk * winv + ks * dwinv
     dWinv = sc.sparse.diags(np.repeat(dwinv_data, 2), format="csc", dtype=np.complex128)
 
     BT, B = construct_incidence_matrix(graph)
@@ -428,7 +436,7 @@ def refine_mode_newton(initial_mode, graph, params, quality_method="eigenvalue",
         )
         u = u[:, 0]
 
-        dL_v = _laplacian_derivative_times_vector(graph, v)
+        dL_v = _laplacian_derivative_times_vector(graph, v, k)
         denom = u @ v
         if abs(denom) < 1e-14:
             return _finalise(mode)

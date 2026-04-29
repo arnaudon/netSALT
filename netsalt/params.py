@@ -11,7 +11,7 @@ to work. Validation runs at construction time (via
 """
 
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -70,14 +70,15 @@ class NetSaltParams(BaseModel):
     #     (grid scan + ``peak_local_max`` + ``refine_mode``). Kept for
     #     backward compatibility and for callers who want to visualise
     #     the quality field.
-    mode_search_method: str | None = None
+    mode_search_method: Literal["contour", "grid"] | None = None
     # ``refine_method`` picks the algorithm used by :func:`netsalt.refine_mode`
     # when refinement is explicitly invoked — primarily by
     # ``pump_trajectories`` and ``find_threshold_lasing_modes`` tracking a
     # single mode as ``D0`` varies, not for the passive-scan step.
-    # Accepted values: "root" (default, MINPACK hybr), "newton" (Hellmann-
-    # Feynman derivative), "nelder_mead" (simplex), "brownian" (random-walk).
-    refine_method: str | None = None
+    # Typed as a Literal so typos in ``luigi.cfg`` fail at the graph
+    # boundary (``update_parameters``) rather than silently making it all
+    # the way to ``refine_mode`` before raising.
+    refine_method: Literal["root", "newton", "nelder_mead", "brownian"] | None = None
     search_stepsize: float | None = None
     quality_threshold: float | None = None
     max_steps: int | None = None
