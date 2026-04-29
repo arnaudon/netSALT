@@ -16,10 +16,15 @@ algorithms shipped in this branch.
   doubles as a regression suite.
 - `bench_search.py` — compares full-rectangle mode searchers:
   `find_modes_contour`, `find_modes_contour_subdivided`, and the legacy
-  grid-scan + `peak_local_max` + `refine_mode_root` pipeline. Reports
-  modes-found, worst `|λ₁|`, and cross-method agreement counts.
-- `results_refine.md`, `results_search.md` — captured results from a
-  recent run on the developer's machine; regenerate via the commands
+  grid-scan + `peak_local_max` + `refine_mode_root` pipeline on
+  workloads of 22–50 modes. Includes a subdivision sweep that
+  isolates how `n_k` interacts with `probe_dim`.
+- `bench_stress.py` — high-mode-count stress test (~300 modes on a
+  61-node buffon graph) that isolates the *two* mechanisms by which
+  subdivision helps Beyn: the probe-dim ceiling and the trapezoidal
+  quadrature accuracy. See "What does subdivision add?" below.
+- `results_refine.md`, `results_search.md`, `results_stress.md` —
+  captured results from a recent run; regenerate via the commands
   below.
 
 ## Running
@@ -30,6 +35,7 @@ editable (`uv pip install -e .`):
 ```bash
 .venv/bin/python benchmark/bench_refine.py --output benchmark/results_refine.md
 .venv/bin/python benchmark/bench_search.py --output benchmark/results_search.md
+.venv/bin/python benchmark/bench_stress.py --output benchmark/results_stress.md
 ```
 
 Each script prints the same table it writes to disk; runs in well under
@@ -79,20 +85,55 @@ mandatory. `grid+root` is consistently 10–30× slower than the
 contour methods and consistently misses a couple of modes that
 `peak_local_max` merged at `min_distance=2`.
 
-### Does positional accuracy require subdivision?
+### What does subdivision actually add?
 
-**No, not for accuracy** — only for *coverage*. Across all working
-configurations (single contour on the buffon graph, subdivision on
-the line graphs), positional error vs the gold reference is
-`~1e-11`–`1e-8` regardless of `n_k`. Tightening the match tolerance
-from `1e-2` to `1e-6` doesn't change which methods agree. The
-subdivision sweep in `results_search.md` shows it directly: on
-buffon, every `n_k ∈ {1, 2, 4, 8, 16}` returns the same 22 modes at
-indistinguishable accuracy. On the line graphs, `n_k` controls
-whether you find the modes at all; once you cross the
-modes-per-cell ≤ `probe_dim` threshold (`n_k=4` for the n=15 case,
-`n_k=8` for n=20), additional subdivision adds time without adding
-information.
+Subdivision (`find_modes_contour_subdivided`) splits the scan
+rectangle into `n_k × n_alpha` cells, runs `find_modes_contour` on
+each independently, and concatenates the results with a
+boundary-distance dedup. It helps for **two distinct reasons**, both
+of which kick in at high mode count:
+
+1. **The `probe_dim` ceiling.** The SVD of `A_0` has at most
+   `probe_dim` non-zero singular values; modes beyond that are
+   rank-deficient and dropped. `find_modes_contour` clamps
+   `probe_dim` to the graph's node count, so on small graphs this
+   ceiling is hard. Subdivision splits a rectangle with too many
+   modes into cells where each cell's mode count fits under
+   `probe_dim`.
+
+2. **Trapezoidal-quadrature accuracy.** Even when `probe_dim`
+   nominally exceeds the mode count, the moment integrals
+   `A_j = ∮ kʲ · L⁻¹(k) · V dk` lose accuracy when many poles sit
+   inside one large contour: the integrand varies rapidly near each
+   pole and the smaller singular values get cut by `svd_tol`.
+   Subdivision keeps the per-cell pole count small, so a modest
+   `n_quad` (say 200) suffices.
+
+`results_stress.md` isolates both effects on a buffon graph with 303
+modes (61 nodes, `probe_dim` capped at 60):
+
+* **Sweep 1** — fixed `n_quad=200`, vary `n_k`. `n_k=1, 2` return 0
+  modes; `n_k=4, 6` partial; `n_k=8` recovers all 303 in 2.9 s. The
+  transition lines up with `modes_per_cell ≤ 0.65 · probe_dim`.
+* **Sweep 2** — same rectangle on a *denser* graph (340 nodes,
+  254 modes, `probe_dim=340` so the ceiling is out of the way).
+  Single contour at `n_quad=200` finds 4 modes; at `n_quad=1600` it
+  finds 215 in 17 s, still missing ~15%. Subdivision is the cheaper
+  route at any mode count this high.
+
+**Rule of thumb:** pick `n_k` so that
+`expected_modes_per_cell ≲ 0.65 · probe_dim`. Pushing further
+than that adds time without adding modes.
+
+### Does positional accuracy alone require subdivision?
+
+**No.** Across all working configurations, positional error vs the
+gold reference is `~1e-11`–`1e-8` regardless of `n_k` once you've
+cleared the coverage threshold. Tightening the match tolerance
+from `1e-2` to `1e-6` doesn't change which methods agree. On the
+22-mode buffon workload, every `n_k ∈ {1, 2, 4, 8, 16}` returns the
+same 22 modes at indistinguishable accuracy — see the subdivision
+sweep section in `results_search.md`.
 
 The grid path missed one mode on the buffon graph: a near-corner mode
 that `peak_local_max` merged into a neighbour at `min_distance=2`.
