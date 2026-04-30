@@ -1,5 +1,11 @@
 """Public API for netsalt."""
 
+from .algorithm import refine_mode
+from .contour import (
+    find_modes_contour,
+    find_modes_contour_adaptive,
+    tune_contour_parameters,
+)
 from .io import (
     load_graph,
     load_modes,
@@ -12,6 +18,7 @@ from .modes import (
     compute_modal_intensities,
     compute_mode_competition_matrix,
     find_modes,
+    find_passive_modes,
     find_threshold_lasing_modes,
     lasing_threshold_linear,
     mode_on_nodes,
@@ -34,6 +41,9 @@ __all__ = [
     "compute_mode_competition_matrix",
     "create_quantum_graph",
     "find_modes",
+    "find_modes_contour",
+    "find_modes_contour_adaptive",
+    "find_passive_modes",
     "find_threshold_lasing_modes",
     "lasing_threshold_linear",
     "load_graph",
@@ -43,6 +53,7 @@ __all__ = [
     "mode_on_nodes",
     "oversample_graph",
     "pump_trajectories",
+    "refine_mode",
     "save_graph",
     "save_modes",
     "save_qualities",
@@ -50,5 +61,6 @@ __all__ = [
     "set_dielectric_constant",
     "set_dispersion_relation",
     "set_total_length",
+    "tune_contour_parameters",
     "update_parameters",
 ]

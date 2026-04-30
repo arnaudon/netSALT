@@ -11,7 +11,7 @@ to work. Validation runs at construction time (via
 """
 
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -60,10 +60,29 @@ class NetSaltParams(BaseModel):
     inner: list | None = None
     pump: Any | None = None
 
-    # --- Brownian-ratchet search knobs -------------------------------------
+    # --- Mode-refinement knobs ---------------------------------------------
+    # ``mode_search_method`` picks how :func:`netsalt.find_passive_modes`
+    # locates modes in the scan rectangle. Accepted values:
+    #   ``"contour"`` (default) — Beyn's contour integration via
+    #     ``find_modes_contour``. Directly returns modes at
+    #     ``|λ₁| ≲ 1e-8`` with no per-mode refinement step.
+    #   ``"grid"`` — legacy path: ``scan_frequencies`` + ``find_modes``
+    #     (grid scan + ``peak_local_max`` + ``refine_mode``). Kept for
+    #     backward compatibility and for callers who want to visualise
+    #     the quality field.
+    mode_search_method: Literal["contour", "grid"] | None = None
+    # ``refine_method`` picks the algorithm used by :func:`netsalt.refine_mode`
+    # when refinement is explicitly invoked — primarily by
+    # ``pump_trajectories`` and ``find_threshold_lasing_modes`` tracking a
+    # single mode as ``D0`` varies, not for the passive-scan step.
+    # Typed as a Literal so typos in ``luigi.cfg`` fail at the graph
+    # boundary (``update_parameters``) rather than silently making it all
+    # the way to ``refine_mode`` before raising.
+    refine_method: Literal["root", "brownian"] | None = None
     search_stepsize: float | None = None
     quality_threshold: float | None = None
     max_steps: int | None = None
+    # Legacy knobs, only read by refine_mode_brownian_ratchet:
     max_tries_reduction: int | None = None
     reduction_factor: float | None = None
     n_modes_max: int | None = None

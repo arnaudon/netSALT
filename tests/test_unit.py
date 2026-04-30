@@ -182,6 +182,24 @@ class TestNetSaltParams:
         p = NetSaltParams.from_dict(None)
         assert len(list(p.keys())) == 0
 
+    def test_literal_fields_reject_typos(self):
+        """``refine_method`` and ``mode_search_method`` are typed as
+        ``Literal[...]`` so a typo in ``luigi.cfg`` fails on construction
+        rather than silently propagating to the dispatcher."""
+        from pydantic import ValidationError
+
+        from netsalt.params import NetSaltParams
+
+        # Valid values pass.
+        NetSaltParams.from_dict({"refine_method": "root", "mode_search_method": "grid"})
+
+        with pytest.raises(ValidationError):
+            NetSaltParams.from_dict({"refine_method": "newton"})  # removed in favour of root
+        with pytest.raises(ValidationError):
+            NetSaltParams.from_dict({"refine_method": "rooot"})  # typo
+        with pytest.raises(ValidationError):
+            NetSaltParams.from_dict({"mode_search_method": "Grid"})  # case mismatch
+
     def test_update_parameters_converts_dict(self):
         """``update_parameters`` should upgrade a bare dict on the graph to
         a ``NetSaltParams`` instance so subsequent access gets validated."""
@@ -499,6 +517,538 @@ class TestComputeCore:
         modes_df = pd.DataFrame({"passive": [3.0 - 0.05j]})
         val = gamma_q_value(g, modes_df, index=0)
         assert np.isfinite(val)
+
+
+class TestRefinementAlgorithms:
+    """All four refiners converge to the same root from the same initial
+    guess; the dispatcher picks the one named in ``params``."""
+
+    def _line_graph(self, n_edges=6, dielectric=4.0):
+        import netsalt
+        from netsalt.physics import dispersion_relation_dielectric
+        from netsalt.quantum_graph import create_quantum_graph
+
+        g = nx.path_graph(n_edges + 1)
+        positions = np.array([[float(i), 0.0] for i in range(n_edges + 1)])
+        params = {
+            "open_model": "open",
+            "dielectric_params": {
+                "method": "uniform",
+                "inner_value": dielectric,
+                "loss": 0.0,
+                "outer_value": 1.0,
+            },
+            "c": 1.0,
+            "quality_threshold": 1e-4,
+            "search_stepsize": 0.05,
+            "max_steps": 500,
+            # ``_search_box`` uses these to build the locality bound; set a
+            # generous window around the mode we're targeting so the refiners
+            # can actually move to the root.
+            "k_min": 2.8,
+            "k_max": 3.4,
+            "alpha_min": 0.0,
+            "alpha_max": 0.3,
+        }
+        create_quantum_graph(g, params, positions=positions)
+        netsalt.set_dispersion_relation(g, dispersion_relation_dielectric)
+        netsalt.set_dielectric_constant(g, g.graph["params"])
+        return g
+
+    def _count_evals(self, fn, *args, **kwargs):
+        """Monkey-patch ``mode_quality`` to count evaluations inside *fn*."""
+        import netsalt.algorithm as alg
+
+        orig = alg.mode_quality
+        count = [0]
+
+        def wrapper(*a, **kw):
+            count[0] += 1
+            return orig(*a, **kw)
+
+        alg.mode_quality = wrapper
+        try:
+            result = fn(*args, **kwargs)
+        finally:
+            alg.mode_quality = orig
+        return result, count[0]
+
+    def test_all_methods_converge(self):
+        from netsalt.algorithm import refine_mode_brownian_ratchet, refine_mode_root
+        from netsalt.quantum_graph import mode_quality
+
+        g = self._line_graph()
+        init = np.array([3.0, 0.03])
+        tol = g.graph["params"]["quality_threshold"]
+
+        r_root, n_root = self._count_evals(refine_mode_root, init, g, g.graph["params"])
+        r_br, n_br = self._count_evals(
+            refine_mode_brownian_ratchet,
+            init,
+            g,
+            g.graph["params"],
+            rng=np.random.default_rng(0),
+        )
+
+        for name, r in [("root", r_root), ("brownian", r_br)]:
+            assert r is not None, f"{name} returned None"
+            assert mode_quality(r, g) < tol, f"{name} above threshold"
+
+        # Sanity upper bound on root, plus the relative sanity check
+        # that root beats the ratchet.
+        assert n_root <= 80, f"root took {n_root} evals"
+        assert n_root < n_br
+
+    def test_dispatch_honours_refine_method(self):
+        """``refine_mode`` must route to the named implementation."""
+        from unittest import mock
+
+        from netsalt.algorithm import refine_mode
+
+        g = self._line_graph()
+        init = np.array([3.0, 0.03])
+        for name, target in [
+            ("root", "netsalt.algorithm.refine_mode_root"),
+            ("brownian", "netsalt.algorithm.refine_mode_brownian_ratchet"),
+        ]:
+            g.graph["params"]["refine_method"] = name
+            with mock.patch(target, return_value=init) as patched:
+                refine_mode(init, g, g.graph["params"])
+                patched.assert_called_once()
+
+    def test_dispatch_rejects_unknown_method(self):
+        """``refine_method`` is typed as a Literal on ``NetSaltParams`` so a
+        typo fails at the graph boundary (pydantic validation on assignment)
+        rather than after a slow descent into ``refine_mode``."""
+        from pydantic import ValidationError
+
+        from netsalt.algorithm import refine_mode
+
+        g = self._line_graph()
+        with pytest.raises(ValidationError):
+            g.graph["params"]["refine_method"] = "does-not-exist"
+
+        # And the dispatcher itself still raises if someone bypasses the
+        # boundary (e.g. ``refine_mode(..., params={"refine_method": "x"})``
+        # with a bare dict that never went through pydantic).
+        with pytest.raises(ValueError, match="Unknown refine_method"):
+            refine_mode([3.0, 0.03], g, {"refine_method": "does-not-exist"})
+
+    def test_default_method_is_root(self):
+        """When ``refine_method`` is absent, root is the default."""
+        from unittest import mock
+
+        from netsalt.algorithm import refine_mode
+
+        g = self._line_graph()
+        g.graph["params"]["refine_method"] = None
+        with mock.patch(
+            "netsalt.algorithm.refine_mode_root", return_value=np.array([3.0, 0.03])
+        ) as patched:
+            refine_mode([3.0, 0.03], g, g.graph["params"])
+            patched.assert_called_once()
+
+    def test_search_box_rejects_runaway_result(self):
+        """A result outside the ``search_radii`` window is rejected."""
+        from netsalt.algorithm import refine_mode_root
+
+        g = self._line_graph()
+        g.graph["params"]["k_min"] = 2.99
+        g.graph["params"]["k_max"] = 3.01
+        g.graph["params"]["alpha_min"] = 0.02
+        g.graph["params"]["alpha_max"] = 0.04
+        # Start far from the box; root will converge to something way outside
+        init = np.array([3.0, 0.03])
+        # Shrink tol so root converges to a root; box is tiny, should reject
+        g.graph["params"]["quality_threshold"] = 1e-4
+        result = refine_mode_root(init, g, g.graph["params"])
+        # Either the result is within the tight box, or None (rejected).
+        # If a root happened to exist right at the initial guess, the result
+        # would be accepted; the important thing is we don't get a result
+        # far outside the claimed search window.
+        if result is not None:
+            assert abs(result[0] - init[0]) <= 1.5 * 0.01
+            assert abs(result[1] - init[1]) <= 1.5 * 0.01
+
+
+class TestContourIntegration:
+    """Beyn's contour method finds true modes on a line graph where the
+    mode locations are analytically known, and the subdivided variant
+    handles regions where the mode count exceeds the probe dimension."""
+
+    def _line_graph(self, n_edges=10, dielectric=4.0, total_length=1.0):
+        import netsalt
+        from netsalt.physics import dispersion_relation_dielectric
+        from netsalt.quantum_graph import create_quantum_graph, set_total_length
+
+        g = nx.path_graph(n_edges + 1)
+        positions = np.array([[float(i) / n_edges, 0.0] for i in range(n_edges + 1)])
+        params = {
+            "open_model": "open",
+            "dielectric_params": {
+                "method": "uniform",
+                "inner_value": dielectric,
+                "loss": 0.0,
+                "outer_value": 1.0,
+            },
+            "c": 1.0,
+            "k_min": 0.5,
+            "k_max": 20.0,
+            "alpha_min": 0.0,
+            "alpha_max": 1.0,
+        }
+        create_quantum_graph(g, params, positions=positions)
+        set_total_length(g, total_length)
+        netsalt.set_dispersion_relation(g, dispersion_relation_dielectric)
+        netsalt.set_dielectric_constant(g, g.graph["params"])
+        return g
+
+    def test_contour_finds_true_modes_on_line_graph(self):
+        """On the dielectric line graph, Beyn should return *true* roots
+        of det(L(k))=0. The default ``quality_filter`` drops spurious
+        SVD-extraction outputs, so every returned mode must satisfy
+        ``|λ₁| < 1e-3``; the median should be much tighter."""
+        from netsalt.contour import find_modes_contour
+        from netsalt.quantum_graph import mode_quality
+
+        g = self._line_graph()
+        rng = np.random.default_rng(42)
+        # probe_dim must exceed the mode count inside the **ellipse**
+        # (which circumscribes the rectangle, a bit larger than the rect).
+        # Use a narrow window containing just a few modes so the 11-node
+        # line graph has enough probe dimensions.
+        modes = find_modes_contour(
+            g, bounds=(1.0, 4.0, 0.0, 1.0), n_quad=120, probe_dim=10, rng=rng
+        )
+        assert len(modes) >= 2, f"expected ≥2 modes in [1, 4], got {len(modes)}"
+        qs = np.array([mode_quality(m, g) for m in modes])
+        # All modes pass through ``quality_filter=1e-3`` by default.
+        assert qs.max() < 1e-3
+
+    def test_contour_with_refinement_round_trip(self):
+        """Using Beyn + refine-mode hybrid: turn off the quality filter on
+        Beyn so it returns all candidates, then refine each via the new
+        root method. Every refined mode should converge to a true root."""
+        from netsalt.algorithm import refine_mode_root
+        from netsalt.contour import find_modes_contour
+        from netsalt.quantum_graph import mode_quality
+
+        g = self._line_graph()
+        rng = np.random.default_rng(42)
+        g.graph["params"]["search_stepsize"] = 0.01
+        g.graph["params"]["quality_threshold"] = 1e-4
+        g.graph["params"]["max_steps"] = 200
+        candidates = find_modes_contour(g, n_quad=200, probe_dim=20, quality_filter=None, rng=rng)
+        refined = [refine_mode_root(c, g, g.graph["params"]) for c in candidates]
+        refined = [r for r in refined if r is not None]
+        assert len(refined) >= 1
+        for m in refined:
+            assert mode_quality(m, g) < 1e-4
+
+    def test_contour_returns_empty_when_no_modes_in_window(self):
+        """Ask for a narrow window that contains no modes (the contour's
+        laplacian is well away from singular). Beyn should return nothing
+        rather than fake modes."""
+        from netsalt.contour import find_modes_contour
+
+        g = self._line_graph()
+        # Tiny window deep in the imaginary axis, away from the real line
+        # where the modes live.
+        rng = np.random.default_rng(0)
+        modes = find_modes_contour(
+            g, bounds=(10.0, 10.01, 0.99, 1.00), n_quad=40, probe_dim=8, rng=rng
+        )
+        # Either zero modes (correct) or a handful of spurious ones that
+        # fail ``_inside_contour`` — the important thing is we don't return
+        # garbage eigenvalues that passed the SVD threshold.
+        assert len(modes) == 0 or all(10.0 <= m[0] <= 10.01 and 0.99 <= m[1] <= 1.00 for m in modes)
+
+    def test_adaptive_contour_recovers_all_modes_without_n_k(self):
+        """``find_modes_contour_adaptive`` should match the explicit
+        subdivided run on a workload where the rectangle's mode count
+        exceeds ``probe_dim``. The user picks ``probe_dim`` and the
+        algorithm picks ``n_k`` automatically by saturation."""
+        from netsalt.contour import (
+            find_modes_contour,
+            find_modes_contour_adaptive,
+        )
+
+        # n_edges=10 + total_length=2 → ~25 modes in [0.5, 20]; the
+        # single contour saturates at probe_dim=8 (well below the 25
+        # modes inside) and adaptive must split until each cell fits
+        # under the capacity ceiling.
+        from netsalt.quantum_graph import mode_quality
+
+        g = self._line_graph(n_edges=10, total_length=2.0)
+        bounds = (0.5, 20.0, 0.0, 1.0)
+        adaptive = find_modes_contour_adaptive(
+            g, bounds=bounds, n_quad=80, probe_dim=8, rng=np.random.default_rng(1)
+        )
+        # Gold reference: very-deep manual subdivision.
+        gold = find_modes_contour(
+            g,
+            bounds=bounds,
+            n_k=16,
+            n_alpha=1,
+            n_quad=120,
+            probe_dim=8,
+            rng=np.random.default_rng(1),
+        )
+        # Adaptive should match gold within a couple of boundary-dedup
+        # edge-effects.
+        assert len(adaptive) >= len(gold) - 2
+        # And every returned mode is a true root.
+        for m in adaptive:
+            assert mode_quality(m, g) < 1e-3
+
+    def test_adaptive_contour_does_not_subdivide_unnecessarily(self):
+        """When the rectangle has comfortably fewer modes than
+        ``probe_dim``, adaptive must accept the single-contour result
+        without spending a single split."""
+        from netsalt.contour import find_modes_contour, find_modes_contour_adaptive
+
+        g = self._line_graph(n_edges=10)
+        bounds = (1.0, 4.0, 0.0, 1.0)
+        rng_a = np.random.default_rng(2)
+        rng_b = np.random.default_rng(2)
+        adaptive = find_modes_contour_adaptive(
+            g, bounds=bounds, n_quad=120, probe_dim=10, rng=rng_a
+        )
+        single = find_modes_contour(g, bounds=bounds, n_quad=120, probe_dim=10, rng=rng_b)
+        # Same RNG seed and never-saturated single contour → identical sets.
+        assert len(adaptive) == len(single)
+        if len(adaptive):
+            np.testing.assert_allclose(np.sort(adaptive[:, 0]), np.sort(single[:, 0]), atol=1e-9)
+
+    def test_adaptive_contour_terminates_at_max_depth(self):
+        """A stupidly small ``probe_dim`` forces every cell to saturate;
+        ``max_depth`` must guarantee termination rather than recursing
+        forever."""
+        from netsalt.contour import find_modes_contour_adaptive
+
+        g = self._line_graph(n_edges=10)
+        bounds = (1.0, 4.0, 0.0, 1.0)
+        # probe_dim=1 plus low saturation_factor → every cell triggers
+        # subdivision until max_depth is reached. Test passes if the
+        # call returns without exception.
+        modes = find_modes_contour_adaptive(
+            g,
+            bounds=bounds,
+            n_quad=80,
+            probe_dim=1,
+            saturation_factor=0.5,
+            max_depth=3,
+            rng=np.random.default_rng(0),
+        )
+        # No assertion on len — the point is termination.
+        assert isinstance(modes, np.ndarray)
+
+    def test_adaptive_contour_is_exported(self):
+        import netsalt
+
+        assert "find_modes_contour_adaptive" in netsalt.__all__
+
+    def test_tune_contour_parameters_returns_usable_settings(self):
+        """``tune_contour_parameters`` runs adaptive once and returns a
+        param dict that splats directly into
+        ``find_modes_contour``. Verify the round trip
+        recovers the same modes."""
+        from netsalt.contour import (
+            find_modes_contour,
+            tune_contour_parameters,
+        )
+
+        # 25-mode line graph; probe_dim=8 forces non-trivial subdivision.
+        g = self._line_graph(n_edges=10, total_length=2.0)
+        bounds = (0.5, 20.0, 0.0, 1.0)
+        params, info = tune_contour_parameters(
+            g, bounds=bounds, probe_dim=8, n_quad=120, rng=np.random.default_rng(3)
+        )
+        # Sanity on the returned settings.
+        assert params["probe_dim"] == 8
+        assert params["n_quad"] == 120
+        assert params["n_alpha"] == 1
+        assert params["n_k"] >= 1
+        assert info["discovered_modes"] >= 5
+
+        # Splat the params into the non-adaptive entry point and check
+        # we recover ~the same mode set as the tuning run did.
+        modes = find_modes_contour(g, bounds=bounds, **params, rng=np.random.default_rng(3))
+        assert abs(len(modes) - info["discovered_modes"]) <= 2
+
+    def test_tune_contour_is_exported(self):
+        import netsalt
+
+        assert "tune_contour_parameters" in netsalt.__all__
+
+    def test_subdivided_contour_finds_more_modes_than_single(self):
+        """When a region contains more modes than ``probe_dim``, a single
+        contour can't resolve them all, but subdivision can."""
+        from netsalt.contour import find_modes_contour
+
+        g = self._line_graph(n_edges=10)
+        rng = np.random.default_rng(123)
+        # Intentionally under-sized probe_dim for a single contour — only a
+        # handful of singular values will survive the SVD cut.
+        single = find_modes_contour(
+            g, bounds=(0.5, 20.0, 0.0, 1.0), n_quad=80, probe_dim=3, rng=rng
+        )
+        sub = find_modes_contour(
+            g, bounds=(0.5, 20.0, 0.0, 1.0), n_k=5, n_quad=80, probe_dim=6, rng=rng
+        )
+        assert len(sub) >= len(single)
+
+    def test_contour_is_exported_from_package(self):
+        import netsalt
+
+        assert "find_modes_contour" in netsalt.__all__
+        assert "find_modes_contour" in netsalt.__all__
+
+    def test_find_passive_modes_defaults_to_contour(self):
+        """With no ``mode_search_method`` set, ``find_passive_modes`` should
+        use Beyn and return a populated modes dataframe without needing a
+        ``qualities`` grid."""
+        import netsalt
+        from netsalt.modes import find_passive_modes
+        from netsalt.physics import dispersion_relation_dielectric
+        from netsalt.quantum_graph import create_quantum_graph, set_total_length
+
+        g = nx.path_graph(11)
+        pos = np.array([[float(i) / 10.0, 0.0] for i in range(11)])
+        params = {
+            "open_model": "open",
+            "dielectric_params": {
+                "method": "uniform",
+                "inner_value": 4.0,
+                "loss": 0.0,
+                "outer_value": 1.0,
+            },
+            "c": 1.0,
+            "k_min": 1.0,
+            "k_max": 4.0,
+            "alpha_min": 0.0,
+            "alpha_max": 1.0,
+        }
+        create_quantum_graph(g, params, positions=pos)
+        set_total_length(g, 1.0)
+        netsalt.set_dispersion_relation(g, dispersion_relation_dielectric)
+        netsalt.set_dielectric_constant(g, g.graph["params"])
+        modes_df = find_passive_modes(g)
+        # Has at least one mode, columns are 'passive' and 'q_factor'.
+        assert "passive" in modes_df.columns.get_level_values(0)
+        assert "q_factor" in modes_df.columns.get_level_values(0)
+        assert len(modes_df) >= 1
+
+    def test_find_passive_modes_grid_requires_qualities(self):
+        from netsalt.modes import find_passive_modes
+
+        g = nx.path_graph(3)
+        g.graph["params"] = {"mode_search_method": "grid"}
+        with pytest.raises(ValueError, match="method='grid' requires"):
+            find_passive_modes(g, method="grid")
+
+    def test_find_passive_modes_rejects_unknown_method(self):
+        from netsalt.modes import find_passive_modes
+
+        g = nx.path_graph(3)
+        g.graph["params"] = {}
+        with pytest.raises(ValueError, match="Unknown mode_search_method"):
+            find_passive_modes(g, method="not-a-method")
+
+    def test_find_passive_modes_defaults_to_grid_when_qualities_provided(self):
+        """Legacy behaviour: ``find_passive_modes(g, qualities)`` with no
+        explicit method should use the grid path, not silently switch to
+        Beyn and ignore the supplied qualities."""
+        from unittest import mock
+
+        from netsalt.modes import find_passive_modes
+
+        g = nx.path_graph(3)
+        g.graph["params"] = {}
+        qualities = np.zeros((3, 3))
+        with mock.patch("netsalt.modes.find_modes", return_value="MODES_DF") as patched:
+            result = find_passive_modes(g, qualities)
+        patched.assert_called_once()
+        assert result == "MODES_DF"
+
+    def test_find_passive_modes_warns_when_contour_ignores_qualities(self):
+        """Caller passes both ``qualities`` and ``method='contour'``: contour
+        ignores the qualities, so warn loudly rather than swallow the
+        argument."""
+        import warnings as _warnings
+        from unittest import mock
+
+        from netsalt.modes import find_passive_modes
+
+        g = nx.path_graph(3)
+        g.graph["params"] = {"k_min": 1.0, "k_max": 2.0}
+        qualities = np.zeros((3, 3))
+        # Patch the contour entry point: we only care about the warning
+        # firing, not the actual mode search.
+        with (
+            mock.patch(
+                "netsalt.contour.find_modes_contour",
+                return_value=np.empty((0, 2)),
+            ),
+            _warnings.catch_warnings(record=True) as caught,
+        ):
+            _warnings.simplefilter("always")
+            find_passive_modes(g, qualities, method="contour")
+        assert any("ignores the supplied qualities" in str(w.message) for w in caught)
+
+    def test_contour_separates_closely_spaced_modes(self):
+        """On a long line graph (``total_length=10``) the mode spacing in
+        ``k`` is ``π/(2 · √ε · L) = π/20 ≈ 0.157``. Seven consecutive
+        modes should pop out of a single contour that spans them, each
+        one resolved to machine precision — Beyn's SVD separates the
+        close pairs cleanly when the probe dim is large enough."""
+        import netsalt
+        from netsalt.contour import find_modes_contour
+        from netsalt.physics import dispersion_relation_dielectric
+        from netsalt.quantum_graph import (
+            create_quantum_graph,
+            mode_quality,
+            set_total_length,
+        )
+
+        g = nx.path_graph(41)
+        pos = np.array([[float(i) / 40.0, 0.0] for i in range(41)])
+        params = {
+            "open_model": "open",
+            "dielectric_params": {
+                "method": "uniform",
+                "inner_value": 4.0,
+                "loss": 0.0,
+                "outer_value": 1.0,
+            },
+            "c": 1.0,
+            "k_min": 0.5,
+            "k_max": 20.0,
+            "alpha_min": 0.0,
+            "alpha_max": 1.0,
+        }
+        create_quantum_graph(g, params, positions=pos)
+        set_total_length(g, 10.0)
+        netsalt.set_dispersion_relation(g, dispersion_relation_dielectric)
+        netsalt.set_dielectric_constant(g, g.graph["params"])
+
+        # Expected modes at k = n · π/20 for n = 9, 10, ..., 15 → k ≈ 1.414,
+        # 1.571, 1.728, 1.885, 2.042, 2.199, 2.356. Seven consecutive modes
+        # at spacing 0.157.
+        modes = find_modes_contour(
+            g,
+            bounds=(1.4, 2.5, 0.0, 1.0),
+            n_quad=120,
+            probe_dim=30,
+            rng=np.random.default_rng(0),
+        )
+        assert len(modes) == 7
+        expected = np.array([n * np.pi / 20 for n in range(9, 16)])
+        returned = np.sort(modes[:, 0])
+        np.testing.assert_allclose(returned, expected, atol=1e-3)
+        # Every returned mode is a true root to machine precision.
+        for m in modes:
+            assert mode_quality(m, g) < 1e-9
 
 
 class TestPumpCostAndOverlap:

@@ -440,7 +440,15 @@ def laplacian_quality(laplacian, method="eigenvalue", rng=None):
 
     Args:
         laplacian (sparse matrix): laplacian matrix
-        method (str): method for quality evaluation (eigenvalue, singular value or determinant)
+        method (str): method for quality evaluation. One of:
+
+            * ``"eigenvalue"`` (default) — returns ``|λ₁|``, the magnitude of
+              the smallest eigenvalue.
+            * ``"complex_eigenvalue"`` — returns the signed complex ``λ₁``.
+              Used by :func:`refine_mode_root` to drive
+              ``(Re λ₁, Im λ₁) = 0``.
+            * ``"singularvalue"`` — returns the smallest singular value.
+            * ``"determinant"`` — returns a scaled determinant.
         rng: optional ``numpy.random.Generator`` used to draw the ARPACK
             starting vector. If None, a fresh generator with fresh entropy is
             created. Pass a seeded generator for reproducibility.
@@ -448,28 +456,40 @@ def laplacian_quality(laplacian, method="eigenvalue", rng=None):
     if rng is None:
         rng = np.random.default_rng()
     v0 = rng.random(laplacian.shape[0])
-    if method == "eigenvalue":
+    tol = 0.0  # ARPACK default (machine precision)
+
+    def _eigs(return_vec=False):
         try:
-            return abs(
-                sc.sparse.linalg.eigs(
-                    laplacian, k=1, sigma=0, return_eigenvectors=False, which="LM", v0=v0
-                )
-            )[0]
+            return sc.sparse.linalg.eigs(
+                laplacian,
+                k=1,
+                sigma=0,
+                return_eigenvectors=return_vec,
+                which="LM",
+                v0=v0,
+                tol=tol,
+            )
         except sc.sparse.linalg.ArpackNoConvergence:
-            # If eigenvalue solver did not converge, set to 1.0,
-            return 1.0
+            return None
         except RuntimeError:
             L.info("Runtime error, we add a small diagonal to laplacian, but things may be bad!")
-            return abs(
-                sc.sparse.linalg.eigs(
-                    laplacian + 1e-6 * sc.sparse.eye(laplacian.shape[0]),
-                    k=1,
-                    sigma=0,
-                    return_eigenvectors=False,
-                    which="LM",
-                    v0=v0,
-                )
-            )[0]
+            return sc.sparse.linalg.eigs(
+                laplacian + 1e-6 * sc.sparse.eye(laplacian.shape[0]),
+                k=1,
+                sigma=0,
+                return_eigenvectors=return_vec,
+                which="LM",
+                v0=v0,
+                tol=tol,
+            )
+
+    if method == "eigenvalue":
+        result = _eigs(return_vec=False)
+        return 1.0 if result is None else abs(result)[0]
+
+    if method == "complex_eigenvalue":
+        result = _eigs(return_vec=False)
+        return 1.0 + 0j if result is None else complex(result[0])
 
     if method == "determinant":
         logdet = np.linalg.slogdet(laplacian.todense())[1]
