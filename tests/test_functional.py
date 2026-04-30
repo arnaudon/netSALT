@@ -1,10 +1,9 @@
-"""Fuctional test of the workflow."""
+"""Functional test of the lasing-modes pipeline."""
 
 import os
 import shutil
 from pathlib import Path
 
-import luigi
 import networkx as nx
 import numpy as np
 import pytest
@@ -18,7 +17,8 @@ except ImportError:  # pragma: no cover - older dir-content-diff
     import dir_content_diff.pandas as dir_content_diff_pandas
 
 import netsalt
-from netsalt.tasks.workflow import ComputeLasingModes
+from netsalt.config_loader import load_config
+from netsalt.pipeline import compute_lasing_modes
 
 TEST_ROOT = Path(__file__).parent
 DATA = TEST_ROOT / "data"
@@ -39,7 +39,7 @@ def create_graph():
     graph = nx.grid_2d_graph(11, 1, periodic=False)
     graph = nx.convert_node_labels_to_integers(graph)
     pos = np.array([[i / (len(graph) - 1), 0] for i in range(len(graph))])
-    for n, _pos in zip(graph.nodes, pos):
+    for n, _pos in zip(graph.nodes, pos, strict=True):
         graph.nodes[n]["position"] = _pos
     netsalt.save_graph(graph, "graph.json")
 
@@ -68,31 +68,21 @@ def create_graph():
 
 @pytest.fixture
 def working_directory(tmp_working_dir):
-    """Create the working directory for the vacuum case."""
-    shutil.copyfile(DATA / "run_simple" / "luigi.cfg", tmp_working_dir / "luigi.cfg")
-    shutil.copyfile(DATA / "run_simple" / "logging.conf", tmp_working_dir / "logging.conf")
+    """Stage the config file and the expected-output reference into the temp dir."""
+    shutil.copyfile(DATA / "run_simple" / "config.yaml", tmp_working_dir / "config.yaml")
     os.mkdir(tmp_working_dir / "out")
     os.mkdir(tmp_working_dir / "figures")
 
-    # Set current config in luigi
-    luigi_config = luigi.configuration.get_config()
-    luigi_config.read("./luigi.cfg")
-
     yield tmp_working_dir / "out", DATA / "run_simple" / "out"
-
-    # Reset luigi config
-    luigi_config.clear()
 
 
 def test_ComputeLasingModes(working_directory):
-    """Test compute lasing modes."""
-    # create line graph as in Ge PRA
+    """Run the lasing pipeline end-to-end and diff against the reference fixture."""
     create_graph()
 
-    # run workflow
-    assert luigi.build([ComputeLasingModes()], local_scheduler=True)
+    params = load_config("config.yaml")
+    compute_lasing_modes(params)
 
-    # Check the numerical results
     result_dir, expected_dir = working_directory
     assert_equal_trees(
         expected_dir, result_dir, specific_args={"out": {"patterns": [r".*\.h5$"], "atol": 1e-5}}

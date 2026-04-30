@@ -1,0 +1,15 @@
+defaults: ../_base.yaml
+
+n_workers: 10
+D0_max: 0.02
+intensities_D0_max: 0.02
+
+pump_mode: optimized
+
+plot_threshold_mode_ids: [1, 5, 20]
+
+optimize_pump_min_frac: 0.3
+optimize_pump_maxiter: 100
+optimize_pump_popsize: 20
+optimize_pump_n_seeds: 20
+optimize_pump_disp: true
