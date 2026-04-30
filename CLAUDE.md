@@ -6,8 +6,11 @@ Guidance for Claude Code working in this repository.
 
 `netsalt` simulates network lasers on quantum graphs using the SALT
 approximation. It accompanies Saxena et al., *Nat. Commun.* 13, 6573 (2022)
-(arxiv:2203.16974). The code is accessible as a Python library or through a
-Luigi workflow driven by `luigi.cfg` files (see `examples/`).
+(arxiv:2203.16974). The code is accessible as a Python library or through
+a plain-Python pipeline (`netsalt.pipeline`) driven by YAML config files
+(see `examples/`). Earlier releases shipped a Luigi task graph; that was
+removed in favour of the pipeline — see `MIGRATION.md` for the field
+mapping.
 
 ## Layout
 
@@ -43,13 +46,22 @@ Luigi workflow driven by `luigi.cfg` files (see `examples/`).
     `pulp` LP)
   - `io.py` — `pickle` for graphs, `pandas.to_hdf` for modes/qualities
   - `plotting.py`, `utils.py`
-  - `tasks/` — Luigi task graph (`workflow.py` exposes `ComputePassiveModes`,
-    `ComputeLasingModes`, `ComputeControllability`)
+  - `pipeline.py` — plain-Python pipeline. `step_*` functions are the
+    individual cached compute / plot steps; `compute_passive_modes`,
+    `compute_lasing_modes`, `compute_controllability` are the entry
+    points (replacing the Luigi `Compute*` wrappers). Each step caches
+    on disk: it skips when the output file exists unless
+    `params["force"]` is truthy.
+  - `config_loader.py` — YAML loader with a `defaults: <relative-path>`
+    inheritance key. Returns a validated `NetSaltParams`.
+  - `__main__.py` — CLI dispatcher. `python -m netsalt
+    {passive|lasing|controllability} <config.yaml> [--force]`.
 - `tests/test_functional.py` — one functional test that runs
-  `ComputeLasingModes` on a line graph and diffs `out/` against
+  `compute_lasing_modes` on a line graph and diffs `out/` against
   `tests/data/run_simple/out/` with `dir_content_diff`
-- `examples/` — ready-to-run Luigi configs (buffon, ring, wheel, directed,
-  line_PRA, transfer)
+- `examples/` — ready-to-run YAML configs (buffon, ring, wheel, directed,
+  line_PRA, transfer). Buffon variants use `defaults:` to inherit shared
+  base configs.
 - `doc/` — Sphinx sources, published at https://arnaudon.github.io/netSALT/
 
 ## Running things
@@ -61,7 +73,8 @@ Luigi workflow driven by `luigi.cfg` files (see `examples/`).
 - Just the test: `pytest tests/` (requires `mock`, `pytest`, `dir-content-diff`)
 - Format: `tox -e format` (ruff, line length 100)
 - Run an example workflow: `cd examples/buffon/buffon_uniform && bash run.sh`
-  (sets `OMP_NUM_THREADS=1`; netsalt does its own multiprocessing)
+  (sets `OMP_NUM_THREADS=1`; netsalt does its own multiprocessing). The
+  underlying invocation is `python -m netsalt lasing config.yaml`.
 
 ## Conventions
 
@@ -83,7 +96,7 @@ Ranked by impact vs. effort. None of these are required for the code to run;
 they are what an "old code" most needs before further work lands on top.
 
 1. **Test coverage is one functional test.** `tests/test_functional.py` runs
-   the full Luigi pipeline and byte-diffs HDF5 output. That catches
+   the full pipeline and byte-diffs HDF5 output. That catches
    regressions but gives no signal on *what* broke. Add unit tests for the
    load-bearing pieces in isolation: `mode_quality`, `to_complex` /
    `from_complex`, `refine_mode_brownian_ratchet` on a toy graph,
@@ -124,6 +137,13 @@ they are what an "old code" most needs before further work lands on top.
    under `tests/data/run_simple/out/` were regenerated under the new PCG64
    stream.
 
+10. ~~**Luigi workflow + INI configs.**~~ **Done.** `netsalt/tasks/` is
+    deleted; orchestration is now `netsalt/pipeline.py` (cached step
+    functions) plus `netsalt/__main__.py` (CLI dispatcher). Configs are
+    YAML loaded into `NetSaltParams` via `netsalt/config_loader.py`,
+    with `defaults: <relative-path>` for inheritance. Luigi is removed
+    from `pyproject.toml`. Migration mapping is in `MIGRATION.md`.
+
 6. ~~**`graph.graph["params"]` as a shared mutable dict.**~~ **Done.**
    Replaced with a pydantic `NetSaltParams` model (see `netsalt/params.py`)
    that keeps full dict-style access (`params["k_min"]`, `params.get(...)`,
@@ -152,17 +172,16 @@ they are what an "old code" most needs before further work lands on top.
 
 ## Lower-priority items landed
 
-- Example scripts, ``luigi.cfg`` files, and the functional-test fixture
-  all use ``.json``. The lone checked-in ``buffon.gpickle`` was
-  regenerated as ``buffon.json``. ``ComputeControllability`` writes
-  ``.npy`` (via ``np.save``) instead of pickle; the
-  ``ComputeOptimisedPump`` results file is now ``.npz``.
+- Example scripts and the functional-test fixture all use ``.json``
+  for graphs and ``.yaml`` for configs. The lone checked-in
+  ``buffon.gpickle`` was regenerated as ``buffon.json``. The
+  controllability flow writes ``single_mode_matrix.npy`` (via
+  ``np.save``) instead of pickle; the optimised pump results file is
+  now ``.npz``.
 - Dead ``# pylint: disable=…`` comments removed (pylint isn't in the
   toolchain anymore).
 - ``B905`` / ``B007`` lint rules are on. All ``zip(...)`` call sites
   that pair equal-length sequences carry ``strict=True``.
-- ``autoload_range: false`` set in every ``luigi.cfg`` to silence the
-  Luigi deprecation warning.
 - Type hints added to the simpler public helpers (``utils.py``,
   ``physics.gamma``, ``io.py`` signatures). ``__init__.py`` now has an
   explicit ``__all__``.

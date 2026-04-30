@@ -1,7 +1,9 @@
 This folder contains examples of netSALT runs found in the accompanying paper.
 
-In each, run 
+In each, run
 ```
 ./run.sh
-``` 
-to run the workflow, and adjust parameters in `luigi.cfg` for the simulation parameters.
+```
+to run the workflow, and adjust parameters in `config.yaml` for the simulation
+parameters. Most variants inherit a shared `_base.yaml` via `defaults:` —
+override only the keys that differ.

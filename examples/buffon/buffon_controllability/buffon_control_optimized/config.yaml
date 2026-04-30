@@ -1,0 +1,5 @@
+defaults: ../_base.yaml
+
+pump_mode: optimized
+
+n_top_modes: 250
