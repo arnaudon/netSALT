@@ -16,5 +16,5 @@ Batch: 4 additional randomized seeds, same construction.
 **Median speedup tuned vs adaptive: 1.8×.** **Median coverage tuned/adaptive: 100%** — the tuned non-adaptive path recovers the same modes as the adaptive path on each batch instance, while skipping the saturation-driven recursion overhead.
 
 
-**Pattern**: call ``tune_contour_parameters`` once on a representative graph, then splat the returned dict into ``find_modes_contour_subdivided`` for every other graph in the batch. Re-tune only when graph density / topology changes substantially.
+**Pattern**: call ``tune_contour_parameters`` once on a representative graph, then splat the returned dict into ``find_modes_contour`` for every other graph in the batch. Re-tune only when graph density / topology changes substantially.
 

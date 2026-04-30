@@ -46,7 +46,7 @@ from _common import buffon_planar_graph, time_block  # noqa: E402
 from netsalt.contour import (  # noqa: E402
     find_modes_contour,
     find_modes_contour_adaptive,
-    find_modes_contour_subdivided,
+    find_modes_contour,
 )
 
 
@@ -78,7 +78,7 @@ def main():
     # Gold reference: dense subdivision + high quadrature.
     print("computing gold reference (n_k=24, n_alpha=2, n_quad=320) ...")
     with time_block() as t_gold:
-        gold = find_modes_contour_subdivided(
+        gold = find_modes_contour(
             g,
             bounds=bounds,
             n_k=24,
@@ -98,7 +98,7 @@ def main():
     print("-" * 46)
     for n_k in (1, 2, 4, 6, 8, 12, 16, 24):
         with time_block() as t:
-            modes = find_modes_contour_subdivided(
+            modes = find_modes_contour(
                 g,
                 bounds=bounds,
                 n_k=n_k,
@@ -131,7 +131,7 @@ def main():
     print(f"\n=== Sweep 2 setup: buffon n_lines=20, total_length=12 → {n_nodes_big} nodes ===")
     print("computing gold reference for the bigger graph ...")
     with time_block() as t_gold_big:
-        gold_big = find_modes_contour_subdivided(
+        gold_big = find_modes_contour(
             g_big,
             bounds=bounds,
             n_k=16,

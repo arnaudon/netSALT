@@ -210,9 +210,9 @@ def find_passive_modes(graph, qualities=None, method=None, **kwargs):
     if ``method`` is None). Two paths are available:
 
     * ``"contour"`` — Beyn's contour integration via
-      :func:`netsalt.find_modes_contour_subdivided`. No refinement step
-      needed; modes come back at quality ``1e-8`` or better. ~75× faster
-      than the grid path on production buffon.
+      :func:`netsalt.find_modes_contour`. No refinement step needed;
+      modes come back at quality ``1e-8`` or better. ~75× faster than
+      the grid path on production buffon.
     * ``"grid"`` — legacy: :func:`scan_frequencies` (already done, pass
       via ``qualities``) + :func:`find_modes` with its peak-detection and
       per-mode refinement.
@@ -258,7 +258,7 @@ def find_passive_modes(graph, qualities=None, method=None, **kwargs):
         )
 
     if method == "contour":
-        from .contour import find_modes_contour_subdivided
+        from .contour import find_modes_contour
 
         # Reasonable defaults; callers can override via kwargs.
         contour_defaults = {
@@ -274,7 +274,7 @@ def find_passive_modes(graph, qualities=None, method=None, **kwargs):
             k_min = graph.graph["params"]["k_min"]
             k_max = graph.graph["params"]["k_max"]
             contour_defaults["n_k"] = max(int(round(k_max - k_min)), 1)
-        modes = find_modes_contour_subdivided(graph, **contour_defaults, **kwargs)
+        modes = find_modes_contour(graph, **contour_defaults, **kwargs)
         # Build modes_df in the same shape find_modes returns.
         modes_df = _init_dataframe()
         modes_df["passive"] = [to_complex(m) for m in modes]

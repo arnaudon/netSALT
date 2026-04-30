@@ -32,7 +32,7 @@ Threshold rule (`modes_per_cell ≲ 0.65 · probe_dim = 39`) predicts the transi
 
 `tune_contour_parameters` discovered 472 modes in **10.04s** and chose `{'n_k': 19, 'n_alpha': 1, 'n_quad': 200, 'probe_dim': 60}`.
 
-Applying those settings via `find_modes_contour_subdivided` recovered **502 modes in 5.44s** (max position error 2.01e-08 vs gold).
+Applying those settings via `find_modes_contour` recovered **502 modes in 5.44s** (max position error 2.01e-08 vs gold).
 
 On a single graph the tune step is overhead — useful only when the same parameters get reused across many similar graphs (see `bench_tune_then_batch.py`).
 

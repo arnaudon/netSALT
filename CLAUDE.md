@@ -28,10 +28,16 @@ Luigi workflow driven by `luigi.cfg` files (see `examples/`).
     that didn't justify the maintenance cost.
   - `contour.py` — Beyn's contour-integration mode search. Locates every
     root of ``det(L(k)) = 0`` inside a complex contour in ``O(N_quad·L²)``
-    work; ``find_modes_contour_subdivided`` partitions the scan region
-    when the mode count exceeds the probe dimension. On a buffon graph
-    this is ~40× faster than the 80-worker grid scan and returns modes
-    at ``|λ₁| ≈ 10⁻¹⁰`` with no refinement step.
+    work. ``find_modes_contour`` is the production entry point — runs
+    Beyn on an ``n_k × n_alpha`` grid of sub-contours and dedups at
+    cell boundaries. On a buffon graph this is ~40× faster than the
+    80-worker grid scan and returns modes at ``|λ₁| ≈ 10⁻¹⁰`` with no
+    refinement step. ``find_modes_contour_adaptive`` does
+    saturation-driven recursion when the mode count is unknown
+    (parameter discovery only — coverage is not guaranteed at deep
+    recursion). ``tune_contour_parameters`` is the bridge: run
+    adaptive once, get an ``n_k`` sized for the production
+    ``find_modes_contour`` call.
   - `physics.py` — dispersion relations, gamma function, dielectric setter
   - `pump.py` — pump optimisation (`scipy.optimize.differential_evolution`,
     `pulp` LP)

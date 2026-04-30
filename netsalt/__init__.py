@@ -4,7 +4,6 @@ from .algorithm import refine_mode
 from .contour import (
     find_modes_contour,
     find_modes_contour_adaptive,
-    find_modes_contour_subdivided,
     tune_contour_parameters,
 )
 from .io import (
@@ -44,7 +43,6 @@ __all__ = [
     "find_modes",
     "find_modes_contour",
     "find_modes_contour_adaptive",
-    "find_modes_contour_subdivided",
     "find_passive_modes",
     "find_threshold_lasing_modes",
     "lasing_threshold_linear",

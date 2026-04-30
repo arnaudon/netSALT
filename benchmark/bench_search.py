@@ -3,7 +3,7 @@
 Compares three approaches for locating *all* modes in a scan rectangle:
 
 1. ``find_modes_contour`` — single Beyn contour
-2. ``find_modes_contour_subdivided`` — partitioned Beyn (more accurate
+2. ``find_modes_contour`` — partitioned Beyn (more accurate
    when the mode count exceeds ``probe_dim``)
 3. Grid-scan + ``peak_local_max`` + per-mode ``refine_mode_root``
 
@@ -32,7 +32,7 @@ from _common import buffon_planar_graph, line_graph, time_block  # noqa: E402
 from netsalt.algorithm import find_rough_modes_from_scan, refine_mode_root  # noqa: E402
 from netsalt.contour import (  # noqa: E402
     find_modes_contour,
-    find_modes_contour_subdivided,
+    find_modes_contour,
 )
 from netsalt.modes import scan_frequencies  # noqa: E402
 from netsalt.quantum_graph import mode_quality  # noqa: E402
@@ -150,7 +150,7 @@ def bench_one(graph_name, graph, params, k_max, alpha_max, n_quad, probe_dim, n_
         )
 
     def f_subdiv():
-        return find_modes_contour_subdivided(
+        return find_modes_contour(
             graph,
             bounds=bounds,
             n_k=n_k,
@@ -177,7 +177,7 @@ def bench_one(graph_name, graph, params, k_max, alpha_max, n_quad, probe_dim, n_
     # Build a gold-reference mode list — densely-subdivided Beyn at high
     # quadrature. Used both as the truth source for positional error and
     # for matched/missed counts.
-    gold_modes = find_modes_contour_subdivided(
+    gold_modes = find_modes_contour(
         graph,
         bounds=bounds,
         n_k=GOLD_NK,
@@ -254,7 +254,7 @@ def subdivision_sweep(
     for n_k in sweeps:
         rng = np.random.default_rng(0)
         with time_block() as t:
-            modes = find_modes_contour_subdivided(
+            modes = find_modes_contour(
                 graph,
                 bounds=bounds,
                 n_k=n_k,
@@ -352,7 +352,7 @@ def main():
         # and positional error change with ``n_k`` at fixed ``n_quad``
         # / ``probe_dim``. This is what answers "if I want positions
         # accurate to 1e-N, do I need subdivision?".
-        gold_modes = find_modes_contour_subdivided(
+        gold_modes = find_modes_contour(
             graph,
             bounds=(0.5, kmax, 0.0, amax),
             n_k=GOLD_NK,

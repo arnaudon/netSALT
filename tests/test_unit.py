@@ -769,8 +769,8 @@ class TestContourIntegration:
         exceeds ``probe_dim``. The user picks ``probe_dim`` and the
         algorithm picks ``n_k`` automatically by saturation."""
         from netsalt.contour import (
+            find_modes_contour,
             find_modes_contour_adaptive,
-            find_modes_contour_subdivided,
         )
 
         # n_edges=10 + total_length=2 → ~25 modes in [0.5, 20]; the
@@ -785,7 +785,7 @@ class TestContourIntegration:
             g, bounds=bounds, n_quad=80, probe_dim=8, rng=np.random.default_rng(1)
         )
         # Gold reference: very-deep manual subdivision.
-        gold = find_modes_contour_subdivided(
+        gold = find_modes_contour(
             g,
             bounds=bounds,
             n_k=16,
@@ -851,10 +851,10 @@ class TestContourIntegration:
     def test_tune_contour_parameters_returns_usable_settings(self):
         """``tune_contour_parameters`` runs adaptive once and returns a
         param dict that splats directly into
-        ``find_modes_contour_subdivided``. Verify the round trip
+        ``find_modes_contour``. Verify the round trip
         recovers the same modes."""
         from netsalt.contour import (
-            find_modes_contour_subdivided,
+            find_modes_contour,
             tune_contour_parameters,
         )
 
@@ -873,9 +873,7 @@ class TestContourIntegration:
 
         # Splat the params into the non-adaptive entry point and check
         # we recover ~the same mode set as the tuning run did.
-        modes = find_modes_contour_subdivided(
-            g, bounds=bounds, **params, rng=np.random.default_rng(3)
-        )
+        modes = find_modes_contour(g, bounds=bounds, **params, rng=np.random.default_rng(3))
         assert abs(len(modes) - info["discovered_modes"]) <= 2
 
     def test_tune_contour_is_exported(self):
@@ -886,7 +884,7 @@ class TestContourIntegration:
     def test_subdivided_contour_finds_more_modes_than_single(self):
         """When a region contains more modes than ``probe_dim``, a single
         contour can't resolve them all, but subdivision can."""
-        from netsalt.contour import find_modes_contour, find_modes_contour_subdivided
+        from netsalt.contour import find_modes_contour
 
         g = self._line_graph(n_edges=10)
         rng = np.random.default_rng(123)
@@ -895,7 +893,7 @@ class TestContourIntegration:
         single = find_modes_contour(
             g, bounds=(0.5, 20.0, 0.0, 1.0), n_quad=80, probe_dim=3, rng=rng
         )
-        sub = find_modes_contour_subdivided(
+        sub = find_modes_contour(
             g, bounds=(0.5, 20.0, 0.0, 1.0), n_k=5, n_quad=80, probe_dim=6, rng=rng
         )
         assert len(sub) >= len(single)
@@ -904,7 +902,7 @@ class TestContourIntegration:
         import netsalt
 
         assert "find_modes_contour" in netsalt.__all__
-        assert "find_modes_contour_subdivided" in netsalt.__all__
+        assert "find_modes_contour" in netsalt.__all__
 
     def test_find_passive_modes_defaults_to_contour(self):
         """With no ``mode_search_method`` set, ``find_passive_modes`` should
@@ -989,7 +987,7 @@ class TestContourIntegration:
         # firing, not the actual mode search.
         with (
             mock.patch(
-                "netsalt.contour.find_modes_contour_subdivided",
+                "netsalt.contour.find_modes_contour",
                 return_value=np.empty((0, 2)),
             ),
             _warnings.catch_warnings(record=True) as caught,

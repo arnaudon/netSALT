@@ -19,10 +19,11 @@ algorithms shipped in this branch.
   once you weight the per-refine wall time by typical D0-tracking
   batch sizes.
 - `bench_search.py` — compares full-rectangle mode searchers:
-  `find_modes_contour`, `find_modes_contour_subdivided`, and the legacy
-  grid-scan + `peak_local_max` + `refine_mode_root` pipeline on
-  workloads of 22–50 modes. Includes a subdivision sweep that
-  isolates how `n_k` interacts with `probe_dim`.
+  `find_modes_contour` (with `n_k=1` for the single-cell case and
+  `n_k>1` for subdivided), and the legacy grid-scan +
+  `peak_local_max` + `refine_mode_root` pipeline on workloads of
+  22–50 modes. Includes an `n_k` sweep that isolates how
+  subdivision interacts with `probe_dim`.
 - `bench_stress.py` — high-mode-count stress test (~300 modes on a
   61-node buffon graph) that isolates the *two* mechanisms by which
   subdivision helps Beyn: the probe-dim ceiling and the trapezoidal
@@ -30,7 +31,7 @@ algorithms shipped in this branch.
 - `bench_tune_then_batch.py` — demonstrates the
   `tune_contour_parameters` workflow: run the adaptive search once on
   a representative graph, splat the returned parameter dict into
-  `find_modes_contour_subdivided` for the rest of the batch.
+  `find_modes_contour` for the rest of the batch.
 - `results_refine.md`, `results_refine_scaling.md`,
   `results_search.md`, `results_stress.md`,
   `results_tune_then_batch.md`, `results_500_modes.md` — captured
@@ -92,26 +93,28 @@ the node count — so on a small graph (16/21 nodes) a wide rectangle
 containing more modes than nodes makes the *single* contour
 under-count to 0. Subdivision is what fixes that.
 
-| workload                     | contour       | contour-subdiv  | grid+root              |
-|------------------------------|--------------:|----------------:|-----------------------:|
+| workload                     | n_k=1 (single) | tuned n_k       | grid+root              |
+|------------------------------|---------------:|----------------:|-----------------------:|
 | line n=15, 38 modes, k ≤ 60  | 197 ms (**0**) | 1576 ms (38)   | 25537 ms (36 — missed 2) |
 | line n=20, 50 modes, k ≤ 80  | 212 ms (**0**) | 3039 ms (50)   | 35782 ms (48 — missed 2) |
 | buffon ~60 nodes, 22 modes   | 298 ms (22)    | 1070 ms (22)   | 26492 ms (22)          |
 
-Single contour wins handily on the buffon graph (60 nodes ≫ 22 modes,
-plenty of headroom); subdivision is overhead. On the cramped
-line graphs, single returns nothing useful and subdivision is
+A single contour (`find_modes_contour(..., n_k=1)`) wins on the
+buffon graph (60 nodes ≫ 22 modes, plenty of `probe_dim`
+headroom); subdivision is overhead. On the cramped line graphs,
+the single contour returns nothing useful and subdivision is
 mandatory. `grid+root` is consistently 10–30× slower than the
-contour methods and consistently misses a couple of modes that
+contour path and consistently misses a couple of modes that
 `peak_local_max` merged at `min_distance=2`.
 
 ### What does subdivision actually add?
 
-Subdivision (`find_modes_contour_subdivided`) splits the scan
-rectangle into `n_k × n_alpha` cells, runs `find_modes_contour` on
-each independently, and concatenates the results with a
-boundary-distance dedup. It helps for **two distinct reasons**, both
-of which kick in at high mode count:
+`find_modes_contour` runs Beyn's algorithm on `n_k × n_alpha` cells,
+running the basic per-cell extraction independently, and
+concatenates the results with a boundary-distance dedup. The
+trivial `n_k=1, n_alpha=1` case is a single contour. Subdivision
+(`n_k > 1`) helps for **two distinct reasons**, both of which kick
+in at high mode count:
 
 1. **The `probe_dim` ceiling.** The SVD of `A_0` has at most
    `probe_dim` non-zero singular values; modes beyond that are
@@ -165,7 +168,7 @@ and reuse:
 from netsalt import (
     buffon_planar_graph_or_your_factory,  # your code
     tune_contour_parameters,
-    find_modes_contour_subdivided,
+    find_modes_contour,
 )
 
 representative = make_graph(seed=0)
@@ -174,7 +177,7 @@ print(f"{info['discovered_modes']} modes, batch params: {params}")
 
 for seed in seeds:
     g = make_graph(seed)
-    modes = find_modes_contour_subdivided(g, bounds=bounds, **params)
+    modes = find_modes_contour(g, bounds=bounds, **params)
 ```
 
 `tune_contour_parameters` runs `find_modes_contour_adaptive` once,

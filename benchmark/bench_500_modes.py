@@ -35,7 +35,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from _common import buffon_planar_graph, time_block  # noqa: E402
 from netsalt.contour import (  # noqa: E402
     find_modes_contour_adaptive,
-    find_modes_contour_subdivided,
+    find_modes_contour,
     tune_contour_parameters,
 )
 
@@ -70,7 +70,7 @@ def main():
     # Gold: dense subdivision + high quadrature.
     print("computing gold reference (n_k=32, n_α=2, n_quad=320) ...")
     with time_block() as t_gold:
-        gold = find_modes_contour_subdivided(
+        gold = find_modes_contour(
             g,
             bounds=bounds,
             n_k=32,
@@ -88,7 +88,7 @@ def main():
     sweep_n_k = []
     for n_k in (4, 8, 12, 16, 20, 24, 32):
         with time_block() as t:
-            modes = find_modes_contour_subdivided(
+            modes = find_modes_contour(
                 g,
                 bounds=bounds,
                 n_k=n_k,
@@ -134,7 +134,7 @@ def main():
         print(f"{pd:>9} | {t.seconds:>8.2f} | {len(modes):>5} | {err:>11.2e}")
 
     # Sweep 3 — tune_contour_parameters → batch.
-    print("\n=== tune_contour_parameters → find_modes_contour_subdivided ===")
+    print("\n=== tune_contour_parameters → find_modes_contour ===")
     with time_block() as t_tune:
         params, info = tune_contour_parameters(
             g,
@@ -149,7 +149,7 @@ def main():
         f"{t_tune.seconds:.2f}s; chose {params}"
     )
     with time_block() as t_apply:
-        modes_apply = find_modes_contour_subdivided(
+        modes_apply = find_modes_contour(
             g, bounds=bounds, **params, rng=np.random.default_rng(0)
         )
     err_apply = max_pos_error(modes_apply, gold)
@@ -210,7 +210,7 @@ def main():
     md.append(
         f"`tune_contour_parameters` discovered {info['discovered_modes']} "
         f"modes in **{t_tune.seconds:.2f}s** and chose `{params}`.\n\n"
-        f"Applying those settings via `find_modes_contour_subdivided` "
+        f"Applying those settings via `find_modes_contour` "
         f"recovered **{len(modes_apply)} modes in {t_apply.seconds:.2f}s** "
         f"(max position error {err_apply:.2e} vs gold).\n\n"
         "On a single graph the tune step is overhead — useful only when "

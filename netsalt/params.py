@@ -64,7 +64,7 @@ class NetSaltParams(BaseModel):
     # ``mode_search_method`` picks how :func:`netsalt.find_passive_modes`
     # locates modes in the scan rectangle. Accepted values:
     #   ``"contour"`` (default) — Beyn's contour integration via
-    #     ``find_modes_contour_subdivided``. Directly returns modes at
+    #     ``find_modes_contour``. Directly returns modes at
     #     ``|λ₁| ≲ 1e-8`` with no per-mode refinement step.
     #   ``"grid"`` — legacy path: ``scan_frequencies`` + ``find_modes``
     #     (grid scan + ``peak_local_max`` + ``refine_mode``). Kept for

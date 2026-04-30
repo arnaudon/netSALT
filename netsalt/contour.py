@@ -96,7 +96,7 @@ def _inside_contour(k: complex, contour_bounds: tuple[float, float, float, float
     return k_min <= k.real <= k_max and -alpha_max <= k.imag <= -alpha_min
 
 
-def find_modes_contour(
+def _find_modes_in_cell(
     graph: Any,
     *,
     bounds: tuple[float, float, float, float] | None = None,
@@ -106,7 +106,12 @@ def find_modes_contour(
     quality_filter: float | None = 1e-3,
     rng: np.random.Generator | None = None,
 ):
-    """Find modes via Beyn's contour-integration method.
+    """Internal: run the basic Beyn algorithm on a single cell.
+
+    The public :func:`find_modes_contour` is the subdivided wrapper —
+    a single contour caps at ``probe_dim`` modes, so production
+    callers always go through subdivision. This helper exists only so
+    the subdivided and adaptive variants share the per-cell extraction.
 
     Given a contour ``Γ`` encircling the scan rectangle, compute the first
     two Cauchy moments
@@ -226,7 +231,7 @@ def find_modes_contour(
     return modes_arr[order]
 
 
-def find_modes_contour_subdivided(
+def find_modes_contour(
     graph: Any,
     *,
     bounds: tuple[float, float, float, float] | None = None,
@@ -239,18 +244,41 @@ def find_modes_contour_subdivided(
     dedup_rtol: float = 1e-5,
     rng: np.random.Generator | None = None,
 ):
-    """Run :func:`find_modes_contour` on a grid of sub-contours.
+    """Find modes via Beyn's contour-integration method on an
+    ``n_k × n_alpha`` grid of sub-contours.
 
-    Beyn's method requires the probe-matrix column count to exceed the
-    number of modes inside the contour. For dense-mode regions (a
-    buffon-scale simulation has ~800 modes in its scan rectangle),
-    partition the rectangle into ``n_k × n_alpha`` sub-cells and collect
-    modes from each. Duplicates along shared cell boundaries are removed
-    via a distance-based dedup.
+    Each sub-contour caps at ``probe_dim`` modes (the basic Beyn
+    algorithm's SVD-extraction step has at most ``probe_dim`` non-zero
+    singular values). For production-scale rectangles you almost
+    always need ``n_k > 1`` so each cell fits under that ceiling;
+    duplicates along shared cell boundaries are removed via a
+    distance-based dedup at ``dedup_rtol``.
 
-    Args are otherwise the same as :func:`find_modes_contour`; ``n_k`` and
-    ``n_alpha`` set the grid of sub-contours in the ``Re(k)`` and
-    ``alpha`` directions respectively.
+    The trivial ``n_k=1, n_alpha=1`` case reduces to a single
+    contour — useful only when the rectangle has comfortably fewer
+    modes than ``probe_dim``. ``n_k`` defaults to 1 to keep the
+    function callable with no parameters; pick it via the rule
+    ``ceil(expected_modes / (0.65 · probe_dim))`` or use
+    :func:`find_modes_contour_adaptive` /
+    :func:`tune_contour_parameters` to size it automatically.
+
+    Args:
+        graph: a fully-configured netsalt quantum graph.
+        bounds: ``(k_min, k_max, α_min, α_max)`` rectangle. If None,
+            taken from ``graph.graph["params"]``.
+        n_k, n_alpha: grid of sub-contours in ``Re(k)`` / ``α``.
+        n_quad: trapezoidal-quadrature node count per contour.
+        probe_dim: random-probe column count (default
+            ``min(40, n_nodes)``; clamped to ``n_nodes``).
+        svd_tol: relative threshold for keeping singular values of
+            ``A_0``.
+        quality_filter: ``|λ₁|`` threshold for spurious-mode rejection.
+        dedup_rtol: relative tolerance for boundary-mode dedup.
+        rng: optional ``numpy.random.Generator``.
+
+    Returns:
+        ``(n_modes, 2)`` array of ``[Re(k), -Im(k)]`` rows, sorted by
+        ``Re(k)``.
     """
     if bounds is None:
         params = graph.graph["params"]
@@ -271,7 +299,7 @@ def find_modes_contour_subdivided(
     for i in range(n_k):
         for j in range(n_alpha):
             cell = (k_edges[i], k_edges[i + 1], a_edges[j], a_edges[j + 1])
-            sub = find_modes_contour(
+            sub = _find_modes_in_cell(
                 graph,
                 bounds=cell,
                 n_quad=n_quad,
@@ -347,8 +375,7 @@ def tune_contour_parameters(
 ):
     """Run :func:`find_modes_contour_adaptive` once to discover the mode
     count on a representative graph, then return parameters suitable
-    for the cheaper :func:`find_modes_contour_subdivided` on similar
-    instances.
+    for the cheaper :func:`find_modes_contour` on similar instances.
 
     Use case: you have many graphs of the same topology / density (say,
     different random seeds for a buffon planar graph) and want to skip
@@ -379,7 +406,7 @@ def tune_contour_parameters(
         Tuple ``(params, info)``:
 
         * ``params`` — dict ready to splat into
-          :func:`find_modes_contour_subdivided`:
+          :func:`find_modes_contour`:
           ``{"n_k", "n_alpha", "n_quad", "probe_dim"}``.
         * ``info`` — dict with ``discovered_modes`` (mode count from
           the adaptive run), ``modes`` (the actual mode positions),
@@ -448,6 +475,20 @@ def find_modes_contour_adaptive(
 ):
     """Adaptive contour search: subdivide cells that saturate ``probe_dim``.
 
+    .. warning::
+
+        Use this for *parameter discovery*, not as the production
+        search. The saturation heuristic and boundary-dedup at deep
+        recursion can drop a small fraction of modes near cell
+        edges; benchmarks typically see 1-5% under-counting on
+        300-500 mode workloads (see ``benchmark/results_500_modes.md``
+        and ``benchmark/results_stress.md``). For runs where every
+        mode matters, call :func:`find_modes_contour` with an
+        explicit ``n_k`` — :func:`tune_contour_parameters` is the
+        recommended bridge: it runs adaptive once and gives you the
+        ``n_k`` to use, then a second non-adaptive call recovers any
+        modes adaptive missed.
+
     The basic Beyn algorithm caps at ``probe_dim`` modes per contour
     (the SVD of ``A_0`` has at most ``probe_dim`` non-zero singular
     values). When the rectangle has more modes than that ceiling, the
@@ -456,7 +497,7 @@ def find_modes_contour_adaptive(
     or a partial set.
 
     This routine treats *saturation* as a signal that a cell needs
-    to be split. After running :func:`find_modes_contour` on a cell:
+    to be split. After running the basic Beyn extraction on a cell:
 
     * If the cell returns ``≥ saturation_factor · probe_dim`` modes,
       it is suspected of under-counting (the basic algorithm is at
@@ -484,8 +525,7 @@ def find_modes_contour_adaptive(
             fixed across the recursion — accuracy comes from making
             cells smaller, not from beefing up ``n_quad`` per cell.
         probe_dim: random-probe dimension. Default
-            ``min(40, n_nodes)``; clamped to the node count inside
-            :func:`find_modes_contour`.
+            ``min(40, n_nodes)``; clamped to the node count.
         saturation_factor: split a cell when its returned mode count
             is at or above ``saturation_factor · probe_dim``. ``0.7``
             is the empirical sweet spot from
@@ -499,11 +539,11 @@ def find_modes_contour_adaptive(
             splitting ``α`` would put all the modes in one half and
             none in the other. Use ``"auto"`` if the modes are
             spread in both directions; rarely needed.
-        svd_tol: forwarded to :func:`find_modes_contour`.
+        svd_tol: forwarded to the per-cell Beyn extraction.
         quality_filter: ``|λ₁|`` threshold for spurious-mode rejection
-            on each cell. Default ``1e-6`` is tighter than the
-            single-shot ``find_modes_contour`` default since the
-            adaptive search trades cell size for residual quality.
+            on each cell. Default ``1e-6`` is tighter than
+            :func:`find_modes_contour`'s default since the adaptive
+            search trades cell size for residual quality.
         dedup_rtol: relative tolerance for mode-position dedup at
             cell boundaries.
         rng: optional ``numpy.random.Generator``.
@@ -534,7 +574,7 @@ def find_modes_contour_adaptive(
 
     while stack:
         cell, depth = stack.pop()
-        modes = find_modes_contour(
+        modes = _find_modes_in_cell(
             graph,
             bounds=cell,
             n_quad=n_quad,

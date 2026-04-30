@@ -45,7 +45,7 @@ from netsalt.algorithm import (  # noqa: E402
     refine_mode_brownian_ratchet,
     refine_mode_root,
 )
-from netsalt.contour import find_modes_contour_subdivided  # noqa: E402
+from netsalt.contour import find_modes_contour  # noqa: E402
 from netsalt.quantum_graph import mode_quality  # noqa: E402
 
 REFINERS = [
@@ -56,7 +56,7 @@ REFINERS = [
 
 def discover_modes(graph, bounds, n_quad, probe_dim, n_k):
     """Use Beyn subdivided as the source of truth for refine inputs."""
-    return find_modes_contour_subdivided(
+    return find_modes_contour(
         graph,
         bounds=bounds,
         n_k=n_k,

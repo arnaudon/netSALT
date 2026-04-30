@@ -9,7 +9,7 @@ the mode-count regime every time. Instead:
 1. **Tune once** on a representative seed via
    :func:`netsalt.tune_contour_parameters`. It runs the adaptive
    search once, observes the mode count, and returns a parameter dict
-   sized for :func:`find_modes_contour_subdivided`.
+   sized for :func:`find_modes_contour`.
 2. **Batch process** the rest of the seeds with that dict. Each call
    pays only the basic non-adaptive cost.
 
@@ -39,7 +39,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from _common import buffon_planar_graph, time_block  # noqa: E402
 from netsalt.contour import (  # noqa: E402
     find_modes_contour_adaptive,
-    find_modes_contour_subdivided,
+    find_modes_contour,
     tune_contour_parameters,
 )
 
@@ -99,7 +99,7 @@ def main():
         g = buffon_planar_graph(n_lines=6, total_length=8.0, seed=seed)
         # Tuned: non-adaptive call with the tuned params.
         with time_block() as t_tuned:
-            modes_tuned = find_modes_contour_subdivided(
+            modes_tuned = find_modes_contour(
                 g,
                 bounds=bounds,
                 **params,
@@ -162,7 +162,7 @@ def main():
     md.append(
         "\n**Pattern**: call ``tune_contour_parameters`` once on a "
         "representative graph, then splat the returned dict into "
-        "``find_modes_contour_subdivided`` for every other graph in "
+        "``find_modes_contour`` for every other graph in "
         "the batch. Re-tune only when graph density / topology "
         "changes substantially.\n"
     )
