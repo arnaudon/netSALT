@@ -91,16 +91,6 @@ def _figdir(p: NetSaltParams) -> Path:
     return Path(p.get("figdir", "figures"))
 
 
-def _reload_graph(p: NetSaltParams):
-    """Reload the saved quantum graph from disk — used by steps that mutate
-    ``qg.graph['params']`` so they don't leak that mutation back into the
-    caller's in-memory copy. ``oversample_graph`` and the compute helpers
-    in :mod:`netsalt.modes` rewrite ``params['pump']`` / ``params['inner']``
-    in place; the original Luigi pipeline avoided cross-task contamination
-    by loading the graph fresh in every task. Mirror that here."""
-    return load_graph(str(_outdir(p) / "quantum_graph.json"))
-
-
 def _apply_lasing_ids(name: str, ids: Iterable[Any] | None) -> str:
     """Append ``_id1_id2`` before the extension, mirroring the old
     ``NetSaltTask.add_lasing_modes_id`` filename mangler."""
@@ -317,7 +307,7 @@ def step_compute_mode_trajectories(p: NetSaltParams, qg, passive_modes_df, pump,
         return load_modes(str(out))
     _ensure_parent(out)
 
-    qg = _attach_pump_to_graph(p, _reload_graph(p), pump)
+    qg = _attach_pump_to_graph(p, qg, pump)
     if p.get("skip_trajectories"):
         modes_df = passive_modes_df
     else:
@@ -338,7 +328,7 @@ def step_find_threshold_modes(p: NetSaltParams, qg, trajectories_df, pump, lasin
         return load_modes(str(out))
     _ensure_parent(out)
 
-    qg = _attach_pump_to_graph(p, _reload_graph(p), pump)
+    qg = _attach_pump_to_graph(p, qg, pump)
     modes_df = find_threshold_lasing_modes(
         trajectories_df, qg, quality_method=p.get("quality_method", "eigenvalue")
     )
@@ -355,7 +345,7 @@ def step_compute_mode_competition_matrix(
         return pd.read_hdf(str(out), "mode_competition_matrix").to_numpy()
     _ensure_parent(out)
 
-    qg = _attach_pump_to_graph(p, _reload_graph(p), pump)
+    qg = _attach_pump_to_graph(p, qg, pump)
     matrix = compute_mode_competition_matrix(qg, threshold_modes_df)
     pd.DataFrame(data=matrix, index=None, columns=None).to_hdf(
         str(out), key="mode_competition_matrix"
@@ -440,7 +430,7 @@ def plot_passive_modes_fig(p: NetSaltParams, qg, passive_modes_df):
     _ensure_parent(out)
     out.mkdir(exist_ok=True)
 
-    qg_plot = oversample_graph(_reload_graph(p), p.get("plot_passive_edge_size", 1.0))
+    qg_plot = oversample_graph(qg, p.get("plot_passive_edge_size", 1.0))
     mode_ids = p.get("plot_passive_mode_ids") or []
     if mode_ids:
         modes_df = passive_modes_df.loc[list(mode_ids)]
@@ -495,7 +485,7 @@ def plot_threshold_modes_fig(p: NetSaltParams, qg, threshold_modes_df, pump, las
     _ensure_parent(out)
     out.mkdir(exist_ok=True)
 
-    qg = _attach_pump_to_graph(p, _reload_graph(p), pump)
+    qg = _attach_pump_to_graph(p, qg, pump)
     qg.graph["params"]["plot_edgesize"] = p.get("plot_threshold_edge_size", 1.0)
     qg = oversample_graph(qg, qg.graph["params"]["plot_edgesize"])
 
