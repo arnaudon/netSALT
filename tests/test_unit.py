@@ -191,10 +191,12 @@ class TestNetSaltParams:
         from netsalt.params import NetSaltParams
 
         # Valid values pass.
-        NetSaltParams.from_dict({"refine_method": "newton", "mode_search_method": "grid"})
+        NetSaltParams.from_dict({"refine_method": "root", "mode_search_method": "grid"})
 
         with pytest.raises(ValidationError):
-            NetSaltParams.from_dict({"refine_method": "newotn"})  # typo
+            NetSaltParams.from_dict({"refine_method": "newton"})  # removed in favour of root
+        with pytest.raises(ValidationError):
+            NetSaltParams.from_dict({"refine_method": "rooot"})  # typo
         with pytest.raises(ValidationError):
             NetSaltParams.from_dict({"mode_search_method": "Grid"})  # case mismatch
 
@@ -572,12 +574,7 @@ class TestRefinementAlgorithms:
         return result, count[0]
 
     def test_all_methods_converge(self):
-        from netsalt.algorithm import (
-            refine_mode_brownian_ratchet,
-            refine_mode_nelder_mead,
-            refine_mode_newton,
-            refine_mode_root,
-        )
+        from netsalt.algorithm import refine_mode_brownian_ratchet, refine_mode_root
         from netsalt.quantum_graph import mode_quality
 
         g = self._line_graph()
@@ -585,8 +582,6 @@ class TestRefinementAlgorithms:
         tol = g.graph["params"]["quality_threshold"]
 
         r_root, n_root = self._count_evals(refine_mode_root, init, g, g.graph["params"])
-        r_nm, n_nm = self._count_evals(refine_mode_nelder_mead, init, g, g.graph["params"])
-        r_new, n_new = self._count_evals(refine_mode_newton, init, g, g.graph["params"])
         r_br, n_br = self._count_evals(
             refine_mode_brownian_ratchet,
             init,
@@ -595,19 +590,14 @@ class TestRefinementAlgorithms:
             rng=np.random.default_rng(0),
         )
 
-        for name, r in [("root", r_root), ("nm", r_nm), ("newton", r_new), ("brownian", r_br)]:
+        for name, r in [("root", r_root), ("brownian", r_br)]:
             assert r is not None, f"{name} returned None"
             assert mode_quality(r, g) < tol, f"{name} above threshold"
 
-        # Sanity upper bounds so the test catches regressions without flaking
-        # on scipy minor-version changes.
+        # Sanity upper bound on root, plus the relative sanity check
+        # that root beats the ratchet.
         assert n_root <= 80, f"root took {n_root} evals"
-        assert n_new <= 80, f"newton took {n_new} evals"
-        assert n_nm <= 400, f"nm took {n_nm} evals"
-        # And a relative sanity check: all three beat the ratchet
         assert n_root < n_br
-        assert n_new < n_br
-        assert n_nm < n_br
 
     def test_dispatch_honours_refine_method(self):
         """``refine_mode`` must route to the named implementation."""
@@ -619,8 +609,6 @@ class TestRefinementAlgorithms:
         init = np.array([3.0, 0.03])
         for name, target in [
             ("root", "netsalt.algorithm.refine_mode_root"),
-            ("newton", "netsalt.algorithm.refine_mode_newton"),
-            ("nelder_mead", "netsalt.algorithm.refine_mode_nelder_mead"),
             ("brownian", "netsalt.algorithm.refine_mode_brownian_ratchet"),
         ]:
             g.graph["params"]["refine_method"] = name
@@ -659,64 +647,6 @@ class TestRefinementAlgorithms:
         ) as patched:
             refine_mode([3.0, 0.03], g, g.graph["params"])
             patched.assert_called_once()
-
-    def test_newton_backtracks_on_overshoot(self):
-        """A Newton step that overshoots the basin must halve until it
-        decreases |λ|, not accept a worse point."""
-        from unittest import mock
-
-        from netsalt.algorithm import refine_mode_newton
-
-        g = self._line_graph()
-        # Close-to-root start → Newton should converge in a handful of steps.
-        init = np.array([3.14, 0.14])
-        with mock.patch(
-            "netsalt.algorithm.refine_mode_root",
-            side_effect=AssertionError("Newton should converge without falling back"),
-        ):
-            r = refine_mode_newton(init, g, g.graph["params"])
-        assert r is not None
-
-    def test_newton_bails_when_backtracking_fails(self):
-        """A start far outside any basin should hand off to MINPACK instead
-        of burning the whole ``max_steps`` budget on tiny backtracked steps."""
-        from unittest import mock
-
-        from netsalt.algorithm import refine_mode_newton
-
-        g = self._line_graph()
-        # Corner of the search window, no mode nearby.
-        init = np.array([2.85, 0.29])
-        with mock.patch("netsalt.algorithm.refine_mode_root", return_value=None) as patched_root:
-            result = refine_mode_newton(init, g, g.graph["params"])
-        assert result is None
-        # The whole point of the backtracking bail is that we hand off
-        # *before* burning every iteration.
-        assert patched_root.called
-
-    def test_newton_handles_non_trivial_dispersion(self):
-        """The Hellmann-Feynman derivative includes the chain-rule factor
-        ``dks/dk`` so Newton converges on dispersion relations where
-        ``ks(k) ≠ k`` (e.g. ``dispersion_relation_dielectric`` scales by
-        ``√ε``). Without the chain rule the derivative is wrong by that
-        scale and Armijo absorbs the slack — so this test pins the eval
-        budget tightly to catch a regression that returns to silent
-        Armijo-rescued behaviour."""
-        from netsalt.algorithm import refine_mode_newton
-        from netsalt.quantum_graph import mode_quality
-
-        # eps=4 → ks/k = √4 = 2; the old code's derivative was off by
-        # this factor on every Newton step.
-        g = self._line_graph(dielectric=4.0)
-        init = np.array([3.05, 0.05])
-        result, n_eval = self._count_evals(refine_mode_newton, init, g, g.graph["params"])
-        assert result is not None
-        assert mode_quality(result, g) < g.graph["params"]["quality_threshold"]
-        # With chain rule: ~6–8 mode_quality evaluations on this graph.
-        # Without it, Armijo halves until the step is small enough,
-        # roughly doubling the count. Keep the bound loose enough to
-        # absorb scipy noise but tight enough to catch a regression.
-        assert n_eval <= 25, f"Newton with chain rule should be tight; got {n_eval}"
 
     def test_search_box_rejects_runaway_result(self):
         """A result outside the ``search_radii`` window is rejected."""

@@ -7,13 +7,17 @@ algorithms shipped in this branch.
 
 - `_common.py` — graph constructors (line, buffon planar) and shared
   helpers (`mode_quality` call counter, wall-time context manager).
-- `bench_refine.py` — compares the four refiners
-  (`refine_mode_brownian_ratchet`, `refine_mode_root`,
-  `refine_mode_newton`, `refine_mode_nelder_mead`) on multiple graphs,
-  multiple modes per graph, and three perturbation magnitudes. Every
-  converged refiner is cross-checked against the others — output is
-  asserted to land within 5e-3 of the consensus, so the script also
-  doubles as a regression suite.
+- `bench_refine.py` — compares the two refiners
+  (`refine_mode_root`, `refine_mode_brownian_ratchet`) on multiple
+  graphs, multiple modes per graph, and three perturbation
+  magnitudes. Every converged refiner is cross-checked against the
+  other — output is asserted to land within 5e-3 of the consensus,
+  so the script also doubles as a regression suite.
+- `bench_refine_scaling.py` — refinement scaling on production-like
+  batches (10/30/50 modes per call, three buffon graph sizes).
+  Establishes that `root` is the right default at every graph size
+  once you weight the per-refine wall time by typical D0-tracking
+  batch sizes.
 - `bench_search.py` — compares full-rectangle mode searchers:
   `find_modes_contour`, `find_modes_contour_subdivided`, and the legacy
   grid-scan + `peak_local_max` + `refine_mode_root` pipeline on
@@ -27,9 +31,10 @@ algorithms shipped in this branch.
   `tune_contour_parameters` workflow: run the adaptive search once on
   a representative graph, splat the returned parameter dict into
   `find_modes_contour_subdivided` for the rest of the batch.
-- `results_refine.md`, `results_search.md`, `results_stress.md`,
-  `results_tune_then_batch.md` — captured results from a recent run;
-  regenerate via the commands below.
+- `results_refine.md`, `results_refine_scaling.md`,
+  `results_search.md`, `results_stress.md`,
+  `results_tune_then_batch.md`, `results_500_modes.md` — captured
+  results from a recent run; regenerate via the commands below.
 
 ## Running
 
@@ -38,9 +43,11 @@ editable (`uv pip install -e .`):
 
 ```bash
 .venv/bin/python benchmark/bench_refine.py --output benchmark/results_refine.md
+.venv/bin/python benchmark/bench_refine_scaling.py --output benchmark/results_refine_scaling.md
 .venv/bin/python benchmark/bench_search.py --output benchmark/results_search.md
 .venv/bin/python benchmark/bench_stress.py --output benchmark/results_stress.md
 .venv/bin/python benchmark/bench_tune_then_batch.py --output benchmark/results_tune_then_batch.md
+.venv/bin/python benchmark/bench_500_modes.py --output benchmark/results_500_modes.md
 ```
 
 Each script prints the same table it writes to disk; runs in well under
@@ -54,18 +61,26 @@ swing.
 
 ### Refinement
 
-`root` and `newton` are 1–2 orders of magnitude faster than the
-brownian ratchet, with `newton` typically using 1–2 `mode_quality`
-calls vs. `root`'s 9–14 and brownian's 40–330. `nelder_mead` is the
-slowest converger of the three modern methods (~60 evaluations) but
-the only derivative-free one. See `results_refine.md` for the full
-matrix; representative line graph numbers (n_edges=20, mode k≈π/2):
+`root` (MINPACK `hybr`) is 5–10× faster than the legacy `brownian`
+ratchet across every graph size and perturbation magnitude tested,
+typically converging in 9–14 `mode_quality` evaluations vs. the
+ratchet's 40–330. `bench_refine_scaling.py` shows the production
+ratio (50-mode batches, three graph sizes):
 
-| perturbation | brownian | root | newton | nelder_mead |
-|---|---:|---:|---:|---:|
-| near (Δ=0.005) | 62 ms / 46 evals | 16 ms / 10 | 7 ms / 1 | 87 ms / 52 |
-| mid  (Δ=0.02 ) | 124 ms / 77 | 38 ms / 21 | 13 ms / 2 | 96 ms / 55 |
-| far  (Δ=0.05 ) | 394 ms / 231 | 18 ms / 11 | 13 ms / 2 | 106 ms / 63 |
+| nodes | root ms/refine | brownian ms/refine | brownian/root |
+|---:|---:|---:|---:|
+| 125 | 31.6 | 162.2 | 5.1× |
+| 189 | 34.7 | 168.1 | 4.8× |
+| 340 | 57.3 | 220.7 | 3.9× |
+
+Earlier versions of this branch also benchmarked Newton
+(Hellmann-Feynman) and Nelder-Mead. Both were dropped: Newton's
+25–30% advantage at small graph sizes shrank to 10–15% on 340-node
+graphs and required carrying a derivative + Armijo backtracking +
+fallback path that coupled to `graph.graph["dispersion_relation"]`
+(maintenance hazard whenever new physics gets added). Nelder-Mead
+was strictly worse than `root`. The simpler `root + brownian`
+choice is what ships.
 
 ### Mode search
 

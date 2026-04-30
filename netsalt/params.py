@@ -78,7 +78,7 @@ class NetSaltParams(BaseModel):
     # Typed as a Literal so typos in ``luigi.cfg`` fail at the graph
     # boundary (``update_parameters``) rather than silently making it all
     # the way to ``refine_mode`` before raising.
-    refine_method: Literal["root", "newton", "nelder_mead", "brownian"] | None = None
+    refine_method: Literal["root", "brownian"] | None = None
     search_stepsize: float | None = None
     quality_threshold: float | None = None
     max_steps: int | None = None

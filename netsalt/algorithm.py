@@ -1,35 +1,38 @@
 """Search algorithms for mode detection.
 
 Each ``refine_mode_*`` function takes an initial guess for a complex
-wavenumber and drives ``|λ₁(L(k))|`` to zero. The original algorithm
-is :func:`refine_mode_brownian_ratchet` — a random-walk descent that
-typically burns hundreds of ARPACK ``eigs`` calls. The other three
-implementations use structural information about the objective:
+wavenumber and drives ``|λ₁(L(k))|`` to zero. Two implementations:
 
 * :func:`refine_mode_root` — reframe as 2 real equations in 2 real
   unknowns and feed to MINPACK's ``hybr`` solver. Default.
-* :func:`refine_mode_newton` — Newton's method on the scalar complex
-  function ``λ₁(k)`` using the Hellmann-Feynman derivative
-  ``dλ₁/dk = (u₁·dL/dk·v₁) / (u₁·v₁)``.
-* :func:`refine_mode_nelder_mead` — derivative-free simplex descent on
-  ``|λ₁(k)|``.
+* :func:`refine_mode_brownian_ratchet` — random-walk descent. Legacy
+  fallback; typically burns hundreds of ARPACK ``eigs`` calls but
+  never relies on derivative information.
 
 :func:`refine_mode` dispatches based on ``params["refine_method"]``.
+
+Newton's method (Hellmann-Feynman derivative) and Nelder-Mead
+(simplex) used to live here too. They were removed in favour of
+``root``: empirically Newton's 25-30% wall-time advantage on small
+graphs narrowed to 10-15% on 300-node graphs (see
+``benchmark/bench_refine_scaling.py``), and the analytic-derivative
+machinery created a coupling to ``graph.graph["dispersion_relation"]``
+that became a maintenance hazard when adding new physics. Nelder-Mead
+was strictly worse than root on every benchmark.
 """
 
 import logging
 import warnings
 
 import numpy as np
-import scipy as sc
-from scipy.optimize import minimize, root
+from scipy.optimize import root
 from skimage.feature import peak_local_max
 
 from .quantum_graph import mode_quality
 
 L = logging.getLogger(__name__)
 
-REFINE_METHODS = ("root", "newton", "nelder_mead", "brownian")
+REFINE_METHODS = ("root", "brownian")
 DEFAULT_REFINE_METHOD = "root"
 
 
@@ -155,9 +158,9 @@ def _search_box(params):
 
     ``WorkerModes.set_search_radii`` sets ``k_min``/``k_max`` (and the
     ``alpha_*`` pair) centred on each initial guess. We reuse their half-
-    extent here so root / Newton / Nelder-Mead honour the same locality
-    that the Brownian ratchet achieves by taking small steps. If no search
-    window is set (caller invoking the refiner directly), fall back to the
+    extent here so ``root`` honours the same locality that the Brownian
+    ratchet achieves by taking small steps. If no search window is set
+    (caller invoking the refiner directly), fall back to the
     ``search_stepsize`` knob or a sane default.
     """
     k_min, k_max = params.get("k_min"), params.get("k_max")
@@ -234,261 +237,17 @@ def refine_mode_root(initial_mode, graph, params, quality_method="eigenvalue", r
     return np.asarray(result.x)
 
 
-def refine_mode_nelder_mead(initial_mode, graph, params, quality_method="eigenvalue", rng=None):
-    """Refine a mode via a Nelder-Mead simplex on ``|λ₁(L(k))|``.
-
-    Derivative-free and deterministic. Same objective as the Brownian
-    ratchet but with ~5-10× fewer evaluations thanks to the simplex's
-    reflection / expansion / contraction rules.
-    """
-    tol = params.get("quality_threshold", 1e-4)
-    max_fev = params.get("max_steps", 500)
-
-    def objective(x):
-        return mode_quality(x, graph, quality_method=quality_method, rng=rng)
-
-    # Build an initial simplex that spans the current search window if one
-    # was set by WorkerModes, otherwise fall back to a small default.
-    search = [
-        params.get("search_stepsize", 0.01),
-        params.get("search_stepsize", 0.01),
-    ]
-    x0 = np.asarray(initial_mode, dtype=float)
-    initial_simplex = np.array([x0, x0 + [search[0], 0.0], x0 + [0.0, search[1]]])
-
-    # Target half the user-facing threshold so that when NM's simplex-
-    # geometry criterion triggers, the function value is comfortably below
-    # ``quality_threshold``.
-    result = minimize(
-        objective,
-        x0,
-        method="Nelder-Mead",
-        options={
-            "xatol": tol,
-            "fatol": tol * 0.5,
-            "maxfev": int(max_fev),
-            "initial_simplex": initial_simplex,
-            "disp": False,
-        },
-    )
-    if result.fun > tol:
-        return None
-    if not _within_search_box(x0, result.x, params):
-        return None
-    return np.asarray(result.x)
-
-
-def _laplacian_derivative_times_vector(graph, v, k):
-    r"""Return ``dL/dk · v`` at the current ``graph.graph["ks"]``.
-
-    Used by :func:`refine_mode_newton` to form the Hellmann-Feynman
-    derivative without materialising the full ``dL/dk`` matrix.
-
-    The quantum laplacian is ``L(k) = Bᵀ(k) · W⁻¹(k) · B(k)`` with
-    ``expl = exp(jℓ·ks(k))`` and ``1 / (exp(2jℓ·ks(k)) − 1)`` as the only
-    k-dependent pieces, where ``ks(k) = dispersion_relation(k)`` may be
-    non-trivial (``dispersion_relation_dielectric`` scales by ``√ε``,
-    ``dispersion_relation_pump`` mixes in gain terms). Chain rule:
-
-        d(expl_i)/dk = j·ℓ_i · (dks_i/dk) · expl_i
-
-    ``dks/dk`` is estimated by a one-sided forward difference on the
-    dispersion relation (one extra cheap evaluation, no ARPACK), so the
-    derivative is correct for any dispersion the rest of the codebase
-    supports — not just the trivial ``ks = k`` case.
-    """
-    from .quantum_graph import construct_incidence_matrix, construct_weight_matrix
-
-    lengths = graph.graph["lengths"]
-    ks = graph.graph["ks"]
-
-    # Numerical dks/dk via the dispersion relation. Forward difference is
-    # accurate enough — Newton's quadratic convergence dominates the O(eps)
-    # error so long as eps is well above machine precision and well below
-    # the scale of k.
-    dispersion = graph.graph["dispersion_relation"]
-    eps = 1e-7 * (abs(k) + 1.0)
-    ks_plus = dispersion(k + eps, params=graph.graph["params"])
-    dks_dk = (np.asarray(ks_plus) - np.asarray(ks)) / eps
-
-    expl = np.exp(1.0j * lengths * ks)
-    dexpl = 1.0j * lengths * dks_dk * expl
-
-    topo = graph.graph.get("_incidence_topology")
-    if topo is None or topo["m"] != len(graph.edges):
-        from .quantum_graph import _incidence_topology
-
-        topo = _incidence_topology(graph)
-    m, n = topo["m"], topo["n"]
-    row, col = topo["row"], topo["col"]
-
-    # dB/dk has zeros at the −1 slots and dexpl at the expl slots.
-    ones_zero = np.zeros(m)
-    dB_data = np.dstack([ones_zero, dexpl, dexpl, ones_zero])[0].flatten()
-    dB_data_out = dB_data.copy()
-
-    open_model = graph.graph["params"]["open_model"]
-    if open_model == "open":
-        mask = topo["open_mask"]
-        dB_data_out[1::4][mask] = 0
-        dB_data_out[2::4][mask] = 0
-    elif open_model == "directed":
-        dB_data_out[2::4] = 0
-        dB_data_out[3::4] = 0
-    elif open_model == "directed_reversed":
-        dB_data[2::4] = 0
-        dB_data[3::4] = 0
-
-    dBT = sc.sparse.csr_matrix((dB_data_out, (col, row)), shape=(n, 2 * m), dtype=np.complex128)
-    dB = sc.sparse.csr_matrix((dB_data, (row, col)), shape=(2 * m, n), dtype=np.complex128)
-
-    # W⁻¹ at with_k=True is data = ks · 1/(e^{2jℓks} − 1). With chain rule:
-    #   d(ks_i · winv_i)/dk = (dks_i/dk) · winv_i + ks_i · (dwinv_i/dk)
-    # and  dwinv_i/dk = −2jℓ_i · (dks_i/dk) · e^{2jℓks_i} · winv_i².
-    e2 = np.exp(2.0j * lengths * ks)
-    winv = 1.0 / (e2 - 1.0)
-    dwinv = -2.0j * lengths * dks_dk * e2 * winv * winv
-    dwinv_data = dks_dk * winv + ks * dwinv
-    dWinv = sc.sparse.diags(np.repeat(dwinv_data, 2), format="csc", dtype=np.complex128)
-
-    BT, B = construct_incidence_matrix(graph)
-    Winv = construct_weight_matrix(graph, with_k=True)
-
-    # dL/dk · v = dBT · Winv · B · v + BT · dWinv · B · v + BT · Winv · dB · v
-    return dBT @ (Winv @ (B @ v)) + BT @ (dWinv @ (B @ v)) + BT @ (Winv @ (dB @ v))
-
-
-def refine_mode_newton(initial_mode, graph, params, quality_method="eigenvalue", rng=None):
-    """Refine a mode via Newton's method using a Hellmann-Feynman derivative.
-
-    ``k_{n+1} = k_n − α · λ₁(k_n) / (dλ₁/dk)`` where
-    ``dλ₁/dk = (u₁ · dL/dk · v₁) / (u₁ · v₁)``; ``v₁`` is the right
-    eigenvector of ``L(k_n)`` at the smallest eigenvalue and ``u₁`` is the
-    right eigenvector of ``Lᵀ`` (i.e. the left eigenvector of ``L``).
-
-    The scalar step is accepted via **Armijo backtracking**: try ``α=1``
-    first, then halve it (``0.5``, ``0.25``, …) until
-    ``|λ(k − α·step)| < (1 − c·α)·|λ(k)|`` with ``c = 0.1``. This keeps
-    Newton's quadratic convergence close to the root while preventing
-    full-step overshoots far from the root.
-
-    Falls back to :func:`refine_mode_root` when no α satisfies the Armijo
-    condition after ``max_backtracks`` halvings, or when ``uᵀv ≈ 0`` /
-    ``dλ₁/dk ≈ 0`` / the step leaves the search window.
-    """
-    del quality_method  # always uses the complex eigenpair
-    tol = params.get("quality_threshold", 1e-4)
-    max_steps = params.get("max_steps", 50)
-    max_backtracks = 10  # ½^10 ≈ 1e-3 — tiny steps don't help if we're stuck
-    armijo_c = 0.1
-    trust_radius = max(
-        params.get("search_stepsize", 0.01) * 10,
-        tol * 100,
-    )
-
-    from .quantum_graph import construct_laplacian
-    from .utils import from_complex, to_complex
-
-    x0 = np.asarray(initial_mode, dtype=float)
-    mode = x0.copy()
-
-    def _finalise(candidate):
-        # Hand off to the robust solver if Newton stalls or leaves the box.
-        result = refine_mode_root(candidate, graph, params, rng=rng)
-        if result is None:
-            return None
-        if not _within_search_box(x0, result, params):
-            return None
-        return result
-
-    def _abs_lambda(point):
-        """``|λ₁(L(point))|`` without bothering to compute the eigenvector."""
-        val = mode_quality(point, graph, quality_method="complex_eigenvalue", rng=rng)
-        return abs(val)
-
-    for _ in range(int(max_steps)):
-        k = to_complex(mode)
-        laplacian = construct_laplacian(k, graph)
-        lam_r, v = sc.sparse.linalg.eigs(
-            laplacian,
-            k=1,
-            sigma=0,
-            return_eigenvectors=True,
-            which="LM",
-            v0=(rng.random(laplacian.shape[0]) if rng is not None else None),
-        )
-        lam = complex(lam_r[0])
-        v = v[:, 0]
-        current_abs = abs(lam)
-        if current_abs < tol:
-            if not _within_search_box(x0, mode, params):
-                return None
-            return mode
-
-        # left eigenvector = right eigenvector of Lᵀ
-        _, u = sc.sparse.linalg.eigs(
-            laplacian.T,
-            k=1,
-            sigma=0,
-            return_eigenvectors=True,
-            which="LM",
-            v0=(rng.random(laplacian.shape[0]) if rng is not None else None),
-        )
-        u = u[:, 0]
-
-        dL_v = _laplacian_derivative_times_vector(graph, v, k)
-        denom = u @ v
-        if abs(denom) < 1e-14:
-            return _finalise(mode)
-        dlam_dk = (u @ dL_v) / denom
-        if abs(dlam_dk) < 1e-14:
-            return _finalise(mode)
-
-        full_step = lam / dlam_dk
-        if abs(full_step) > trust_radius:
-            full_step = full_step * trust_radius / abs(full_step)
-
-        # Armijo backtracking: find α ∈ {1, ½, ¼, …} with a sufficient decrease.
-        alpha = 1.0
-        accepted = None
-        alpha_min = 2.0**-max_backtracks
-        for _ in range(max_backtracks):
-            k_trial = k - alpha * full_step
-            trial = np.asarray(from_complex(k_trial), dtype=float)
-            if not _within_search_box(x0, trial, params):
-                alpha *= 0.5
-                continue
-            trial_abs = _abs_lambda(trial)
-            # Armijo sufficient-decrease: |λ_new| < (1 − c·α) |λ_old|.
-            if trial_abs < (1.0 - armijo_c * alpha) * current_abs:
-                accepted = trial
-                break
-            alpha *= 0.5
-
-        if accepted is None:
-            # No α along this direction gives a decrease — bail to MINPACK.
-            return _finalise(mode)
-        # If backtracking kept shrinking α to near the floor, Newton's
-        # direction isn't useful any more; hand off to MINPACK which does
-        # its own linesearch.
-        if alpha <= alpha_min * 2:
-            return _finalise(accepted)
-        mode = accepted
-
-    return _finalise(mode)
-
-
 def refine_mode(initial_mode, graph, params, quality_method="eigenvalue", rng=None, **kwargs):
-    """Dispatcher over the four refinement algorithms.
+    """Dispatcher over the two refinement algorithms.
 
-    Which one runs is controlled by ``params["refine_method"]`` — one of
-    ``"root"`` (default), ``"newton"``, ``"nelder_mead"``, or
-    ``"brownian"``. Unknown values raise ``ValueError`` rather than
-    silently falling through, so typos surface at the graph boundary.
+    Which one runs is controlled by ``params["refine_method"]`` —
+    ``"root"`` (default, MINPACK ``hybr``) or ``"brownian"`` (legacy
+    random-walk ratchet). Unknown values raise ``ValueError`` so
+    typos surface at the graph boundary.
 
-    Extra kwargs (e.g. ``disp``, ``save_mode_trajectories``) are passed
-    through to the Brownian ratchet for backward compatibility; they're
-    ignored by the other methods.
+    Extra kwargs (e.g. ``disp``, ``save_mode_trajectories``) are
+    passed through to the Brownian ratchet for backward compatibility;
+    they emit a ``UserWarning`` when paired with ``method="root"``.
     """
     method = params.get("refine_method") or DEFAULT_REFINE_METHOD
     if method not in REFINE_METHODS:
@@ -502,24 +261,13 @@ def refine_mode(initial_mode, graph, params, quality_method="eigenvalue", rng=No
             rng=rng,
             **kwargs,
         )
-    # Non-ratchet methods ignore brownian-specific kwargs.
     if kwargs:
         unknown = ", ".join(sorted(kwargs))
         warnings.warn(
             f"refine_method={method!r} ignores kwargs: {unknown}",
             stacklevel=2,
         )
-    if method == "root":
-        return refine_mode_root(initial_mode, graph, params, quality_method=quality_method, rng=rng)
-    if method == "newton":
-        return refine_mode_newton(
-            initial_mode, graph, params, quality_method=quality_method, rng=rng
-        )
-    if method == "nelder_mead":
-        return refine_mode_nelder_mead(
-            initial_mode, graph, params, quality_method=quality_method, rng=rng
-        )
-    raise AssertionError(f"unreachable: method={method!r}")  # pragma: no cover
+    return refine_mode_root(initial_mode, graph, params, quality_method=quality_method, rng=rng)
 
 
 def clean_duplicate_modes(all_modes, k_size, alpha_size):

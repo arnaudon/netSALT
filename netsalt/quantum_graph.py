@@ -445,10 +445,8 @@ def laplacian_quality(laplacian, method="eigenvalue", rng=None):
             * ``"eigenvalue"`` (default) — returns ``|λ₁|``, the magnitude of
               the smallest eigenvalue.
             * ``"complex_eigenvalue"`` — returns the signed complex ``λ₁``.
-              Used by the root-finding and Newton refiners.
-            * ``"complex_eigenpair"`` — returns ``(λ₁, v₁)``: the complex
-              eigenvalue together with its right eigenvector. Used by the
-              Newton refiner to form Hellmann-Feynman derivatives.
+              Used by :func:`refine_mode_root` to drive
+              ``(Re λ₁, Im λ₁) = 0``.
             * ``"singularvalue"`` — returns the smallest singular value.
             * ``"determinant"`` — returns a scaled determinant.
         rng: optional ``numpy.random.Generator`` used to draw the ARPACK
@@ -492,13 +490,6 @@ def laplacian_quality(laplacian, method="eigenvalue", rng=None):
     if method == "complex_eigenvalue":
         result = _eigs(return_vec=False)
         return 1.0 + 0j if result is None else complex(result[0])
-
-    if method == "complex_eigenpair":
-        result = _eigs(return_vec=True)
-        if result is None:
-            return 1.0 + 0j, np.ones(laplacian.shape[0], dtype=np.complex128)
-        vals, vecs = result
-        return complex(vals[0]), vecs[:, 0]
 
     if method == "determinant":
         logdet = np.linalg.slogdet(laplacian.todense())[1]

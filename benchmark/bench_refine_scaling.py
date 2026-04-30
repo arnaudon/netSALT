@@ -1,26 +1,25 @@
-"""Refinement scaling: which method wins at production batch sizes?
+"""Refinement scaling on production-like batches.
 
-The "1.8× speedup" in ``bench_refine.py`` is per-call. The production
-case is different: ``find_threshold_lasing_modes`` and
-``pump_trajectories`` refine *every* mode at *every* ``D0`` step.
-That means the relevant cost is **per-refine wall time multiplied by
-N_modes × N_steps** — and the question is whether Newton's
-asymptotically-fewer evaluations actually win wall time at scale
-once you include the cost of an ARPACK call growing with graph size.
-
-This benchmark sweeps:
+``find_threshold_lasing_modes`` and ``pump_trajectories`` refine
+*every* mode at *every* ``D0`` step, so the relevant cost is
+**per-refine wall time × N_modes × N_steps**. This benchmark sweeps:
 
 * graph size (buffon ``n_lines = 10, 15, 20`` → ~125, 189, 340 nodes)
 * mode batch size (refine N=10, 30, 50 distinct modes per graph)
 
-For each (graph, batch) combination it runs all four refiners, each
-starting from a small (0.01) perturbation of a true Beyn-found mode,
-and reports total wall time + total ``mode_quality`` calls. Newton's
-``mode_quality`` count is *per-Armijo-trial* only — its hidden left/
-right eigenvector ``eigs`` calls add ~2× per Newton iteration on top.
+For each (graph, batch) combination it runs ``root`` (default) and
+``brownian`` (legacy ratchet), each starting from a small (0.01)
+perturbation of a true Beyn-found mode, and reports total wall time
++ total ``mode_quality`` calls. Per-refine time is independent of
+batch size (linear scaling), so the per-refine ratio is the
+production-relevant number.
 
-Also captures ARPACK-equivalent timings via wall time, which is the
-honest comparison against root.
+Earlier versions also benchmarked Newton (Hellmann-Feynman + Armijo)
+and Nelder-Mead. Both were removed in favour of root: Newton's
+25-30% speedup at small graph sizes shrank to 10-15% at 340 nodes
+and required carrying around a derivative + fallback path that
+coupled to ``graph.graph["dispersion_relation"]``. Nelder-Mead was
+strictly worse than root.
 
 Usage::
 
@@ -44,8 +43,6 @@ import netsalt.algorithm as alg  # noqa: E402
 from _common import buffon_planar_graph, count_calls, time_block  # noqa: E402
 from netsalt.algorithm import (  # noqa: E402
     refine_mode_brownian_ratchet,
-    refine_mode_nelder_mead,
-    refine_mode_newton,
     refine_mode_root,
 )
 from netsalt.contour import find_modes_contour_subdivided  # noqa: E402
@@ -53,8 +50,6 @@ from netsalt.quantum_graph import mode_quality  # noqa: E402
 
 REFINERS = [
     ("root", refine_mode_root, {}),
-    ("newton", refine_mode_newton, {}),
-    ("nelder_mead", refine_mode_nelder_mead, {}),
     ("brownian", refine_mode_brownian_ratchet, {"rng": np.random.default_rng(0)}),
 ]
 
@@ -188,8 +183,8 @@ def render_summary(rows):
     for r in rows:
         by_graph.setdefault(r["graph_nodes"], []).append(r)
     out.append("## Summary: ms/refine at the largest batch per graph size\n")
-    out.append("| nodes | root | newton | nelder_mead | brownian | newton/root |")
-    out.append("|---:|---:|---:|---:|---:|---:|")
+    out.append("| nodes | root | brownian | brownian/root |")
+    out.append("|---:|---:|---:|---:|")
     for nodes in sorted(by_graph):
         group = by_graph[nodes]
         max_batch = max(r["batch_size"] for r in group)
@@ -200,14 +195,12 @@ def render_summary(rows):
             per_method[r["method"]] = r["wall_s"] * 1e3 / max(r["n_modes"], 1)
         if "root" not in per_method:
             continue
-        ratio = per_method.get("newton", float("nan")) / per_method["root"]
+        ratio = per_method.get("brownian", float("nan")) / per_method["root"]
         out.append(
             f"| {nodes} | "
             f"{per_method.get('root', float('nan')):.1f} | "
-            f"{per_method.get('newton', float('nan')):.1f} | "
-            f"{per_method.get('nelder_mead', float('nan')):.1f} | "
             f"{per_method.get('brownian', float('nan')):.1f} | "
-            f"{ratio:.2f}× |"
+            f"{ratio:.1f}× |"
         )
     out.append("")
     return "\n".join(out)

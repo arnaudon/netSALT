@@ -40,8 +40,6 @@ from _common import (  # noqa: E402
 )
 from netsalt.algorithm import (  # noqa: E402
     refine_mode_brownian_ratchet,
-    refine_mode_nelder_mead,
-    refine_mode_newton,
     refine_mode_root,
 )
 from netsalt.contour import find_modes_contour  # noqa: E402
@@ -50,8 +48,6 @@ from netsalt.quantum_graph import mode_quality  # noqa: E402
 REFINERS = [
     ("brownian", refine_mode_brownian_ratchet, {"rng": np.random.default_rng(0)}),
     ("root", refine_mode_root, {}),
-    ("newton", refine_mode_newton, {}),
-    ("nelder_mead", refine_mode_nelder_mead, {}),
 ]
 
 # Tolerance for mode-position agreement between methods (loose because
@@ -213,8 +209,8 @@ def main():
         workloads.append((f"line, n_edges={n_edges}, dielectric=4", g))
 
     # Pump dispersion (D0=0 reduces to dielectric, but the dispersion
-    # function itself is the more complex one — exercises the chain-rule
-    # path in the Newton derivative).
+    # function itself is the more complex one used in production — useful
+    # for catching dispersion-related regressions in root).
     workloads.append(
         (
             "line + pump dispersion (D0=0), n_edges=20",
