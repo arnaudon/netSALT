@@ -14,11 +14,11 @@ wavenumber and drives ``|λ₁(L(k))|`` to zero. Two implementations:
 Newton's method (Hellmann-Feynman derivative) and Nelder-Mead
 (simplex) used to live here too. They were removed in favour of
 ``root``: empirically Newton's 25-30% wall-time advantage on small
-graphs narrowed to 10-15% on 300-node graphs (see
-``benchmark/bench_refine_scaling.py``), and the analytic-derivative
-machinery created a coupling to ``graph.graph["dispersion_relation"]``
-that became a maintenance hazard when adding new physics. Nelder-Mead
-was strictly worse than root on every benchmark.
+graphs narrowed to 10-15% on 300-node graphs, and the analytic-
+derivative machinery created a coupling to
+``graph.graph["dispersion_relation"]`` that became a maintenance
+hazard when adding new physics. Nelder-Mead was strictly worse
+than root on every benchmark.
 """
 
 import logging

@@ -146,9 +146,8 @@ for seed in seeds:
 `safety_factor=1.5` leaves 50% headroom for instance variation).
 The `safety_factor` matters: even if adaptive's discovery
 under-counts a few modes, the non-adaptive call sized with the
-recommended `n_k` recovers them all (`benchmark/bench_500_modes.md`
-shows this — adaptive found 472 of 502, but the tuned `n_k=19`
-recovered all 502 via `find_modes_contour`).
+recommended `n_k` recovers them all (the stress workload in
+`benchmark/bench_contour.py` is a worked example at ~300 modes).
 
 #### When to choose what
 
@@ -162,8 +161,8 @@ recovered all 502 via `find_modes_contour`).
   one-shot exploration tool on an unfamiliar graph; **do not**
   rely on it for production where every mode matters.
 
-See `benchmark/README.md` and `benchmark/bench_stress.py` for the
-empirical study behind `n_k`-vs-`probe_dim` sizing.
+See `benchmark/README.md` for the empirical study behind
+`n_k`-vs-`probe_dim` sizing.
 
 ### Mode refinement
 

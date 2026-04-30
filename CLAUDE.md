@@ -24,7 +24,7 @@ Luigi workflow driven by `luigi.cfg` files (see `examples/`).
     ratchet). The dispatcher ``refine_mode(...)`` picks one based on
     ``params["refine_method"]``. Newton (Hellmann-Feynman) and
     Nelder-Mead used to live here but were dropped: see
-    `benchmark/results_refine_scaling.md` for the wall-time numbers
+    `benchmark/bench_refine.py` for the wall-time numbers
     that didn't justify the maintenance cost.
   - `contour.py` — Beyn's contour-integration mode search. Locates every
     root of ``det(L(k)) = 0`` inside a complex contour in ``O(N_quad·L²)``

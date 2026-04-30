@@ -481,13 +481,13 @@ def find_modes_contour_adaptive(
         search. The saturation heuristic and boundary-dedup at deep
         recursion can drop a small fraction of modes near cell
         edges; benchmarks typically see 1-5% under-counting on
-        300-500 mode workloads (see ``benchmark/results_500_modes.md``
-        and ``benchmark/results_stress.md``). For runs where every
-        mode matters, call :func:`find_modes_contour` with an
-        explicit ``n_k`` — :func:`tune_contour_parameters` is the
-        recommended bridge: it runs adaptive once and gives you the
-        ``n_k`` to use, then a second non-adaptive call recovers any
-        modes adaptive missed.
+        300-500 mode workloads (see the stress workload in
+        ``benchmark/bench_contour.py``). For runs where every mode
+        matters, call :func:`find_modes_contour` with an explicit
+        ``n_k`` — :func:`tune_contour_parameters` is the recommended
+        bridge: it runs adaptive once and gives you the ``n_k`` to
+        use, then a second non-adaptive call recovers any modes
+        adaptive missed.
 
     The basic Beyn algorithm caps at ``probe_dim`` modes per contour
     (the SVD of ``A_0`` has at most ``probe_dim`` non-zero singular
@@ -507,7 +507,7 @@ def find_modes_contour_adaptive(
       either has no modes in it (correct answer) or is so over-capacity
       that the SVD's tail got cut and the extraction collapsed
       (incorrect answer, common signal observed in
-      ``benchmark/bench_stress.py``). Until ``max_depth`` is hit, an
+      stress workload in ``benchmark/bench_contour.py``). Until ``max_depth`` is hit, an
       empty cell is split too. At ``max_depth`` an empty result is
       finally trusted.
     * Otherwise the cell's modes are accepted as-is.
@@ -528,8 +528,7 @@ def find_modes_contour_adaptive(
             ``min(40, n_nodes)``; clamped to the node count.
         saturation_factor: split a cell when its returned mode count
             is at or above ``saturation_factor · probe_dim``. ``0.7``
-            is the empirical sweet spot from
-            ``benchmark/bench_stress.py``.
+            is the empirical sweet spot.
         max_depth: maximum recursion depth. ``2^max_depth`` is the
             worst-case cell count along the chosen split axis.
         split_axis: ``"k"`` (default), ``"alpha"``, or ``"auto"``.
