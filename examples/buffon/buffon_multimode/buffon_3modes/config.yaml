@@ -1,0 +1,3 @@
+defaults: ../_base.yaml
+
+lasing_modes_id: [1, 5, 7]

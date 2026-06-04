@@ -2,11 +2,9 @@
 export OMP_NUM_THREADS=1
 export NUMEXPR_MAX_THREADS=1
 
-mkdir -p out
-mkdir -p figures
+mkdir -p out figures
 
 python create_graph.py
 
-#luigi --module netsalt.tasks.workflow ComputePassiveModes --local-scheduler --log-level INFO --rerun
-luigi --module netsalt.tasks.workflow ComputeLasingModes --local-scheduler --log-level INFO  --rerun 
-
+# python -m netsalt passive config.yaml --force
+python -m netsalt lasing config.yaml --force

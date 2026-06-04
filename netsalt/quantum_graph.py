@@ -4,6 +4,7 @@ A quantum graph is a networkx graph with additional parameters in graph.graph['p
 and specific node/edges attributes.
 """
 
+import copy
 import logging
 
 import networkx as nx
@@ -209,10 +210,19 @@ def simplify_graph(graph):
 def oversample_graph(graph, edge_size):
     """Oversample a graph by adding points on edges.
 
+    The input graph is deep-copied before any mutation: ``_set_pump_on_graph``
+    writes per-edge ``pump`` attributes, and the post-copy
+    ``_set_pump_on_params`` / ``set_inner_edges`` calls rewrite
+    ``params['pump']`` and ``params['inner']`` to the oversampled-edge
+    count. Without the deep copy these mutations leak back to the caller
+    via ``graph.graph["params"]`` (a shared reference) and break any
+    subsequent ``compute_mode_*`` call that re-reads those arrays.
+
     Args:
-        graph (graph): quantum graph
-        edge_size (float):  edge size to sample the graph
+        graph (graph): quantum graph (left untouched)
+        edge_size (float): edge size to sample the graph
     """
+    graph = copy.deepcopy(graph)
     _set_pump_on_graph(graph)
     oversampled_graph = graph.copy()
     for ei, (u, v) in enumerate(graph.edges):

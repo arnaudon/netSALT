@@ -2,8 +2,6 @@
 export OMP_NUM_THREADS=1
 export NUMEXPR_MAX_THREADS=1
 
-mkdir -p out
-mkdir -p figures
+mkdir -p out figures
 
-luigi --module netsalt.tasks.workflow ComputeLasingModes --local-scheduler --log-level INFO # --rerun-all # --rerun 
-
+python -m netsalt lasing config.yaml

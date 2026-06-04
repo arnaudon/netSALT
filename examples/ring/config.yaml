@@ -1,0 +1,45 @@
+graph_path: graph.json
+graph_mode: open
+inner_total_length: 10.0
+
+dielectric_mode: refraction_params
+dielectric_method: uniform
+dielectric_inner_value: 1.5
+dielectric_loss: 0.005
+dielectric_outer_value: 1.5
+edge_size: 50.0
+
+k_a: 15.0
+gamma_perp: 3.0
+
+n_workers: 10
+k_n: 200
+k_min: 13.0
+k_max: 17.0
+alpha_n: 100
+alpha_min: 0.0
+alpha_max: 0.07
+quality_threshold: 1.0e-5
+search_stepsize: 0.001
+max_steps: 10000
+max_tries_reduction: 50
+reduction_factor: 0.8
+
+D0_max: 0.05
+D0_steps: 5
+intensities_D0_max: 0.05
+
+pump_mode: uniform
+
+optimize_pump_min_frac: 0.5
+optimize_pump_maxiter: 1000
+optimize_pump_popsize: 10
+optimize_pump_n_seeds: 10
+optimize_pump_disp: false
+
+plot_passive_n_modes: 20
+plot_passive_edge_size: 1.0
+plot_threshold_n_modes: 20
+plot_threshold_edge_size: 1.0
+
+n_top_modes: 20

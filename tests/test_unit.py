@@ -184,7 +184,7 @@ class TestNetSaltParams:
 
     def test_literal_fields_reject_typos(self):
         """``refine_method`` and ``mode_search_method`` are typed as
-        ``Literal[...]`` so a typo in ``luigi.cfg`` fails on construction
+        ``Literal[...]`` so a typo in the config fails on construction
         rather than silently propagating to the dispatcher."""
         from pydantic import ValidationError
 

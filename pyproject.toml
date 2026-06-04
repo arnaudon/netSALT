@@ -31,7 +31,6 @@ dependencies = [
     "tqdm",
     "h5py",
     "numpy",
-    "luigi",
     "pyyaml",
     "seaborn",
     "dir-content-diff",
@@ -50,13 +49,14 @@ include = ["netsalt*"]
 
 [tool.coverage.run]
 source = ["netsalt"]
-# Plotting and the Luigi task graph are end-to-end surfaces covered by
-# the functional test; the interesting correctness surface is the core
+# Plotting and the pipeline orchestration are end-to-end surfaces covered
+# by the functional test; the interesting correctness surface is the core
 # compute package. Keeping the report focused on that so the number
 # reflects code we actually unit-test.
 omit = [
     "netsalt/plotting.py",
-    "netsalt/tasks/*",
+    "netsalt/pipeline.py",
+    "netsalt/__main__.py",
 ]
 
 [tool.coverage.report]
@@ -84,7 +84,6 @@ select = ["E", "W", "F", "I", "B", "C4", "UP"]
 ignore = [
     "E501",  # line too long - enforced by the formatter instead
     "E741",  # ambiguous variable name (physics uses l, k, m, etc.)
-    "B008",  # function call in default argument (used in luigi tasks)
 ]
 
 [tool.ruff.lint.per-file-ignores]

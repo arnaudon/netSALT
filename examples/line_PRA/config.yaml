@@ -1,0 +1,38 @@
+graph_path: graph.json
+graph_mode: open
+inner_total_length: 1.0
+
+dielectric_mode: refraction_params
+dielectric_method: custom
+custom_index_path: index.yaml
+edge_size: 1.0
+
+k_a: 15.0
+gamma_perp: 3.0
+
+n_workers: 1
+k_n: 100
+k_min: 12
+k_max: 19
+alpha_n: 30
+alpha_min: 0.0
+alpha_max: 1.0
+quality_threshold: 1.0e-4
+search_stepsize: 0.01
+max_steps: 10000
+max_tries_reduction: 50
+reduction_factor: 0.8
+
+D0_max: 2.0
+D0_steps: 30
+intensities_D0_max: 4.0
+
+pump_mode: custom
+pump_custom_path: pump.yaml
+
+plot_passive_n_modes: 5
+plot_passive_edge_size: 0.005
+plot_threshold_n_modes: 5
+plot_threshold_edge_size: 0.005
+
+lasing_modes_id: [1]

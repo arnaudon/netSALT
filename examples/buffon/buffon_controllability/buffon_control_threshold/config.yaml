@@ -1,0 +1,3 @@
+defaults: ../_base.yaml
+
+pump_mode: threshold

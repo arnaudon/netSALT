@@ -1,0 +1,7 @@
+defaults: ../_base.yaml
+
+# 2modes uses an unusually coarse passive-mode plot (edge_size=100)
+plot_passive_edge_size: 100.0
+plot_passive_n_modes: 12
+
+lasing_modes_id: [1, 5]

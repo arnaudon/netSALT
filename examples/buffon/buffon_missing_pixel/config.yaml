@@ -1,0 +1,4 @@
+defaults: ../_base.yaml
+
+pump_mode: custom
+pump_custom_path: pump.yaml

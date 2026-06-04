@@ -1,0 +1,9 @@
+defaults: ../_base.yaml
+
+quality_threshold: 1.0e-5
+D0_steps: 70
+intensities_D0_max: 0.01
+
+plot_threshold_mode_ids: [0]
+
+n_top_modes: 200

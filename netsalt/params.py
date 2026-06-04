@@ -2,7 +2,7 @@
 
 Historically ``params`` was a bare dict passed around the codebase. That made
 typos silent and offered no validation at the seam where users hand-write
-``luigi.cfg`` values. The :class:`NetSaltParams` model below replaces that
+config values. The :class:`NetSaltParams` model below replaces that
 dict while keeping full dict-compatible access (``params["k_min"]``,
 ``params.get(...)``, ``"x" in params``) so every existing call site continues
 to work. Validation runs at construction time (via
@@ -75,7 +75,7 @@ class NetSaltParams(BaseModel):
     # when refinement is explicitly invoked — primarily by
     # ``pump_trajectories`` and ``find_threshold_lasing_modes`` tracking a
     # single mode as ``D0`` varies, not for the passive-scan step.
-    # Typed as a Literal so typos in ``luigi.cfg`` fail at the graph
+    # Typed as a Literal so typos in the config fail at the graph
     # boundary (``update_parameters``) rather than silently making it all
     # the way to ``refine_mode`` before raising.
     refine_method: Literal["root", "brownian"] | None = None

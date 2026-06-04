@@ -1,9 +1,8 @@
 """
-README: This code defines a custom pump profile and saves it to file. 
-        To use the custom pump profile, modify luigi file section:
-            [CreatePumpProfile]
-	    mode = custom
-	    custom_pump_path = pump_profile.yaml
+README: This code defines a custom pump profile and saves it to file.
+        To use the custom pump profile, set in config.yaml:
+            pump_mode: custom
+            pump_custom_path: pump_profile.yaml
 """
 
 import yaml
