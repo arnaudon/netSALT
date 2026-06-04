@@ -21,12 +21,12 @@ from .algorithm import (
     find_rough_modes_from_scan,
     refine_mode,
 )
-from .params import NetSaltParams
 from .physics import gamma, q_value
 from .quantum_graph import (
     construct_incidence_matrix,
     construct_laplacian,
     construct_weight_matrix,
+    graph_with_params,
     graph_with_pump,
     mode_quality,
     set_wavenumber,
@@ -99,24 +99,20 @@ class WorkerModes:
         """Call function of the worker."""
         mode = self.estimated_modes[mode_id]
         graph = self.graph
-        params = graph.graph["params"]
         # Apply the per-mode pump / search window / stepsize to a throwaway
         # graph + params copy so the shared graph.graph["params"] is never
-        # mutated in place.
-        if (
-            self.D0s is not None
-            or self.search_radii is not None
-            or self.search_stepsize is not None
-        ):
-            graph = graph.copy()
-            params = params.model_copy() if isinstance(params, NetSaltParams) else dict(params)
-            if self.D0s is not None:
-                params["D0"] = self.D0s[mode_id]
-            if self.search_radii is not None:
-                params.update(self._search_radii_updates(mode))
-            if self.search_stepsize is not None:
-                params["search_stepsize"] = self.search_stepsize
-            graph.graph["params"] = params
+        # mutated in place. One graph copy per mode candidate, which is cheap
+        # next to the eigenvalue refinement that follows.
+        overrides = {}
+        if self.D0s is not None:
+            overrides["D0"] = self.D0s[mode_id]
+        if self.search_radii is not None:
+            overrides.update(self._search_radii_updates(mode))
+        if self.search_stepsize is not None:
+            overrides["search_stepsize"] = self.search_stepsize
+        if overrides:
+            graph = graph_with_params(graph, **overrides)
+        params = graph.graph["params"]
         # Derive a per-mode seed so each call has an independent RNG stream
         # rather than sharing ``self.seed`` across every mode in the pool.
         rng = np.random.default_rng([self.seed, mode_id])

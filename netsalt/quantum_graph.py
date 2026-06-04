@@ -311,15 +311,15 @@ def set_wavenumber(graph, wavenumber):
     graph.graph["ks"] = graph.graph["dispersion_relation"](wavenumber, params=graph.graph["params"])
 
 
-def graph_with_pump(graph, D0):
-    """Return a shallow copy of ``graph`` whose ``params`` carry pump ``D0``.
+def graph_with_params(graph, **overrides):
+    """Return a shallow copy of ``graph`` with ``params`` field overrides applied.
 
-    The dispersion relations build the laplacian from ``params["D0"]``. Rather
-    than mutating ``graph.graph["params"]["D0"]`` in place — which leaks the
-    pump amplitude into shared state and imposes a fragile set-then-read
-    ordering on every downstream consumer (``mode_on_nodes``, ``flux_on_edges``,
-    the ``graph.graph["ks"]`` read-backs) — callers that need the laplacian and
-    its derived quantities at a specific pump build them on this throwaway copy.
+    Rather than mutating ``graph.graph["params"]`` in place — which leaks values
+    into shared state and imposes a fragile set-then-read ordering on every
+    downstream consumer (``mode_on_nodes``, ``flux_on_edges``, the
+    ``graph.graph["ks"]`` read-backs) — callers that need the laplacian (and its
+    derived quantities) at specific parameter values build them on this
+    throwaway copy.
 
     Graph structure and node / edge attributes are shared by reference; only
     ``graph.graph`` is a fresh dict (``nx.Graph.copy`` semantics) with a fresh
@@ -328,15 +328,27 @@ def graph_with_pump(graph, D0):
 
     Args:
         graph (graph): quantum graph
-        D0 (float): pump amplitude to set on the copy's params
+        **overrides: ``params`` fields to override on the copy (e.g. ``D0=0.7``,
+            ``search_stepsize=0.02``).
     """
     local = graph.copy()
     params = graph.graph["params"]
     if isinstance(params, NetSaltParams):
-        local.graph["params"] = params.model_copy(update={"D0": D0})
+        local.graph["params"] = params.model_copy(update=dict(overrides))
     else:
-        local.graph["params"] = {**params, "D0": D0}
+        local.graph["params"] = {**params, **overrides}
     return local
+
+
+def graph_with_pump(graph, D0):
+    """Return a shallow copy of ``graph`` whose ``params`` carry pump ``D0``.
+
+    Thin wrapper over :func:`graph_with_params`; see it for the copy semantics.
+    The dispersion relations build the laplacian from ``params["D0"]``, so this
+    is how callers evaluate a mode at a specific pump without mutating shared
+    state.
+    """
+    return graph_with_params(graph, D0=D0)
 
 
 def _incidence_topology(graph):
@@ -678,16 +690,17 @@ class QuantumGraph(nx.Graph):
 
         return mode_on_nodes(mode, self)
 
-    # --- structural ops return a NEW graph -> re-wrap to preserve type ---
+    # --- structural ops return a NEW graph (the free functions already return
+    # a subclass-preserving copy when called on a QuantumGraph) ---
     def with_pump(self, D0):
         """Return a copy of this graph whose ``params`` carry pump ``D0``.
 
         Wraps :func:`graph_with_pump`; the original graph is left untouched.
         """
-        return QuantumGraph(graph_with_pump(self, D0))
+        return graph_with_pump(self, D0)
 
     def oversample(self, edge_size):
-        return QuantumGraph(oversample_graph(self, edge_size))
+        return oversample_graph(self, edge_size)
 
     def simplify(self):
-        return QuantumGraph(simplify_graph(self))
+        return simplify_graph(self)
