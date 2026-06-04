@@ -1414,20 +1414,24 @@ class TestNoInPlacePumpMutation:
         assert g.graph["params"].get("D0") is None
         assert g.graph["params"].get("k_min") is None
 
+        assert g.graph["params"].get("search_stepsize") is None
+
         worker = WorkerModes(
             [[1.0, 0.0], [1.2, 0.0]],
             g,
             D0s=[0.5, 0.6],
             search_radii=[0.1, 0.1],
+            search_stepsize=0.02,
             quality_method="eigenvalue",
         )
         worker(0)
         worker(1)
 
-        # No D0 or search-window field leaked back onto the shared params.
+        # No D0 / search-window / stepsize field leaked back onto shared params.
         assert g.graph["params"].get("D0") is None
         assert g.graph["params"].get("k_min") is None
         assert g.graph["params"].get("k_max") is None
+        assert g.graph["params"].get("search_stepsize") is None
 
 
 class TestPlotPumpTraj:

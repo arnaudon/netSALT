@@ -53,11 +53,12 @@ def _scoped_warning_filters():
 class WorkerModes:
     """Worker to find modes.
 
-    Note on state: the per-mode pump (``D0``) and search window are applied to
-    a throwaway copy of the graph and its ``params`` inside :meth:`__call__`,
-    so the shared ``graph.graph["params"]`` is never mutated in place. The
-    refiner reads ``D0`` back off that local copy's params when it rebuilds the
-    laplacian, which keeps each mode's computation self-contained.
+    Note on state: the per-mode pump (``D0``), search window, and search
+    stepsize are applied to a throwaway copy of the graph and its ``params``
+    inside :meth:`__call__`, so the shared ``graph.graph["params"]`` is never
+    mutated in place. The refiner reads ``D0`` back off that local copy's
+    params when it rebuilds the laplacian, which keeps each mode's computation
+    self-contained.
     """
 
     def __init__(
@@ -66,6 +67,7 @@ class WorkerModes:
         graph,
         D0s=None,
         search_radii=None,
+        search_stepsize=None,
         seed=42,
         quality_method="eigenvalue",
     ):
@@ -74,6 +76,7 @@ class WorkerModes:
         self.estimated_modes = estimated_modes
         self.D0s = D0s
         self.search_radii = search_radii
+        self.search_stepsize = search_stepsize
         self.seed = seed
         self.quality_method = quality_method
 
@@ -97,15 +100,22 @@ class WorkerModes:
         mode = self.estimated_modes[mode_id]
         graph = self.graph
         params = graph.graph["params"]
-        # Apply the per-mode pump / search window to a throwaway graph + params
-        # copy so the shared graph.graph["params"] is never mutated in place.
-        if self.D0s is not None or self.search_radii is not None:
+        # Apply the per-mode pump / search window / stepsize to a throwaway
+        # graph + params copy so the shared graph.graph["params"] is never
+        # mutated in place.
+        if (
+            self.D0s is not None
+            or self.search_radii is not None
+            or self.search_stepsize is not None
+        ):
             graph = graph.copy()
             params = params.model_copy() if isinstance(params, NetSaltParams) else dict(params)
             if self.D0s is not None:
                 params["D0"] = self.D0s[mode_id]
             if self.search_radii is not None:
                 params.update(self._search_radii_updates(mode))
+            if self.search_stepsize is not None:
+                params["search_stepsize"] = self.search_stepsize
             graph.graph["params"] = params
         # Derive a per-mode seed so each call has an independent RNG stream
         # rather than sharing ``self.seed`` across every mode in the pool.
@@ -982,14 +992,20 @@ def find_threshold_lasing_modes(modes_df, graph, quality_method="eigenvalue"):
                 new_D0s[mode_id] = new_D0
                 new_modes_approx[mode_id] = new_mode_approx
 
-        # this is a trick to reduce the stepsizes as we are near the solution
-        graph.graph["params"]["search_stepsize"] = (
+        # this is a trick to reduce the stepsizes as we are near the solution.
+        # Passed explicitly to WorkerModes (applied to its per-call params copy)
+        # rather than stashed on the shared graph.graph["params"].
+        search_stepsize = (
             stepsize * np.mean(abs(new_D0s[new_D0s > 0] - D0s[new_D0s > 0])) / D0_steps
         )
 
-        L.debug("Current search_stepsize: %s", graph.graph["params"]["search_stepsize"])
+        L.debug("Current search_stepsize: %s", search_stepsize)
         worker_modes = WorkerModes(
-            new_modes_approx, graph, D0s=new_D0s, quality_method=quality_method
+            new_modes_approx,
+            graph,
+            D0s=new_D0s,
+            search_stepsize=search_stepsize,
+            quality_method=quality_method,
         )
         new_modes_tmp = np.zeros([len(modes_df), 2])
 
