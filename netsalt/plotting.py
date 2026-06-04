@@ -382,7 +382,11 @@ def plot_pump_traj(
             if c == "d0":
                 c = modes_df["mode_trajectories"].columns.to_list()
                 if d0s_max is None:
-                    vmax = c[max(np.argmin(abs(np.imag(pumped_modes)), axis=1)) + 1]
+                    # D0 column just past the latest threshold crossing, clamped
+                    # to the last column so a crossing in the final column does
+                    # not index out of range.
+                    threshold_col = max(np.argmin(abs(np.imag(pumped_modes)), axis=1)) + 1
+                    vmax = c[min(threshold_col, len(c) - 1)]
                 else:
                     vmax = d0s_max
             ax.scatter(

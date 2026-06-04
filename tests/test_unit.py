@@ -1177,3 +1177,46 @@ class TestRngIsolation:
         ws.quality_method = "eigenvalue"
         ws.rng = np.random.default_rng(42)
         assert isinstance(ws.rng, np.random.Generator)
+
+
+class TestPlotPumpTraj:
+    """Regression tests for ``plot_pump_traj`` (issues #17 / #25).
+
+    The colorbar ``vmax`` was computed as ``c[max(argmin(|imag|)) + 1]``.
+    When a mode's |imag| minimum lands in the *last* D0 column the ``+ 1``
+    indexed past the end of the column list and raised
+    ``IndexError: list index out of range``.
+    """
+
+    def _modes_df(self, imag_per_step, n_modes=2):
+        """Build a minimal modes_df with a ``mode_trajectories`` block.
+
+        ``imag_per_step`` is the imaginary part of every mode at each D0
+        column, so the caller controls where ``argmin(|imag|)`` lands.
+        """
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import pandas as pd
+
+        D0s = [0.1 * j for j in range(len(imag_per_step))]
+        df = pd.DataFrame()
+        for D0, im in zip(D0s, imag_per_step, strict=True):
+            df["mode_trajectories", D0] = [complex(1.0, im) for _ in range(n_modes)]
+        df.columns = pd.MultiIndex.from_tuples(df.columns)
+        return df
+
+    def test_threshold_in_last_column_does_not_raise(self):
+        from netsalt.plotting import plot_pump_traj
+
+        # |imag| strictly decreasing -> argmin is the final column.
+        df = self._modes_df([1.0, 0.5, 0.0])
+        # Must not raise IndexError.
+        plot_pump_traj(df)
+
+    def test_threshold_in_middle_column(self):
+        from netsalt.plotting import plot_pump_traj
+
+        # |imag| minimal in the middle column -> +1 stays in range.
+        df = self._modes_df([1.0, 0.0, 1.0])
+        plot_pump_traj(df)
