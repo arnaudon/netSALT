@@ -41,6 +41,59 @@ pip install netsalt
 The code is accessible directly, or via a plain-Python pipeline
 (`netsalt.pipeline`) driven by YAML config files, see `examples/`.
 
+### Quickstart
+
+**The object API.** `QuantumGraph` is a thin `networkx.Graph` subclass that
+carries the quantum-graph state and exposes the build/solve helpers as methods,
+so you set up physics and build matrices on one object instead of threading a
+bare graph through free functions:
+
+```python
+import networkx as nx
+import numpy as np
+from netsalt import QuantumGraph
+from netsalt.physics import dispersion_relation_dielectric
+
+g = nx.path_graph(20)
+positions = np.array([[float(i), 0.0] for i in range(20)])
+
+qg = QuantumGraph.from_networkx(
+    g,
+    params={
+        "open_model": "open",
+        "c": 1.0,
+        "dielectric_params": {
+            "method": "uniform",
+            "inner_value": 4.0,
+            "loss": 0.0,
+            "outer_value": 1.0,
+        },
+    },
+    positions=positions,
+)
+qg.set_dispersion_relation(dispersion_relation_dielectric)
+qg.set_dielectric_constant()
+
+L = qg.laplacian(2.0 + 0.0j)        # quantum Laplacian L(k)
+quality = qg.mode_quality([2.0, 0.0])  # how close [Re(k), -Im(k)] is to a mode
+pumped = qg.with_pump(0.7)          # a copy at pump D0 = 0.7, original untouched
+```
+
+Every method delegates to the matching module-level function (`construct_laplacian`,
+`mode_quality`, …), so the procedural API keeps working unchanged and the class is
+purely opt-in. `load_graph("graph.json", as_class=True)` returns a `QuantumGraph`.
+
+**The pipeline.** For a full passive/lasing/controllability run, drive the
+pipeline from a YAML config:
+
+```bash
+python -m netsalt lasing config.yaml          # passive | lasing | controllability
+```
+
+Each step caches to disk and is skipped when its output exists (pass `--force`
+to recompute). See `examples/` for ready-to-run configs and `MIGRATION.md` if
+you are coming from the old Luigi workflow.
+
 ### Mode search
 
 Modes inside a complex-`k` rectangle can be located three different

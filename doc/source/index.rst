@@ -11,19 +11,68 @@
 Installation
 ************
 
-To install the dev version from `GitHub <https://github.com/imperialcollegelondon/hcga/>`_ with the commands::
+We recommend `uv <https://docs.astral.sh/uv/>`_ for managing the environment.
+From a checkout::
 
-       $ git clone git@github.com:ImperialCollegeLondon/netSALT.git
-       $ cd netSALT 
-       $ pip install .
+       $ git clone git@github.com:arnaudon/netSALT.git
+       $ cd netSALT
+       $ uv venv
+       $ uv pip install -e .
 
-There is no PyPi release version yet, but stay tuned for more!
+or from PyPI::
+
+       $ uv pip install netsalt
+
+Plain ``pip`` works too (``pip install -e .`` or ``pip install netsalt``).
 
 
 Usage
 *****
 
-See the folder `example` with the sequence of scripts, from 0 to 0.
+netSALT can be used directly as a library or through a plain-Python pipeline
+driven by YAML config files.
+
+**Object API.** :class:`netsalt.QuantumGraph` is a thin ``networkx.Graph``
+subclass that carries the quantum-graph state and exposes the build/solve
+helpers as methods::
+
+       import networkx as nx
+       import numpy as np
+       from netsalt import QuantumGraph
+       from netsalt.physics import dispersion_relation_dielectric
+
+       g = nx.path_graph(20)
+       positions = np.array([[float(i), 0.0] for i in range(20)])
+       qg = QuantumGraph.from_networkx(
+           g,
+           params={
+               "open_model": "open",
+               "c": 1.0,
+               "dielectric_params": {
+                   "method": "uniform",
+                   "inner_value": 4.0,
+                   "loss": 0.0,
+                   "outer_value": 1.0,
+               },
+           },
+           positions=positions,
+       )
+       qg.set_dispersion_relation(dispersion_relation_dielectric)
+       qg.set_dielectric_constant()
+
+       L = qg.laplacian(2.0 + 0.0j)        # quantum Laplacian L(k)
+       quality = qg.mode_quality([2.0, 0.0])
+
+Each method delegates to the matching module-level function, so the procedural
+API (``construct_laplacian``, ``mode_quality``, …) keeps working unchanged.
+
+**Pipeline.** For a full passive/lasing/controllability run, drive the
+pipeline from a YAML config::
+
+       $ python -m netsalt lasing config.yaml   # passive | lasing | controllability
+
+Each step caches to disk and is skipped when its output already exists (pass
+``--force`` to recompute). See the ``examples`` folder for ready-to-run configs.
 
 Citing
 ******
