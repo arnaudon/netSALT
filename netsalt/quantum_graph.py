@@ -307,6 +307,34 @@ def set_wavenumber(graph, wavenumber):
     graph.graph["ks"] = graph.graph["dispersion_relation"](wavenumber, params=graph.graph["params"])
 
 
+def graph_with_pump(graph, D0):
+    """Return a shallow copy of ``graph`` whose ``params`` carry pump ``D0``.
+
+    The dispersion relations build the laplacian from ``params["D0"]``. Rather
+    than mutating ``graph.graph["params"]["D0"]`` in place — which leaks the
+    pump amplitude into shared state and imposes a fragile set-then-read
+    ordering on every downstream consumer (``mode_on_nodes``, ``flux_on_edges``,
+    the ``graph.graph["ks"]`` read-backs) — callers that need the laplacian and
+    its derived quantities at a specific pump build them on this throwaway copy.
+
+    Graph structure and node / edge attributes are shared by reference; only
+    ``graph.graph`` is a fresh dict (``nx.Graph.copy`` semantics) with a fresh
+    ``params`` swapped in, so writes to ``params`` / ``ks`` /
+    ``_incidence_topology`` on the copy never touch the original graph.
+
+    Args:
+        graph (graph): quantum graph
+        D0 (float): pump amplitude to set on the copy's params
+    """
+    local = graph.copy()
+    params = graph.graph["params"]
+    if isinstance(params, NetSaltParams):
+        local.graph["params"] = params.model_copy(update={"D0": D0})
+    else:
+        local.graph["params"] = {**params, "D0": D0}
+    return local
+
+
 def _incidence_topology(graph):
     """Precompute the k-independent arrays used by ``construct_incidence_matrix``.
 

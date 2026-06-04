@@ -21,11 +21,13 @@ from .algorithm import (
     find_rough_modes_from_scan,
     refine_mode,
 )
+from .params import NetSaltParams
 from .physics import gamma, q_value
 from .quantum_graph import (
     construct_incidence_matrix,
     construct_laplacian,
     construct_weight_matrix,
+    graph_with_pump,
     mode_quality,
     set_wavenumber,
 )
@@ -51,13 +53,11 @@ def _scoped_warning_filters():
 class WorkerModes:
     """Worker to find modes.
 
-    Note on state: ``self.params`` aliases ``graph.graph["params"]`` and is
-    mutated in place (``D0`` and search-window fields). Several downstream
-    consumers (``mode_on_nodes``, ``pump_linear``, the dispersion relations)
-    read those same fields back off ``graph.graph["params"]`` to reconstruct
-    the laplacian at the right ``D0``. Decoupling that coupling would
-    require carrying ``(mode, D0)`` pairs explicitly through the dataframe
-    — tracked for a follow-up refactor.
+    Note on state: the per-mode pump (``D0``) and search window are applied to
+    a throwaway copy of the graph and its ``params`` inside :meth:`__call__`,
+    so the shared ``graph.graph["params"]`` is never mutated in place. The
+    refiner reads ``D0`` back off that local copy's params when it rebuilds the
+    laplacian, which keeps each mode's computation self-contained.
     """
 
     def __init__(
@@ -71,36 +71,49 @@ class WorkerModes:
     ):
         """Init function of the worker."""
         self.graph = graph
-        self.params = graph.graph["params"]
         self.estimated_modes = estimated_modes
         self.D0s = D0s
         self.search_radii = search_radii
         self.seed = seed
         self.quality_method = quality_method
 
-    def set_search_radii(self, mode):
-        """This fixes a local search region set by search radii."""
-        self.params["k_min"] = mode[0] - self.search_radii[0]
-        self.params["k_max"] = mode[0] + self.search_radii[0]
-        self.params["alpha_min"] = mode[1] - self.search_radii[1]
-        self.params["alpha_max"] = mode[1] + self.search_radii[1]
-        # the 0.1 factor is hardcoded and seems to be a good value
-        self.params["search_stepsize"] = 0.1 * np.linalg.norm(self.search_radii)
+    def _search_radii_updates(self, mode):
+        """Per-mode local search window centred on the initial guess.
+
+        Returned as a dict for the caller to apply to a *local* params copy —
+        deliberately not mutating shared state.
+        """
+        return {
+            "k_min": mode[0] - self.search_radii[0],
+            "k_max": mode[0] + self.search_radii[0],
+            "alpha_min": mode[1] - self.search_radii[1],
+            "alpha_max": mode[1] + self.search_radii[1],
+            # the 0.1 factor is hardcoded and seems to be a good value
+            "search_stepsize": 0.1 * np.linalg.norm(self.search_radii),
+        }
 
     def __call__(self, mode_id):
         """Call function of the worker."""
-        if self.D0s is not None:
-            self.params["D0"] = self.D0s[mode_id]
         mode = self.estimated_modes[mode_id]
-        if self.search_radii is not None:
-            self.set_search_radii(mode)
+        graph = self.graph
+        params = graph.graph["params"]
+        # Apply the per-mode pump / search window to a throwaway graph + params
+        # copy so the shared graph.graph["params"] is never mutated in place.
+        if self.D0s is not None or self.search_radii is not None:
+            graph = graph.copy()
+            params = params.model_copy() if isinstance(params, NetSaltParams) else dict(params)
+            if self.D0s is not None:
+                params["D0"] = self.D0s[mode_id]
+            if self.search_radii is not None:
+                params.update(self._search_radii_updates(mode))
+            graph.graph["params"] = params
         # Derive a per-mode seed so each call has an independent RNG stream
         # rather than sharing ``self.seed`` across every mode in the pool.
         rng = np.random.default_rng([self.seed, mode_id])
         return refine_mode(
             mode,
-            self.graph,
-            self.params,
+            graph,
+            params,
             quality_method=self.quality_method,
             rng=rng,
         )
@@ -387,7 +400,7 @@ def compute_overlapping_factor(passive_mode, graph):
 
 def pump_linear(mode_0, graph, D0_0, D0_1):
     """Find the linear approximation of the new wavenumber."""
-    graph.graph["params"]["D0"] = D0_0
+    graph = graph_with_pump(graph, D0_0)
     overlapping_factor = compute_overlapping_factor(mode_0, graph)
     freq = to_complex(mode_0)
     gamma_overlap = gamma(freq, graph.graph["params"]) * overlapping_factor
@@ -553,7 +566,7 @@ def _precomputations_mode_competition(graph, pump_mask, mode_threshold):
     """precompute some quantities for a mode for mode competition matrix"""
     mode, threshold = mode_threshold
 
-    graph.graph["params"]["D0"] = threshold
+    graph = graph_with_pump(graph, threshold)
     node_solution = mode_on_nodes(mode, graph)
 
     z_matrix = compute_z_matrix(graph)
@@ -1020,7 +1033,7 @@ def find_threshold_lasing_modes(modes_df, graph, quality_method="eigenvalue"):
 
 def lasing_threshold_linear(mode, graph, D0):
     """Find the linear approximation of the new wavenumber."""
-    graph.graph["params"]["D0"] = D0
+    graph = graph_with_pump(graph, D0)
     return 1.0 / (
         q_value(mode)
         * -1

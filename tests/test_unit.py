@@ -1296,6 +1296,72 @@ class TestQuantumGraph:
         assert len(over) > len(qg)
 
 
+class TestNoInPlacePumpMutation:
+    """Regression for the WorkerModes in-place params mutation: applying a
+    per-mode pump (D0) or search window must never leak into the shared
+    ``graph.graph["params"]``. The laplacian-at-D0 is built on a throwaway
+    copy via ``graph_with_pump`` instead."""
+
+    def _line_graph(self, n_edges=4):
+        import netsalt
+        from netsalt.physics import dispersion_relation_dielectric
+        from netsalt.quantum_graph import create_quantum_graph
+
+        g = nx.path_graph(n_edges + 1)
+        positions = np.array([[float(i), 0.0] for i in range(n_edges + 1)])
+        params = {
+            "open_model": "open",
+            "dielectric_params": {
+                "method": "uniform",
+                "inner_value": 4.0,
+                "loss": 0.0,
+                "outer_value": 1.0,
+            },
+            "c": 1.0,
+            "refine_method": "root",
+            "quality_threshold": 1e-2,
+            "max_steps": 5,
+        }
+        create_quantum_graph(g, params, positions=positions)
+        netsalt.set_dispersion_relation(g, dispersion_relation_dielectric)
+        netsalt.set_dielectric_constant(g, g.graph["params"])
+        return g
+
+    def test_graph_with_pump_leaves_original_untouched(self):
+        from netsalt.quantum_graph import graph_with_pump
+
+        g = self._line_graph()
+        assert g.graph["params"].get("D0") is None
+        local = graph_with_pump(g, 0.7)
+        # the copy carries the pump...
+        assert local.graph["params"]["D0"] == 0.7
+        # ...the original does not, and it is a distinct params object
+        assert g.graph["params"].get("D0") is None
+        assert local.graph["params"] is not g.graph["params"]
+
+    def test_worker_modes_does_not_mutate_shared_params(self):
+        from netsalt.modes import WorkerModes
+
+        g = self._line_graph()
+        assert g.graph["params"].get("D0") is None
+        assert g.graph["params"].get("k_min") is None
+
+        worker = WorkerModes(
+            [[1.0, 0.0], [1.2, 0.0]],
+            g,
+            D0s=[0.5, 0.6],
+            search_radii=[0.1, 0.1],
+            quality_method="eigenvalue",
+        )
+        worker(0)
+        worker(1)
+
+        # No D0 or search-window field leaked back onto the shared params.
+        assert g.graph["params"].get("D0") is None
+        assert g.graph["params"].get("k_min") is None
+        assert g.graph["params"].get("k_max") is None
+
+
 class TestPlotPumpTraj:
     """Regression tests for ``plot_pump_traj`` (issues #17 / #25).
 

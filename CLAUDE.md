@@ -79,10 +79,12 @@ mapping.
 ## Conventions
 
 - Black, line length 100. `pycodestyle` ignores `W503,E731,W605,E203`.
-- Parameters live in `graph.graph["params"]` — a single mutable dict that
-  worker classes also mutate (`WorkerModes.set_search_radii`). Be careful when
-  editing: pool workers pickle the graph, so per-call mutation does not leak
-  across processes, but in-process mutation does.
+- Parameters live in `graph.graph["params"]` (a `NetSaltParams` model).
+  Per-mode pump (`D0`) and search-window overrides are applied to a throwaway
+  graph + params copy (`graph_with_pump`, `WorkerModes.__call__`) rather than
+  mutated in place, so the shared params are not modified during a compute.
+  Pool workers still pickle the graph, so even per-call mutation would not leak
+  across processes — but the copy keeps the in-process graph clean too.
 - `to_complex(mode) == mode[0] - 1j*mode[1]` (note the **minus** sign: alpha is
   stored as `-imag(k)`). Keep this sign convention.
 - RNG: compute functions accept an `rng=` kwarg (a
@@ -192,13 +194,18 @@ they are what an "old code" most needs before further work lands on top.
 
 ## Known design debt (follow-up PRs)
 
-- ``WorkerModes`` still mutates ``graph.graph["params"]`` in place to
-  stash the current ``D0`` and search window. Downstream consumers
-  (``mode_on_nodes``, ``pump_linear``, the dispersion relations) read
-  those fields back off the graph to reconstruct the laplacian at the
-  right ``D0``, so decoupling requires carrying ``(mode, D0)`` pairs
-  explicitly through the modes dataframe — tracked as architectural
-  debt rather than a quick fix.
+- ~~``WorkerModes`` mutates ``graph.graph["params"]`` in place to stash
+  the current ``D0`` and search window.~~ **Done.** The per-mode pump and
+  search window are now applied to a throwaway graph + params copy
+  (``graph_with_pump`` in ``quantum_graph.py``, used by
+  ``WorkerModes.__call__``, ``pump_linear``,
+  ``_precomputations_mode_competition``, ``lasing_threshold_linear``, and
+  the ``plotting.py`` lasing-mode helpers). The shared ``params`` are no
+  longer modified during a compute; downstream consumers
+  (``mode_on_nodes``, the dispersion relations, the ``graph.graph["ks"]``
+  read-backs) operate on the local copy so the laplacian is still built at
+  the right ``D0``. Behaviour is unchanged (the functional test passes
+  byte-identical).
 - Compute-core tests are still fairly shallow. Adding a test for
   ``compute_mode_competition_matrix`` and ``find_threshold_lasing_modes``
   on a tiny analytic graph would give more regression coverage.
