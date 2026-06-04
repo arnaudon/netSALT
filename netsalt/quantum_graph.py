@@ -528,3 +528,101 @@ def mode_quality(mode, graph, quality_method="eigenvalue", rng=None):
     """
     laplacian = construct_laplacian(to_complex(mode), graph)
     return laplacian_quality(laplacian, method=quality_method, rng=rng)
+
+
+class QuantumGraph(nx.Graph):
+    """A :class:`networkx.Graph` carrying quantum-graph state, with method
+    sugar over the module-level functions.
+
+    This is a *thin, additive* layer requested in issue #28: it lets callers
+    write ``qg.laplacian(k)`` instead of ``construct_laplacian(k, graph)``
+    without threading a bare graph through every call. Because it subclasses
+    ``nx.Graph``, all state still lives in ``graph.graph[...]`` and node / edge
+    attributes, so JSON (``node_link_data``) serialisation, pickling to
+    ``multiprocessing.Pool`` workers, and every existing procedural call site
+    keep working unchanged — a ``QuantumGraph`` *is-a* ``nx.Graph``.
+
+    Build instances with :meth:`from_networkx` (not ``__init__``): the inherited
+    ``nx.Graph.__init__`` is what pickle, ``node_link_graph`` and ``.copy()``
+    use to reconstruct, so it must stay a plain graph constructor.
+
+    Note: this class is ergonomic sugar only. It does not change how
+    ``WorkerModes`` mutates ``graph.graph["params"]`` in place (tracked
+    separately as design debt).
+    """
+
+    @classmethod
+    def from_networkx(
+        cls, graph, params=None, positions=None, lengths=None, seed=42, noise_level=0.001
+    ):
+        """Build a :class:`QuantumGraph` from a plain networkx graph.
+
+        Wraps :func:`create_quantum_graph`; see it for argument semantics.
+        """
+        qg = cls(graph)  # nx.Graph copy-constructor copies structure + all attrs
+        create_quantum_graph(
+            qg,
+            params=params,
+            positions=positions,
+            lengths=lengths,
+            seed=seed,
+            noise_level=noise_level,
+        )
+        return qg
+
+    # --- state accessors (read graph.graph, like the free functions do) ---
+    @property
+    def params(self):
+        """The :class:`~netsalt.params.NetSaltParams` stored on the graph."""
+        return self.graph["params"]
+
+    @property
+    def total_length(self):
+        return get_total_length(self)
+
+    @property
+    def total_inner_length(self):
+        return get_total_inner_length(self)
+
+    # --- setters / mutators (return self for chaining) ---
+    def update_parameters(self, params, force=False):
+        update_parameters(self, params, force=force)
+        return self
+
+    def set_total_length(self, total_length=None, max_extent=None, inner=True, with_position=True):
+        set_total_length(
+            self,
+            total_length=total_length,
+            max_extent=max_extent,
+            inner=inner,
+            with_position=with_position,
+        )
+        return self
+
+    def set_inner_edges(self, params=None, outer_edges=None):
+        set_inner_edges(self, params if params is not None else self.params, outer_edges)
+        return self
+
+    def set_wavenumber(self, wavenumber):
+        set_wavenumber(self, wavenumber)
+        return self
+
+    # --- matrix builders: delegate, reading state off self ---
+    def laplacian(self, wavenumber):
+        return construct_laplacian(wavenumber, self)
+
+    def weight_matrix(self, with_k=True):
+        return construct_weight_matrix(self, with_k=with_k)
+
+    def incidence_matrix(self):
+        return construct_incidence_matrix(self)
+
+    def mode_quality(self, mode, quality_method="eigenvalue", rng=None):
+        return mode_quality(mode, self, quality_method=quality_method, rng=rng)
+
+    # --- structural ops return a NEW graph -> re-wrap to preserve type ---
+    def oversample(self, edge_size):
+        return QuantumGraph(oversample_graph(self, edge_size))
+
+    def simplify(self):
+        return QuantumGraph(simplify_graph(self))

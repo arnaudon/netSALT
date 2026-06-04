@@ -1179,6 +1179,123 @@ class TestRngIsolation:
         assert isinstance(ws.rng, np.random.Generator)
 
 
+class TestQuantumGraph:
+    """The QuantumGraph class (issue #28) is a thin, additive nx.Graph subclass:
+    its methods must delegate to the existing free functions, and it must remain
+    picklable and JSON-serialisable exactly like a plain quantum graph."""
+
+    def _qg(self, n_edges=4, dielectric=4.0):
+        """Build a QuantumGraph line graph with a dispersion relation set."""
+        import netsalt
+        from netsalt.physics import dispersion_relation_dielectric
+        from netsalt.quantum_graph import QuantumGraph
+
+        g = nx.path_graph(n_edges + 1)
+        positions = np.array([[float(i), 0.0] for i in range(n_edges + 1)])
+        params = {
+            "open_model": "open",
+            "dielectric_params": {
+                "method": "uniform",
+                "inner_value": dielectric,
+                "loss": 0.0,
+                "outer_value": 1.0,
+            },
+            "c": 1.0,
+        }
+        qg = QuantumGraph.from_networkx(g, params=params, positions=positions)
+        netsalt.set_dispersion_relation(qg, dispersion_relation_dielectric)
+        netsalt.set_dielectric_constant(qg, qg.graph["params"])
+        return qg
+
+    def test_is_nx_graph_subclass_with_params(self):
+        import networkx as nx_
+
+        from netsalt.params import NetSaltParams
+
+        qg = self._qg()
+        assert isinstance(qg, nx_.Graph)
+        assert isinstance(qg.params, NetSaltParams)
+
+    def test_matrix_methods_match_free_functions(self):
+        """Methods are sugar: they must return exactly what the free functions
+        return on the same graph."""
+        from netsalt.quantum_graph import (
+            construct_incidence_matrix,
+            construct_laplacian,
+            construct_weight_matrix,
+            mode_quality,
+        )
+
+        qg = self._qg()
+        k = 1.0 + 0.0j
+
+        assert np.allclose(qg.laplacian(k).toarray(), construct_laplacian(k, qg).toarray())
+        assert np.allclose(qg.weight_matrix().toarray(), construct_weight_matrix(qg).toarray())
+        bt_m, b_m = qg.incidence_matrix()
+        bt_f, b_f = construct_incidence_matrix(qg)
+        assert np.allclose(bt_m.toarray(), bt_f.toarray())
+        assert np.allclose(b_m.toarray(), b_f.toarray())
+
+        mode = [1.0, 0.0]
+        q_method = qg.mode_quality(mode, rng=np.random.default_rng(0))
+        q_func = mode_quality(mode, qg, rng=np.random.default_rng(0))
+        assert q_method == q_func
+
+    def test_total_length_properties(self):
+        from netsalt.quantum_graph import get_total_length
+
+        qg = self._qg()
+        assert qg.total_length == get_total_length(qg)
+
+    def test_pickle_round_trip_preserves_type_state_and_methods(self):
+        """WorkerScan/WorkerModes pickle the whole graph into Pool workers, so
+        the subclass must survive a pickle round-trip with its state intact."""
+        import pickle
+
+        from netsalt.quantum_graph import QuantumGraph
+
+        qg = self._qg()
+        restored = pickle.loads(pickle.dumps(qg))
+        assert isinstance(restored, QuantumGraph)
+        assert restored.params["open_model"] == "open"
+        # a delegating method still works on the unpickled instance
+        assert restored.laplacian(1.0 + 0.0j).shape == (len(qg), len(qg))
+
+    def test_json_round_trip_as_class(self, tmp_path):
+        from netsalt.io import load_graph, save_graph
+        from netsalt.quantum_graph import QuantumGraph
+
+        qg = self._qg()
+        path = tmp_path / "qg.json"
+        save_graph(qg, str(path))
+
+        loaded = load_graph(str(path), as_class=True)
+        assert isinstance(loaded, QuantumGraph)
+        assert loaded.params["open_model"] == qg.params["open_model"]
+        assert np.allclose(loaded.graph["lengths"], qg.graph["lengths"])
+        assert np.allclose(loaded.nodes[0]["position"], qg.nodes[0]["position"])
+
+    def test_load_graph_defaults_to_plain_graph(self, tmp_path):
+        """as_class defaults to False so existing callers are unaffected."""
+        from netsalt.io import load_graph, save_graph
+        from netsalt.quantum_graph import QuantumGraph
+
+        qg = self._qg()
+        path = tmp_path / "qg.json"
+        save_graph(qg, str(path))
+
+        loaded = load_graph(str(path))
+        assert not isinstance(loaded, QuantumGraph)
+
+    def test_oversample_returns_quantum_graph(self):
+        from netsalt.quantum_graph import QuantumGraph
+
+        qg = self._qg()
+        over = qg.oversample(0.3)
+        assert isinstance(over, QuantumGraph)
+        assert len(over) > len(qg)
+
+
 class TestPlotPumpTraj:
     """Regression tests for ``plot_pump_traj`` (issues #17 / #25).
 
