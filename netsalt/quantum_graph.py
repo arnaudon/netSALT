@@ -12,7 +12,11 @@ import numpy as np
 import scipy as sc
 
 from .params import NetSaltParams
-from .physics import update_params_dielectric_constant
+from .physics import (
+    set_dielectric_constant,
+    set_dispersion_relation,
+    update_params_dielectric_constant,
+)
 from .utils import to_complex
 
 L = logging.getLogger(__name__)
@@ -574,9 +578,13 @@ class QuantumGraph(nx.Graph):
     ``nx.Graph.__init__`` is what pickle, ``node_link_graph`` and ``.copy()``
     use to reconstruct, so it must stay a plain graph constructor.
 
-    Note: this class is ergonomic sugar only. It does not change how
-    ``WorkerModes`` mutates ``graph.graph["params"]`` in place (tracked
-    separately as design debt).
+    The methods cover the common workflow on a single object — set up physics
+    (:meth:`set_dispersion_relation`, :meth:`set_dielectric_constant`), build
+    matrices (:meth:`laplacian`, :meth:`weight_matrix`, :meth:`incidence_matrix`),
+    evaluate quality (:meth:`mode_quality`), and run the scan/solve
+    (:meth:`scan_frequencies`, :meth:`mode_on_nodes`). Each one delegates to the
+    existing free function, so behaviour is identical; the class is ergonomic
+    sugar only.
     """
 
     @classmethod
@@ -611,6 +619,15 @@ class QuantumGraph(nx.Graph):
     @property
     def total_inner_length(self):
         return get_total_inner_length(self)
+
+    # --- physics setup (return self for chaining) ---
+    def set_dispersion_relation(self, dispersion_relation):
+        set_dispersion_relation(self, dispersion_relation)
+        return self
+
+    def set_dielectric_constant(self, custom_values=None, rng=None):
+        set_dielectric_constant(self, self.params, custom_values=custom_values, rng=rng)
+        return self
 
     # --- setters / mutators (return self for chaining) ---
     def update_parameters(self, params, force=False):
@@ -648,7 +665,27 @@ class QuantumGraph(nx.Graph):
     def mode_quality(self, mode, quality_method="eigenvalue", rng=None):
         return mode_quality(mode, self, quality_method=quality_method, rng=rng)
 
+    # --- mode search / solve (lazy imports: modes imports this module) ---
+    def scan_frequencies(self, quality_method="eigenvalue"):
+        """Scan the complex-frequency grid and return the quality matrix."""
+        from .modes import scan_frequencies
+
+        return scan_frequencies(self, quality_method=quality_method)
+
+    def mode_on_nodes(self, mode):
+        """Return the mode field evaluated on the graph nodes."""
+        from .modes import mode_on_nodes
+
+        return mode_on_nodes(mode, self)
+
     # --- structural ops return a NEW graph -> re-wrap to preserve type ---
+    def with_pump(self, D0):
+        """Return a copy of this graph whose ``params`` carry pump ``D0``.
+
+        Wraps :func:`graph_with_pump`; the original graph is left untouched.
+        """
+        return QuantumGraph(graph_with_pump(self, D0))
+
     def oversample(self, edge_size):
         return QuantumGraph(oversample_graph(self, edge_size))
 

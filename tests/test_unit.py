@@ -1295,6 +1295,74 @@ class TestQuantumGraph:
         assert isinstance(over, QuantumGraph)
         assert len(over) > len(qg)
 
+    def test_physics_setup_methods_chain(self):
+        """set_dispersion_relation / set_dielectric_constant return self and
+        set the same graph state as the free functions."""
+        from netsalt.physics import dispersion_relation_dielectric
+        from netsalt.quantum_graph import QuantumGraph
+
+        g = nx.path_graph(4)
+        positions = np.array([[float(i), 0.0] for i in range(4)])
+        params = {
+            "open_model": "open",
+            "dielectric_params": {
+                "method": "uniform",
+                "inner_value": 4.0,
+                "loss": 0.0,
+                "outer_value": 1.0,
+            },
+            "c": 1.0,
+        }
+        qg = QuantumGraph.from_networkx(g, params=params, positions=positions)
+        out = qg.set_dispersion_relation(dispersion_relation_dielectric).set_dielectric_constant()
+        assert out is qg  # chainable
+        assert qg.graph["dispersion_relation"] is dispersion_relation_dielectric
+        assert qg.params.get("dielectric_constant") is not None
+        # parity: a laplacian is now buildable, matching the free function
+        from netsalt.quantum_graph import construct_laplacian
+
+        assert np.allclose(
+            qg.laplacian(1.0 + 0.0j).toarray(), construct_laplacian(1.0 + 0.0j, qg).toarray()
+        )
+
+    def test_with_pump_returns_quantum_graph_without_mutating(self):
+        from netsalt.quantum_graph import QuantumGraph
+
+        qg = self._qg()
+        assert qg.params.get("D0") is None
+        pumped = qg.with_pump(0.7)
+        assert isinstance(pumped, QuantumGraph)
+        assert pumped.params["D0"] == 0.7
+        assert qg.params.get("D0") is None  # original untouched
+
+    def test_mode_on_nodes_matches_free_function(self):
+        from netsalt.modes import mode_on_nodes
+
+        qg = self._qg()
+        qg.params["quality_threshold"] = 1e6  # relax so mode_on_nodes never raises
+        mode = [1.0, 0.0]
+        assert np.allclose(qg.mode_on_nodes(mode), mode_on_nodes(mode, qg))
+
+    def test_scan_frequencies_matches_free_function(self):
+        from netsalt.modes import scan_frequencies
+
+        qg = self._qg()
+        qg.params.update(
+            {
+                "k_min": 1.0,
+                "k_max": 1.2,
+                "k_n": 2,
+                "alpha_min": 0.0,
+                "alpha_max": 0.1,
+                "alpha_n": 2,
+                "n_workers": 1,
+            }
+        )
+        method = qg.scan_frequencies()
+        free = scan_frequencies(qg)
+        assert method.shape == (2, 2)
+        assert np.allclose(method, free)
+
 
 class TestNoInPlacePumpMutation:
     """Regression for the WorkerModes in-place params mutation: applying a
