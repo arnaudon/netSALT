@@ -126,8 +126,8 @@ they are what an "old code" most needs before further work lands on top.
    arrays, complex numbers, `NetSaltParams`, and registered dispersion
    relations. Pickle still works on `.pkl`/`.gpickle` filenames but
    requires an explicit `allow_pickle=True` on load; otherwise the call
-   raises, and save emits a `DeprecationWarning`. Luigi defaults and test
-   fixtures updated to `.json`.
+   raises, and save emits a `DeprecationWarning`. Pipeline defaults and
+   test fixtures use `.json`.
 
 5. ~~**Global `np.random.seed(42)` calls.**~~ **Done.** All `np.random.seed`
    calls in the package are gone. `laplacian_quality`, `mode_quality`,

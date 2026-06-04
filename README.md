@@ -38,18 +38,19 @@ pip install netsalt
 
 ## Usage
 
-The code is accessible directly, or via a workflow manager (luigi) and related configuration files, see `examples/`.
+The code is accessible directly, or via a plain-Python pipeline
+(`netsalt.pipeline`) driven by YAML config files, see `examples/`.
 
 ### Mode search
 
 Modes inside a complex-`k` rectangle can be located three different
-ways. The Luigi pipeline picks one via
+ways. The pipeline picks one via
 `params["mode_search_method"]` (default `"contour"`); direct callers
 can pick by importing the function they want.
 
-| entry point | when to use | wired into Luigi? |
+| entry point | when to use | wired into the pipeline? |
 |---|---|---|
-| `find_modes_contour` | the production search; takes an `n_k × n_alpha` cell layout | **yes** — used by `find_passive_modes(method="contour")`, the Luigi default |
+| `find_modes_contour` | the production search; takes an `n_k × n_alpha` cell layout | **yes** — used by `find_passive_modes(method="contour")`, the pipeline default |
 | `find_modes_contour_adaptive` | parameter discovery — you don't know the mode count yet | no — direct API only |
 | `tune_contour_parameters` | batches of similar-density randomized graphs | no — direct API only |
 
@@ -62,10 +63,10 @@ explicit `n_k`, picked either by hand from the rule
 `n_k ≥ ⌈expected_modes / (0.65 · probe_dim)⌉` or by
 `tune_contour_parameters`.
 
-#### The Luigi default
+#### The pipeline default
 
-`luigi.cfg` has `mode_search_method = contour`, which routes
-`FindPassiveModes` (`netsalt/tasks/passive.py`) through
+`config.yaml` has `mode_search_method = contour`, which routes
+`step_find_passive_modes` (`netsalt/pipeline.py`) through
 `netsalt.find_passive_modes(method="contour")` →
 `find_modes_contour`. Sensible defaults are picked from
 `graph.graph["params"]`:
@@ -110,10 +111,9 @@ deep recursion can drop modes near cell edges. If 100% coverage
 matters, use `find_modes_contour` with an explicit `n_k` instead —
 preferably one that `tune_contour_parameters` picked for you.
 
-The adaptive search is not currently wired into `FindPassiveModes`;
-if you want it inside a Luigi run, call it from a custom
-`NetSaltTask` subclass and write the resulting modes to the
-`passive_modes_path` output.
+The adaptive search is not currently wired into
+`step_find_passive_modes`; if you want it inside a pipeline run, call
+it directly and write the resulting modes to the passive-modes output.
 
 #### Batch processing similar graphs (`tune_contour_parameters`)
 
@@ -151,7 +151,7 @@ recommended `n_k` recovers them all (the stress workload in
 
 #### When to choose what
 
-- **Default Luigi run** (`mode_search_method = contour`) is fine
+- **Default pipeline run** (`mode_search_method = contour`) is fine
   for most workloads — it picks `n_k ≈ k_range` and the netsalt
   scan rectangles are small enough that this is well-sized.
 - **Use `tune_contour_parameters`** when running the same search

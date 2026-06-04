@@ -1047,7 +1047,7 @@ class TestContourIntegration:
 
 
 class TestPumpCostAndOverlap:
-    """Exercise ``pump.py`` helpers that don't need a full Luigi pipeline."""
+    """Exercise ``pump.py`` helpers that don't need a full pipeline."""
 
     def _tiny_graph_with_modes(self):
         """Return a (graph, modes_df) pair ready for pump helpers."""
