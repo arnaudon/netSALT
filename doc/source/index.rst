@@ -77,34 +77,26 @@ Each step caches to disk and is skipped when its output already exists (pass
 Citing
 ******
 
-To cite *netSALT*, please use 
-```Sensitivity and spectral control of network lasers
-Dhruv Saxena, Alexis Arnaudon, Oscar Cipolato, Michele Gaio, Alain Quentel, Sophia Yaliraki, Dario Pisignano, Andrea Camposeo, Mauricio Barahona, Riccardo Sapienza
-```
+If you use *netSALT* in your research, please cite:
 
-avaialble on arxiv: https://arxiv.org/abs/2203.16974
+  D. Saxena, A. Arnaudon, O. Cipolato, M. Gaio, A. Quentel, S. Yaliraki,
+  D. Pisignano, A. Camposeo, M. Barahona, R. Sapienza,
+  "Sensitivity and spectral control of network lasers",
+  *Nat. Commun.* **13**, 6573 (2022).
+  https://doi.org/10.1038/s41467-022-34073-3
+
+A preprint is available on arXiv: https://arxiv.org/abs/2203.16974
 
 Credits
 *******
 
-The code is still a preliminary version, and written by us.
-
-Original authors:
-*****************
+Original author:
 
 - Alexis Arnaudon, GitHub: `arnaudon <https://github.com/arnaudon>`_
 
 Contributors:
-*************
 
-- Dhrub Saxena, Github: 
-
-
-Bibliography
-************
-
-- D. Saxena *et al*, "Sensitivity and spectral control of network lasers",
-  Nat. Commun. 13, 6573 (2022). https://doi.org/10.1038/s41467-022-34073-3
+- Dhruv Saxena
 
 Code documentation
 ******************
@@ -115,10 +107,13 @@ Documentation of the code.
     :maxdepth: 3
 
     modes
+    contour
     physics
     quantum_graph
     algorithm
     pump
+    pipeline
+    config_loader
     plotting
     io
     params
