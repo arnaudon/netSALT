@@ -174,6 +174,61 @@ class TestDispersionRelations:
         with pytest.raises(ValueError):
             dispersion_relation_dielectric(1.0, params=None)
 
+    def test_pump_dispersion_reduces_to_dielectric_at_zero_pump(self):
+        """At D0 = 0 the pumped relation must equal the passive dielectric one,
+        including the wavespeed scaling (regression: the dielectric term used to
+        be divided by c once inside the sqrt instead of by c**2, so the two
+        branches only agreed for c = 1)."""
+        from netsalt.physics import (
+            dispersion_relation_dielectric,
+            dispersion_relation_pump,
+        )
+
+        eps = np.array([4.0, 2.25])
+        for c in (1.0, 2.0, 0.5):
+            passive = dispersion_relation_dielectric(
+                3.0, params={"dielectric_constant": eps, "c": c}
+            )
+            pumped = dispersion_relation_pump(
+                3.0,
+                params={
+                    "dielectric_constant": eps,
+                    "c": c,
+                    "k_a": 3.0,
+                    "gamma_perp": 1.0,
+                    "D0": 0.0,
+                    "pump": np.ones_like(eps),
+                },
+            )
+            assert np.allclose(passive, pumped)
+            # explicit closed form k = (w/c) sqrt(eps)
+            assert np.allclose(pumped, 3.0 * np.sqrt(eps) / c)
+
+    def test_pump_dispersion_adds_gain_under_the_sqrt(self):
+        """A non-zero pump shifts k by gamma*D0 added to the dielectric, and the
+        whole thing stays scaled by 1/c."""
+        from netsalt.physics import dispersion_relation_pump, gamma
+
+        eps = np.array([4.0, 2.25])
+        params = {
+            "dielectric_constant": eps,
+            "c": 2.0,
+            "k_a": 3.5,
+            "gamma_perp": 1.0,
+            "D0": 0.3,
+            "pump": np.ones_like(eps),
+        }
+        expected = 3.0 * np.sqrt(eps + gamma(3.0, params) * 0.3) / 2.0
+        assert np.allclose(dispersion_relation_pump(3.0, params=params), expected)
+
+    def test_resistance_dispersion_is_lossy(self):
+        """A positive resistance must attenuate (Im(k) > 0), matching the lossy
+        dielectric sign convention (loss = positive imaginary part)."""
+        from netsalt.physics import dispersion_relation_resistance
+
+        k = dispersion_relation_resistance(3.0, params={"c": 1.0, "C": 1.0, "R": 0.1})
+        assert np.imag(k) > 0
+
 
 class TestModesImport:
     def test_import_does_not_mutate_global_warning_state(self):
@@ -1141,6 +1196,15 @@ class TestPhysicsPrimitives:
 
         # q = real / (2 * imag_alpha), with mode = [k, alpha]
         assert q_value([10.0, 0.5]) == 10.0
+
+    def test_q_value_is_positive_for_a_leaky_mode(self):
+        """A leaky mode has alpha = -Im(k) > 0, so Q = Re(k)/(2*alpha) must be
+        positive (the docstring formula uses alpha, not a bare +Im(k))."""
+        from netsalt.physics import q_value
+
+        # complex k = 10 - 0.5j  ->  alpha = 0.5  ->  Q = 10 / 1.0 = 10
+        assert q_value(10.0 - 0.5j) == pytest.approx(10.0)
+        assert q_value(10.0 - 0.5j) > 0
 
 
 class TestRngIsolation:
