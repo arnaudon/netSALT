@@ -1,4 +1,15 @@
-"""Functions related to modes."""
+"""Mode search and lasing physics.
+
+A mode is a wavenumber ``k`` at which the quantum Laplacian ``L(k)`` is
+singular (``det L(k) = 0``). This module drives the whole flow: locating
+passive modes (``scan_frequencies`` / ``find_passive_modes``), raising the
+pump and tracking each mode to its lasing threshold where ``alpha = -Im(k)``
+reaches 0 (``pump_trajectories``, ``find_threshold_lasing_modes``), and
+solving the above-threshold mode competition for the steady-state modal
+intensities (``compute_mode_competition_matrix``,
+``compute_modal_intensities``). See the ``theory`` page in the docs for the
+physical model.
+"""
 
 import contextlib
 import logging

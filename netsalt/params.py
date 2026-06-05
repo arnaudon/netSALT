@@ -41,6 +41,15 @@ class NetSaltParams(BaseModel):
     alpha_n: int | None = None
 
     # --- Lasing / gain physics ---------------------------------------------
+    # k_a:        atomic transition wavenumber -- the centre of the gain curve
+    #             gamma(k) (see netsalt.physics.gamma).
+    # gamma_perp: gain linewidth (transverse relaxation rate); the half-width
+    #             of the Lorentzian gain curve.
+    # D0:         pump strength (gain amplitude). D0 = 0 is the passive graph;
+    #             a mode reaches lasing threshold when its alpha = -Im(k)
+    #             crosses 0 as D0 is increased.
+    # D0_max / D0_steps: upper bound and number of steps for the pump sweep in
+    #             pump_trajectories / find_threshold_lasing_modes.
     k_a: float | None = None
     gamma_perp: float | None = None
     D0: float | None = None
@@ -56,6 +65,10 @@ class NetSaltParams(BaseModel):
     dielectric_constant: Any | None = None
 
     # --- Graph structure / pump --------------------------------------------
+    # open_model: outer-node boundary condition ("open" radiating leads,
+    #             "closed", "directed").
+    # pump:       per-edge pump profile delta_pump (which edges are pumped),
+    #             multiplied by D0 in dispersion_relation_pump.
     open_model: str | None = None
     inner: list | None = None
     pump: Any | None = None

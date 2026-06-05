@@ -98,6 +98,14 @@ Contributors:
 
 - Dhruv Saxena
 
+Physics background
+******************
+
+.. toctree::
+    :maxdepth: 2
+
+    theory
+
 Code documentation
 ******************
 
