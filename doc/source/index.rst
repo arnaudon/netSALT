@@ -105,6 +105,7 @@ Physics background
     :maxdepth: 2
 
     theory
+    lasing
 
 Code documentation
 ******************
