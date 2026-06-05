@@ -185,3 +185,79 @@ Approximations and validity
   :math:`-\mathrm{Im}\,\gamma` / :math:`\alpha = -\mathrm{Im}\,k` convention used
   across the package (loss = positive imaginary part); the threshold and
   competition expressions are consistent with it.
+
+Relation to full SALT (future work)
+-----------------------------------
+
+The model above is the *linearized* (near-threshold) limit of SALT. The full
+SALT equation for each lasing mode :math:`\Psi_\mu` at real frequency
+:math:`k_\mu` is
+
+.. math::
+
+   \left[\nabla^2 + \left(\varepsilon(x)
+   + \frac{\gamma(k_\mu)\,D_0\,\delta_\mathrm{pump}(x)}
+          {1 + \sum_\nu \Gamma_\nu\,|\Psi_\nu(x)|^2}\right) k_\mu^2\right]
+   \Psi_\mu(x) = 0,
+   \qquad
+   \Gamma_\nu = \frac{\gamma_\perp^2}{(k_\nu - k_a)^2 + \gamma_\perp^2},
+
+a set of coupled nonlinear equations whose unknowns — the number of lasing
+modes, their frequencies :math:`k_\mu`, and their profiles/intensities
+:math:`\Psi_\mu` — are all linked through the **spatial-hole-burning
+denominator** :math:`1 + \sum_\nu \Gamma_\nu |\Psi_\nu|^2`.
+
+netSALT already builds almost this operator:
+:func:`~netsalt.physics.dispersion_relation_pump` uses
+:math:`\varepsilon_\mathrm{eff} = \varepsilon + \gamma(k)\,D_0\,\delta_\mathrm{pump}`,
+i.e. the same active gain **with the denominator set to 1** (unsaturated gain).
+Everything specific to multimode SALT lives in that denominator, and the two
+approximations on this page are exactly its two halves:
+
+.. math::
+
+   \frac{1}{1 + \sum_\nu \Gamma_\nu |\Psi_\nu|^2}
+   \;\approx\;
+   1 - \sum_\nu \Gamma_\nu\,\big|\Psi_\nu^{\mathrm{(thr)}}(x)\big|^2\, I_\nu .
+
+* dropping all but the **first-order** term is the pump-independent / linear
+  :math:`T` (the L–I curves are straight segments);
+* freezing :math:`\Psi_\nu` at its **threshold** profile
+  :math:`\Psi_\nu^{\mathrm{(thr)}}` rather than the profile at the operating
+  pump.
+
+Both come from not solving the denominator self-consistently, so they cannot be
+improved independently. Relaxing them defines a hierarchy:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 26 40 34
+
+   * - Level
+     - What is solved
+     - Captures
+   * - **Linearized SALT** (current)
+     - one :math:`T`, linear solve
+       :math:`\sum_\nu T_{\mu\nu} I_\nu = D_0/D_0^{\mathrm{thr}}_\mu - 1`
+     - competition to first order; exact at threshold
+   * - **Self-consistent linearized** (relax the frozen profile only)
+     - fixed-point loop: solve :math:`I` → rebuild :math:`T` from the profiles
+       at the *current* :math:`D_0` → repeat
+     - profile deformation, gain guiding, frequency pulling; saturation still
+       linear
+   * - **Full SALT** (relax both)
+     - the nonlinear eigenproblem above, Newton on
+       :math:`(I_\mu, k_\mu, \Psi_\mu)` at each :math:`D_0` with the real
+       denominator
+     - sub-linear (clamping) L–I slopes, frequency shifts, quantitatively
+       correct competition far above threshold
+
+Quantum graphs are a favourable setting for the full solve: the per-edge field
+is two analytic plane waves, the secular matrix
+:math:`L(k) = B^{\mathsf T} W^{-1} B` is already assembled, and the saturated-gain
+integrals are the same closed-form edge integrals used in the competition
+matrix (``_compute_mode_competition_element``). A full-SALT solver would fold the
+hole-burning denominator into the gain term of
+:func:`~netsalt.quantum_graph.construct_laplacian` and Newton-solve over the
+modal amplitudes and frequencies at each pump, reusing those overlaps, with the
+linearized model as the threshold-limit check. This is tracked as future work.
