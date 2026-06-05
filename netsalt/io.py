@@ -110,7 +110,7 @@ def save_graph(graph, filename: str = "graph.json") -> None:
         json.dump(payload, json_file, cls=_GraphJSONEncoder)
 
 
-def load_graph(filename: str = "graph.json", *, allow_pickle: bool = False):
+def load_graph(filename: str = "graph.json", *, allow_pickle: bool = False, as_class: bool = False):
     """Load a quantum graph from disk.
 
     Args:
@@ -119,6 +119,11 @@ def load_graph(filename: str = "graph.json", *, allow_pickle: bool = False):
             because unpickling executes arbitrary code in the source file.
         allow_pickle: explicit opt-in for pickle-format files. Only enable
             for files you produced yourself or fully trust.
+        as_class: if True, return a
+            :class:`~netsalt.quantum_graph.QuantumGraph` instead of a plain
+            ``networkx.Graph``. Defaults to False so existing callers are
+            unaffected. Only applies to the JSON path; the pickle path returns
+            whatever type was pickled.
     """
     path = Path(filename)
     if path.suffix in _PICKLE_SUFFIXES:
@@ -154,6 +159,10 @@ def load_graph(filename: str = "graph.json", *, allow_pickle: bool = False):
     params = graph.graph.get("params")
     if params is not None and not isinstance(params, NetSaltParams):
         graph.graph["params"] = NetSaltParams.from_dict(params)
+    if as_class:
+        from .quantum_graph import QuantumGraph  # local import avoids an import cycle
+
+        return QuantumGraph(graph)
     return graph
 
 

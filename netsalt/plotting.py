@@ -12,6 +12,7 @@ from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 from tqdm import tqdm
 
 from .modes import mean_mode_on_edges, mode_on_nodes
+from .quantum_graph import graph_with_pump
 from .utils import get_scan_grid, linewidth, lorentzian, order_edges_by
 
 L = logging.getLogger(__name__)
@@ -382,7 +383,11 @@ def plot_pump_traj(
             if c == "d0":
                 c = modes_df["mode_trajectories"].columns.to_list()
                 if d0s_max is None:
-                    vmax = c[max(np.argmin(abs(np.imag(pumped_modes)), axis=1)) + 1]
+                    # D0 column just past the latest threshold crossing, clamped
+                    # to the last column so a crossing in the final column does
+                    # not index out of range.
+                    threshold_col = max(np.argmin(abs(np.imag(pumped_modes)), axis=1)) + 1
+                    vmax = c[min(threshold_col, len(c) - 1)]
                 else:
                     vmax = d0s_max
             ax.scatter(
@@ -422,7 +427,7 @@ def plot_single_mode(
     """Plot single mode on the graph."""
     mode = modes_df[df_entry][index]
     if df_entry == "threshold_lasing_modes":
-        graph.graph["params"]["D0"] = modes_df["lasing_thresholds"][index]
+        graph = graph_with_pump(graph, modes_df["lasing_thresholds"][index])
     ax = _plot_single_mode(
         graph, mode, ax=ax, colorbar=colorbar, edge_vmin=edge_vmin, edge_vmax=edge_vmax, cmap=cmap
     )
@@ -486,8 +491,7 @@ def plot_mode_evolution(graph, modes_df, index, folder="mode_evolution", ext=".p
     modes = modes_df.loc[index, "mode_trajectories"]
     Path(folder).mkdir(parents=True, exist_ok=True)
     for i, d0 in enumerate(modes.index):
-        graph.graph["params"]["D0"] = d0
-        _plot_single_mode(graph, modes.loc[d0])
+        _plot_single_mode(graph_with_pump(graph, d0), modes.loc[d0])
         plt.suptitle(f"D0={np.around(d0, 3)}")
         plt.savefig(f"{folder}/mode_{index}_D0_{i:03d}{ext}")
         plt.close()
@@ -502,7 +506,7 @@ def plot_line_mode(graph, modes_df, index, df_entry="passive", ax=None):
     mode = modes_df[df_entry][index]
 
     if df_entry == "threshold_lasing_modes":
-        graph.graph["params"]["D0"] = modes_df["lasing_thresholds"][index]
+        graph = graph_with_pump(graph, modes_df["lasing_thresholds"][index])
 
     node_solution = mode_on_nodes(mode, graph)
 

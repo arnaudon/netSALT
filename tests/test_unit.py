@@ -21,6 +21,52 @@ from netsalt.utils import (
 )
 
 
+def make_line_graph(
+    n_edges=5,
+    dielectric=4.0,
+    extra_params=None,
+    normalized_positions=False,
+    total_length=None,
+    as_class=False,
+):
+    """Shared builder for the open dielectric line-graph fixture.
+
+    A path graph with unit (or, with ``normalized_positions``, [0, 1]-scaled)
+    edge lengths, a uniform dielectric, and the dielectric dispersion relation
+    set. ``extra_params`` merges extra knobs into the params dict;
+    ``as_class=True`` returns a :class:`~netsalt.quantum_graph.QuantumGraph`.
+    """
+    import netsalt
+    from netsalt.physics import dispersion_relation_dielectric
+    from netsalt.quantum_graph import QuantumGraph, create_quantum_graph, set_total_length
+
+    denom = n_edges if normalized_positions else 1
+    positions = np.array([[float(i) / denom, 0.0] for i in range(n_edges + 1)])
+    params = {
+        "open_model": "open",
+        "dielectric_params": {
+            "method": "uniform",
+            "inner_value": dielectric,
+            "loss": 0.0,
+            "outer_value": 1.0,
+        },
+        "c": 1.0,
+    }
+    if extra_params:
+        params.update(extra_params)
+
+    g = nx.path_graph(n_edges + 1)
+    if as_class:
+        g = QuantumGraph.from_networkx(g, params=params, positions=positions)
+    else:
+        create_quantum_graph(g, params, positions=positions)
+    if total_length is not None:
+        set_total_length(g, total_length)
+    netsalt.set_dispersion_relation(g, dispersion_relation_dielectric)
+    netsalt.set_dielectric_constant(g, g.graph["params"])
+    return g
+
+
 class TestComplexConversion:
     def test_to_complex_uses_minus_imag_convention(self):
         # netsalt stores a mode as [k, alpha] with alpha = -imag(k)
@@ -257,27 +303,8 @@ class TestComputeCore:
     """Smoke + structural tests for the compute primitives."""
 
     def _line_graph(self, n_edges=5, dielectric=4.0):
-        """3-node line graph with unit edge lengths and a constant dispersion."""
-        import netsalt
-        from netsalt.physics import dispersion_relation_dielectric
-        from netsalt.quantum_graph import create_quantum_graph
-
-        g = nx.path_graph(n_edges + 1)
-        positions = np.array([[float(i), 0.0] for i in range(n_edges + 1)])
-        params = {
-            "open_model": "open",
-            "dielectric_params": {
-                "method": "uniform",
-                "inner_value": dielectric,
-                "loss": 0.0,
-                "outer_value": 1.0,
-            },
-            "c": 1.0,
-        }
-        create_quantum_graph(g, params, positions=positions)
-        netsalt.set_dispersion_relation(g, dispersion_relation_dielectric)
-        netsalt.set_dielectric_constant(g, g.graph["params"])
-        return g
+        """Open dielectric line graph with unit edge lengths."""
+        return make_line_graph(n_edges, dielectric)
 
     def test_construct_laplacian_is_square(self):
         from netsalt.quantum_graph import construct_laplacian
@@ -524,36 +551,22 @@ class TestRefinementAlgorithms:
     guess; the dispatcher picks the one named in ``params``."""
 
     def _line_graph(self, n_edges=6, dielectric=4.0):
-        import netsalt
-        from netsalt.physics import dispersion_relation_dielectric
-        from netsalt.quantum_graph import create_quantum_graph
-
-        g = nx.path_graph(n_edges + 1)
-        positions = np.array([[float(i), 0.0] for i in range(n_edges + 1)])
-        params = {
-            "open_model": "open",
-            "dielectric_params": {
-                "method": "uniform",
-                "inner_value": dielectric,
-                "loss": 0.0,
-                "outer_value": 1.0,
+        return make_line_graph(
+            n_edges,
+            dielectric,
+            extra_params={
+                "quality_threshold": 1e-4,
+                "search_stepsize": 0.05,
+                "max_steps": 500,
+                # ``_search_box`` uses these to build the locality bound; set a
+                # generous window around the mode we're targeting so the
+                # refiners can actually move to the root.
+                "k_min": 2.8,
+                "k_max": 3.4,
+                "alpha_min": 0.0,
+                "alpha_max": 0.3,
             },
-            "c": 1.0,
-            "quality_threshold": 1e-4,
-            "search_stepsize": 0.05,
-            "max_steps": 500,
-            # ``_search_box`` uses these to build the locality bound; set a
-            # generous window around the mode we're targeting so the refiners
-            # can actually move to the root.
-            "k_min": 2.8,
-            "k_max": 3.4,
-            "alpha_min": 0.0,
-            "alpha_max": 0.3,
-        }
-        create_quantum_graph(g, params, positions=positions)
-        netsalt.set_dispersion_relation(g, dispersion_relation_dielectric)
-        netsalt.set_dielectric_constant(g, g.graph["params"])
-        return g
+        )
 
     def _count_evals(self, fn, *args, **kwargs):
         """Monkey-patch ``mode_quality`` to count evaluations inside *fn*."""
@@ -677,31 +690,13 @@ class TestContourIntegration:
     handles regions where the mode count exceeds the probe dimension."""
 
     def _line_graph(self, n_edges=10, dielectric=4.0, total_length=1.0):
-        import netsalt
-        from netsalt.physics import dispersion_relation_dielectric
-        from netsalt.quantum_graph import create_quantum_graph, set_total_length
-
-        g = nx.path_graph(n_edges + 1)
-        positions = np.array([[float(i) / n_edges, 0.0] for i in range(n_edges + 1)])
-        params = {
-            "open_model": "open",
-            "dielectric_params": {
-                "method": "uniform",
-                "inner_value": dielectric,
-                "loss": 0.0,
-                "outer_value": 1.0,
-            },
-            "c": 1.0,
-            "k_min": 0.5,
-            "k_max": 20.0,
-            "alpha_min": 0.0,
-            "alpha_max": 1.0,
-        }
-        create_quantum_graph(g, params, positions=positions)
-        set_total_length(g, total_length)
-        netsalt.set_dispersion_relation(g, dispersion_relation_dielectric)
-        netsalt.set_dielectric_constant(g, g.graph["params"])
-        return g
+        return make_line_graph(
+            n_edges,
+            dielectric,
+            extra_params={"k_min": 0.5, "k_max": 20.0, "alpha_min": 0.0, "alpha_max": 1.0},
+            normalized_positions=True,
+            total_length=total_length,
+        )
 
     def test_contour_finds_true_modes_on_line_graph(self):
         """On the dielectric line graph, Beyn should return *true* roots
@@ -1052,7 +1047,7 @@ class TestContourIntegration:
 
 
 class TestPumpCostAndOverlap:
-    """Exercise ``pump.py`` helpers that don't need a full Luigi pipeline."""
+    """Exercise ``pump.py`` helpers that don't need a full pipeline."""
 
     def _tiny_graph_with_modes(self):
         """Return a (graph, modes_df) pair ready for pump helpers."""
@@ -1177,3 +1172,268 @@ class TestRngIsolation:
         ws.quality_method = "eigenvalue"
         ws.rng = np.random.default_rng(42)
         assert isinstance(ws.rng, np.random.Generator)
+
+
+class TestQuantumGraph:
+    """The QuantumGraph class (issue #28) is a thin, additive nx.Graph subclass:
+    its methods must delegate to the existing free functions, and it must remain
+    picklable and JSON-serialisable exactly like a plain quantum graph."""
+
+    def _qg(self, n_edges=4, dielectric=4.0):
+        """Build a QuantumGraph line graph with a dispersion relation set."""
+        return make_line_graph(n_edges, dielectric, as_class=True)
+
+    def test_is_nx_graph_subclass_with_params(self):
+        import networkx as nx_
+
+        from netsalt.params import NetSaltParams
+
+        qg = self._qg()
+        assert isinstance(qg, nx_.Graph)
+        assert isinstance(qg.params, NetSaltParams)
+
+    def test_matrix_methods_match_free_functions(self):
+        """Methods are sugar: they must return exactly what the free functions
+        return on the same graph."""
+        from netsalt.quantum_graph import (
+            construct_incidence_matrix,
+            construct_laplacian,
+            construct_weight_matrix,
+            mode_quality,
+        )
+
+        qg = self._qg()
+        k = 1.0 + 0.0j
+
+        assert np.allclose(qg.laplacian(k).toarray(), construct_laplacian(k, qg).toarray())
+        assert np.allclose(qg.weight_matrix().toarray(), construct_weight_matrix(qg).toarray())
+        bt_m, b_m = qg.incidence_matrix()
+        bt_f, b_f = construct_incidence_matrix(qg)
+        assert np.allclose(bt_m.toarray(), bt_f.toarray())
+        assert np.allclose(b_m.toarray(), b_f.toarray())
+
+        mode = [1.0, 0.0]
+        q_method = qg.mode_quality(mode, rng=np.random.default_rng(0))
+        q_func = mode_quality(mode, qg, rng=np.random.default_rng(0))
+        assert q_method == q_func
+
+    def test_total_length_properties(self):
+        from netsalt.quantum_graph import get_total_length
+
+        qg = self._qg()
+        assert qg.total_length == get_total_length(qg)
+
+    def test_pickle_round_trip_preserves_type_state_and_methods(self):
+        """WorkerScan/WorkerModes pickle the whole graph into Pool workers, so
+        the subclass must survive a pickle round-trip with its state intact."""
+        import pickle
+
+        from netsalt.quantum_graph import QuantumGraph
+
+        qg = self._qg()
+        restored = pickle.loads(pickle.dumps(qg))
+        assert isinstance(restored, QuantumGraph)
+        assert restored.params["open_model"] == "open"
+        # a delegating method still works on the unpickled instance
+        assert restored.laplacian(1.0 + 0.0j).shape == (len(qg), len(qg))
+
+    def test_json_round_trip_as_class(self, tmp_path):
+        from netsalt.io import load_graph, save_graph
+        from netsalt.quantum_graph import QuantumGraph
+
+        qg = self._qg()
+        path = tmp_path / "qg.json"
+        save_graph(qg, str(path))
+
+        loaded = load_graph(str(path), as_class=True)
+        assert isinstance(loaded, QuantumGraph)
+        assert loaded.params["open_model"] == qg.params["open_model"]
+        assert np.allclose(loaded.graph["lengths"], qg.graph["lengths"])
+        assert np.allclose(loaded.nodes[0]["position"], qg.nodes[0]["position"])
+
+    def test_load_graph_defaults_to_plain_graph(self, tmp_path):
+        """as_class defaults to False so existing callers are unaffected."""
+        from netsalt.io import load_graph, save_graph
+        from netsalt.quantum_graph import QuantumGraph
+
+        qg = self._qg()
+        path = tmp_path / "qg.json"
+        save_graph(qg, str(path))
+
+        loaded = load_graph(str(path))
+        assert not isinstance(loaded, QuantumGraph)
+
+    def test_oversample_returns_quantum_graph(self):
+        from netsalt.quantum_graph import QuantumGraph
+
+        qg = self._qg()
+        over = qg.oversample(0.3)
+        assert isinstance(over, QuantumGraph)
+        assert len(over) > len(qg)
+
+    def test_simplify_returns_quantum_graph(self):
+        from netsalt.quantum_graph import QuantumGraph
+
+        assert isinstance(self._qg().simplify(), QuantumGraph)
+
+    def test_physics_setup_methods_chain(self):
+        """set_dispersion_relation / set_dielectric_constant return self and
+        set the same graph state as the free functions."""
+        from netsalt.physics import dispersion_relation_dielectric
+        from netsalt.quantum_graph import QuantumGraph
+
+        g = nx.path_graph(4)
+        positions = np.array([[float(i), 0.0] for i in range(4)])
+        params = {
+            "open_model": "open",
+            "dielectric_params": {
+                "method": "uniform",
+                "inner_value": 4.0,
+                "loss": 0.0,
+                "outer_value": 1.0,
+            },
+            "c": 1.0,
+        }
+        qg = QuantumGraph.from_networkx(g, params=params, positions=positions)
+        out = qg.set_dispersion_relation(dispersion_relation_dielectric).set_dielectric_constant()
+        assert out is qg  # chainable
+        assert qg.graph["dispersion_relation"] is dispersion_relation_dielectric
+        assert qg.params.get("dielectric_constant") is not None
+        # parity: a laplacian is now buildable, matching the free function
+        from netsalt.quantum_graph import construct_laplacian
+
+        assert np.allclose(
+            qg.laplacian(1.0 + 0.0j).toarray(), construct_laplacian(1.0 + 0.0j, qg).toarray()
+        )
+
+    def test_with_pump_returns_quantum_graph_without_mutating(self):
+        from netsalt.quantum_graph import QuantumGraph
+
+        qg = self._qg()
+        assert qg.params.get("D0") is None
+        pumped = qg.with_pump(0.7)
+        assert isinstance(pumped, QuantumGraph)
+        assert pumped.params["D0"] == 0.7
+        assert qg.params.get("D0") is None  # original untouched
+
+    def test_mode_on_nodes_matches_free_function(self):
+        from netsalt.modes import mode_on_nodes
+
+        qg = self._qg()
+        qg.params["quality_threshold"] = 1e6  # relax so mode_on_nodes never raises
+        mode = [1.0, 0.0]
+        assert np.allclose(qg.mode_on_nodes(mode), mode_on_nodes(mode, qg))
+
+    def test_scan_frequencies_matches_free_function(self):
+        from netsalt.modes import scan_frequencies
+
+        qg = self._qg()
+        qg.params.update(
+            {
+                "k_min": 1.0,
+                "k_max": 1.2,
+                "k_n": 2,
+                "alpha_min": 0.0,
+                "alpha_max": 0.1,
+                "alpha_n": 2,
+                "n_workers": 1,
+            }
+        )
+        method = qg.scan_frequencies()
+        free = scan_frequencies(qg)
+        assert method.shape == (2, 2)
+        assert np.allclose(method, free)
+
+
+class TestNoInPlacePumpMutation:
+    """Regression for the WorkerModes in-place params mutation: applying a
+    per-mode pump (D0) or search window must never leak into the shared
+    ``graph.graph["params"]``. The laplacian-at-D0 is built on a throwaway
+    copy via ``graph_with_params`` instead."""
+
+    def _line_graph(self, n_edges=4):
+        return make_line_graph(
+            n_edges,
+            extra_params={"refine_method": "root", "quality_threshold": 1e-2, "max_steps": 5},
+        )
+
+    def test_graph_with_pump_leaves_original_untouched(self):
+        from netsalt.quantum_graph import graph_with_pump
+
+        g = self._line_graph()
+        assert g.graph["params"].get("D0") is None
+        local = graph_with_pump(g, 0.7)
+        # the copy carries the pump...
+        assert local.graph["params"]["D0"] == 0.7
+        # ...the original does not, and it is a distinct params object
+        assert g.graph["params"].get("D0") is None
+        assert local.graph["params"] is not g.graph["params"]
+
+    def test_worker_modes_does_not_mutate_shared_params(self):
+        from netsalt.modes import WorkerModes
+
+        g = self._line_graph()
+        assert g.graph["params"].get("D0") is None
+        assert g.graph["params"].get("k_min") is None
+
+        assert g.graph["params"].get("search_stepsize") is None
+
+        worker = WorkerModes(
+            [[1.0, 0.0], [1.2, 0.0]],
+            g,
+            D0s=[0.5, 0.6],
+            search_radii=[0.1, 0.1],
+            search_stepsize=0.02,
+            quality_method="eigenvalue",
+        )
+        worker(0)
+        worker(1)
+
+        # No D0 / search-window / stepsize field leaked back onto shared params.
+        assert g.graph["params"].get("D0") is None
+        assert g.graph["params"].get("k_min") is None
+        assert g.graph["params"].get("k_max") is None
+        assert g.graph["params"].get("search_stepsize") is None
+
+
+class TestPlotPumpTraj:
+    """Regression tests for ``plot_pump_traj`` (issues #17 / #25).
+
+    The colorbar ``vmax`` was computed as ``c[max(argmin(|imag|)) + 1]``.
+    When a mode's |imag| minimum lands in the *last* D0 column the ``+ 1``
+    indexed past the end of the column list and raised
+    ``IndexError: list index out of range``.
+    """
+
+    def _modes_df(self, imag_per_step, n_modes=2):
+        """Build a minimal modes_df with a ``mode_trajectories`` block.
+
+        ``imag_per_step`` is the imaginary part of every mode at each D0
+        column, so the caller controls where ``argmin(|imag|)`` lands.
+        """
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import pandas as pd
+
+        D0s = [0.1 * j for j in range(len(imag_per_step))]
+        df = pd.DataFrame()
+        for D0, im in zip(D0s, imag_per_step, strict=True):
+            df["mode_trajectories", D0] = [complex(1.0, im) for _ in range(n_modes)]
+        df.columns = pd.MultiIndex.from_tuples(df.columns)
+        return df
+
+    def test_threshold_in_last_column_does_not_raise(self):
+        from netsalt.plotting import plot_pump_traj
+
+        # |imag| strictly decreasing -> argmin is the final column.
+        df = self._modes_df([1.0, 0.5, 0.0])
+        # Must not raise IndexError.
+        plot_pump_traj(df)
+
+    def test_threshold_in_middle_column(self):
+        from netsalt.plotting import plot_pump_traj
+
+        # |imag| minimal in the middle column -> +1 stays in range.
+        df = self._modes_df([1.0, 0.0, 1.0])
+        plot_pump_traj(df)

@@ -26,6 +26,8 @@ from .quantum_graph import (
     construct_incidence_matrix,
     construct_laplacian,
     construct_weight_matrix,
+    graph_with_params,
+    graph_with_pump,
     mode_quality,
     set_wavenumber,
 )
@@ -51,13 +53,12 @@ def _scoped_warning_filters():
 class WorkerModes:
     """Worker to find modes.
 
-    Note on state: ``self.params`` aliases ``graph.graph["params"]`` and is
-    mutated in place (``D0`` and search-window fields). Several downstream
-    consumers (``mode_on_nodes``, ``pump_linear``, the dispersion relations)
-    read those same fields back off ``graph.graph["params"]`` to reconstruct
-    the laplacian at the right ``D0``. Decoupling that coupling would
-    require carrying ``(mode, D0)`` pairs explicitly through the dataframe
-    — tracked for a follow-up refactor.
+    Note on state: the per-mode pump (``D0``), search window, and search
+    stepsize are applied to a throwaway copy of the graph and its ``params``
+    inside :meth:`__call__`, so the shared ``graph.graph["params"]`` is never
+    mutated in place. The refiner reads ``D0`` back off that local copy's
+    params when it rebuilds the laplacian, which keeps each mode's computation
+    self-contained.
     """
 
     def __init__(
@@ -66,41 +67,59 @@ class WorkerModes:
         graph,
         D0s=None,
         search_radii=None,
+        search_stepsize=None,
         seed=42,
         quality_method="eigenvalue",
     ):
         """Init function of the worker."""
         self.graph = graph
-        self.params = graph.graph["params"]
         self.estimated_modes = estimated_modes
         self.D0s = D0s
         self.search_radii = search_radii
+        self.search_stepsize = search_stepsize
         self.seed = seed
         self.quality_method = quality_method
 
-    def set_search_radii(self, mode):
-        """This fixes a local search region set by search radii."""
-        self.params["k_min"] = mode[0] - self.search_radii[0]
-        self.params["k_max"] = mode[0] + self.search_radii[0]
-        self.params["alpha_min"] = mode[1] - self.search_radii[1]
-        self.params["alpha_max"] = mode[1] + self.search_radii[1]
-        # the 0.1 factor is hardcoded and seems to be a good value
-        self.params["search_stepsize"] = 0.1 * np.linalg.norm(self.search_radii)
+    def _search_radii_updates(self, mode):
+        """Per-mode local search window centred on the initial guess.
+
+        Returned as a dict for the caller to apply to a *local* params copy —
+        deliberately not mutating shared state.
+        """
+        return {
+            "k_min": mode[0] - self.search_radii[0],
+            "k_max": mode[0] + self.search_radii[0],
+            "alpha_min": mode[1] - self.search_radii[1],
+            "alpha_max": mode[1] + self.search_radii[1],
+            # the 0.1 factor is hardcoded and seems to be a good value
+            "search_stepsize": 0.1 * np.linalg.norm(self.search_radii),
+        }
 
     def __call__(self, mode_id):
         """Call function of the worker."""
-        if self.D0s is not None:
-            self.params["D0"] = self.D0s[mode_id]
         mode = self.estimated_modes[mode_id]
+        graph = self.graph
+        # Apply the per-mode pump / search window / stepsize to a throwaway
+        # graph + params copy so the shared graph.graph["params"] is never
+        # mutated in place. One graph copy per mode candidate, which is cheap
+        # next to the eigenvalue refinement that follows.
+        overrides = {}
+        if self.D0s is not None:
+            overrides["D0"] = self.D0s[mode_id]
         if self.search_radii is not None:
-            self.set_search_radii(mode)
+            overrides.update(self._search_radii_updates(mode))
+        if self.search_stepsize is not None:
+            overrides["search_stepsize"] = self.search_stepsize
+        if overrides:
+            graph = graph_with_params(graph, **overrides)
+        params = graph.graph["params"]
         # Derive a per-mode seed so each call has an independent RNG stream
         # rather than sharing ``self.seed`` across every mode in the pool.
         rng = np.random.default_rng([self.seed, mode_id])
         return refine_mode(
             mode,
-            self.graph,
-            self.params,
+            graph,
+            params,
             quality_method=self.quality_method,
             rng=rng,
         )
@@ -387,7 +406,7 @@ def compute_overlapping_factor(passive_mode, graph):
 
 def pump_linear(mode_0, graph, D0_0, D0_1):
     """Find the linear approximation of the new wavenumber."""
-    graph.graph["params"]["D0"] = D0_0
+    graph = graph_with_pump(graph, D0_0)
     overlapping_factor = compute_overlapping_factor(mode_0, graph)
     freq = to_complex(mode_0)
     gamma_overlap = gamma(freq, graph.graph["params"]) * overlapping_factor
@@ -553,7 +572,7 @@ def _precomputations_mode_competition(graph, pump_mask, mode_threshold):
     """precompute some quantities for a mode for mode competition matrix"""
     mode, threshold = mode_threshold
 
-    graph.graph["params"]["D0"] = threshold
+    graph = graph_with_pump(graph, threshold)
     node_solution = mode_on_nodes(mode, graph)
 
     z_matrix = compute_z_matrix(graph)
@@ -969,14 +988,20 @@ def find_threshold_lasing_modes(modes_df, graph, quality_method="eigenvalue"):
                 new_D0s[mode_id] = new_D0
                 new_modes_approx[mode_id] = new_mode_approx
 
-        # this is a trick to reduce the stepsizes as we are near the solution
-        graph.graph["params"]["search_stepsize"] = (
+        # this is a trick to reduce the stepsizes as we are near the solution.
+        # Passed explicitly to WorkerModes (applied to its per-call params copy)
+        # rather than stashed on the shared graph.graph["params"].
+        search_stepsize = (
             stepsize * np.mean(abs(new_D0s[new_D0s > 0] - D0s[new_D0s > 0])) / D0_steps
         )
 
-        L.debug("Current search_stepsize: %s", graph.graph["params"]["search_stepsize"])
+        L.debug("Current search_stepsize: %s", search_stepsize)
         worker_modes = WorkerModes(
-            new_modes_approx, graph, D0s=new_D0s, quality_method=quality_method
+            new_modes_approx,
+            graph,
+            D0s=new_D0s,
+            search_stepsize=search_stepsize,
+            quality_method=quality_method,
         )
         new_modes_tmp = np.zeros([len(modes_df), 2])
 
@@ -1020,7 +1045,7 @@ def find_threshold_lasing_modes(modes_df, graph, quality_method="eigenvalue"):
 
 def lasing_threshold_linear(mode, graph, D0):
     """Find the linear approximation of the new wavenumber."""
-    graph.graph["params"]["D0"] = D0
+    graph = graph_with_pump(graph, D0)
     return 1.0 / (
         q_value(mode)
         * -1

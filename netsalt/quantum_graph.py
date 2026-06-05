@@ -12,7 +12,11 @@ import numpy as np
 import scipy as sc
 
 from .params import NetSaltParams
-from .physics import update_params_dielectric_constant
+from .physics import (
+    set_dielectric_constant,
+    set_dispersion_relation,
+    update_params_dielectric_constant,
+)
 from .utils import to_complex
 
 L = logging.getLogger(__name__)
@@ -307,6 +311,46 @@ def set_wavenumber(graph, wavenumber):
     graph.graph["ks"] = graph.graph["dispersion_relation"](wavenumber, params=graph.graph["params"])
 
 
+def graph_with_params(graph, **overrides):
+    """Return a shallow copy of ``graph`` with ``params`` field overrides applied.
+
+    Rather than mutating ``graph.graph["params"]`` in place — which leaks values
+    into shared state and imposes a fragile set-then-read ordering on every
+    downstream consumer (``mode_on_nodes``, ``flux_on_edges``, the
+    ``graph.graph["ks"]`` read-backs) — callers that need the laplacian (and its
+    derived quantities) at specific parameter values build them on this
+    throwaway copy.
+
+    Graph structure and node / edge attributes are shared by reference; only
+    ``graph.graph`` is a fresh dict (``nx.Graph.copy`` semantics) with a fresh
+    ``params`` swapped in, so writes to ``params`` / ``ks`` /
+    ``_incidence_topology`` on the copy never touch the original graph.
+
+    Args:
+        graph (graph): quantum graph
+        **overrides: ``params`` fields to override on the copy (e.g. ``D0=0.7``,
+            ``search_stepsize=0.02``).
+    """
+    local = graph.copy()
+    params = graph.graph["params"]
+    if isinstance(params, NetSaltParams):
+        local.graph["params"] = params.model_copy(update=dict(overrides))
+    else:
+        local.graph["params"] = {**params, **overrides}
+    return local
+
+
+def graph_with_pump(graph, D0):
+    """Return a shallow copy of ``graph`` whose ``params`` carry pump ``D0``.
+
+    Thin wrapper over :func:`graph_with_params`; see it for the copy semantics.
+    The dispersion relations build the laplacian from ``params["D0"]``, so this
+    is how callers evaluate a mode at a specific pump without mutating shared
+    state.
+    """
+    return graph_with_params(graph, D0=D0)
+
+
 def _incidence_topology(graph):
     """Precompute the k-independent arrays used by ``construct_incidence_matrix``.
 
@@ -528,3 +572,135 @@ def mode_quality(mode, graph, quality_method="eigenvalue", rng=None):
     """
     laplacian = construct_laplacian(to_complex(mode), graph)
     return laplacian_quality(laplacian, method=quality_method, rng=rng)
+
+
+class QuantumGraph(nx.Graph):
+    """A :class:`networkx.Graph` carrying quantum-graph state, with method
+    sugar over the module-level functions.
+
+    This is a *thin, additive* layer requested in issue #28: it lets callers
+    write ``qg.laplacian(k)`` instead of ``construct_laplacian(k, graph)``
+    without threading a bare graph through every call. Because it subclasses
+    ``nx.Graph``, all state still lives in ``graph.graph[...]`` and node / edge
+    attributes, so JSON (``node_link_data``) serialisation, pickling to
+    ``multiprocessing.Pool`` workers, and every existing procedural call site
+    keep working unchanged — a ``QuantumGraph`` *is-a* ``nx.Graph``.
+
+    Build instances with :meth:`from_networkx` (not ``__init__``): the inherited
+    ``nx.Graph.__init__`` is what pickle, ``node_link_graph`` and ``.copy()``
+    use to reconstruct, so it must stay a plain graph constructor.
+
+    The methods cover the common workflow on a single object — set up physics
+    (:meth:`set_dispersion_relation`, :meth:`set_dielectric_constant`), build
+    matrices (:meth:`laplacian`, :meth:`weight_matrix`, :meth:`incidence_matrix`),
+    evaluate quality (:meth:`mode_quality`), and run the scan/solve
+    (:meth:`scan_frequencies`, :meth:`mode_on_nodes`). Each one delegates to the
+    existing free function, so behaviour is identical; the class is ergonomic
+    sugar only.
+    """
+
+    @classmethod
+    def from_networkx(
+        cls, graph, params=None, positions=None, lengths=None, seed=42, noise_level=0.001
+    ):
+        """Build a :class:`QuantumGraph` from a plain networkx graph.
+
+        Wraps :func:`create_quantum_graph`; see it for argument semantics.
+        """
+        qg = cls(graph)  # nx.Graph copy-constructor copies structure + all attrs
+        create_quantum_graph(
+            qg,
+            params=params,
+            positions=positions,
+            lengths=lengths,
+            seed=seed,
+            noise_level=noise_level,
+        )
+        return qg
+
+    # --- state accessors (read graph.graph, like the free functions do) ---
+    @property
+    def params(self):
+        """The :class:`~netsalt.params.NetSaltParams` stored on the graph."""
+        return self.graph["params"]
+
+    @property
+    def total_length(self):
+        return get_total_length(self)
+
+    @property
+    def total_inner_length(self):
+        return get_total_inner_length(self)
+
+    # --- physics setup (return self for chaining) ---
+    def set_dispersion_relation(self, dispersion_relation):
+        set_dispersion_relation(self, dispersion_relation)
+        return self
+
+    def set_dielectric_constant(self, custom_values=None, rng=None):
+        set_dielectric_constant(self, self.params, custom_values=custom_values, rng=rng)
+        return self
+
+    # --- setters / mutators (return self for chaining) ---
+    def update_parameters(self, params, force=False):
+        update_parameters(self, params, force=force)
+        return self
+
+    def set_total_length(self, total_length=None, max_extent=None, inner=True, with_position=True):
+        set_total_length(
+            self,
+            total_length=total_length,
+            max_extent=max_extent,
+            inner=inner,
+            with_position=with_position,
+        )
+        return self
+
+    def set_inner_edges(self, params=None, outer_edges=None):
+        set_inner_edges(self, params if params is not None else self.params, outer_edges)
+        return self
+
+    def set_wavenumber(self, wavenumber):
+        set_wavenumber(self, wavenumber)
+        return self
+
+    # --- matrix builders: delegate, reading state off self ---
+    def laplacian(self, wavenumber):
+        return construct_laplacian(wavenumber, self)
+
+    def weight_matrix(self, with_k=True):
+        return construct_weight_matrix(self, with_k=with_k)
+
+    def incidence_matrix(self):
+        return construct_incidence_matrix(self)
+
+    def mode_quality(self, mode, quality_method="eigenvalue", rng=None):
+        return mode_quality(mode, self, quality_method=quality_method, rng=rng)
+
+    # --- mode search / solve (lazy imports: modes imports this module) ---
+    def scan_frequencies(self, quality_method="eigenvalue"):
+        """Scan the complex-frequency grid and return the quality matrix."""
+        from .modes import scan_frequencies
+
+        return scan_frequencies(self, quality_method=quality_method)
+
+    def mode_on_nodes(self, mode):
+        """Return the mode field evaluated on the graph nodes."""
+        from .modes import mode_on_nodes
+
+        return mode_on_nodes(mode, self)
+
+    # --- structural ops return a NEW graph (the free functions already return
+    # a subclass-preserving copy when called on a QuantumGraph) ---
+    def with_pump(self, D0):
+        """Return a copy of this graph whose ``params`` carry pump ``D0``.
+
+        Wraps :func:`graph_with_pump`; the original graph is left untouched.
+        """
+        return graph_with_pump(self, D0)
+
+    def oversample(self, edge_size):
+        return oversample_graph(self, edge_size)
+
+    def simplify(self):
+        return simplify_graph(self)

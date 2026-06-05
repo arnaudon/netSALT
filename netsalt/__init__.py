@@ -28,6 +28,7 @@ from .modes import (
 from .params import NetSaltParams
 from .physics import set_dielectric_constant, set_dispersion_relation
 from .quantum_graph import (
+    QuantumGraph,
     create_quantum_graph,
     oversample_graph,
     set_total_length,
@@ -37,6 +38,7 @@ from .utils import lorentzian
 
 __all__ = [
     "NetSaltParams",
+    "QuantumGraph",
     "compute_modal_intensities",
     "compute_mode_competition_matrix",
     "create_quantum_graph",

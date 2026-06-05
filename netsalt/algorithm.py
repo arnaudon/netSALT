@@ -156,8 +156,8 @@ def _search_box(params):
     """Return the half-width box ``(dk, dα)`` around the initial guess that
     a non-Brownian refiner is allowed to leave before the mode is rejected.
 
-    ``WorkerModes.set_search_radii`` sets ``k_min``/``k_max`` (and the
-    ``alpha_*`` pair) centred on each initial guess. We reuse their half-
+    ``WorkerModes`` sets ``k_min``/``k_max`` (and the ``alpha_*`` pair) on a
+    per-mode params copy, centred on each initial guess. We reuse their half-
     extent here so ``root`` honours the same locality that the Brownian
     ratchet achieves by taking small steps. If no search window is set
     (caller invoking the refiner directly), fall back to the
@@ -172,8 +172,8 @@ def _search_box(params):
     # own basin — looser and neighbouring modes start absorbing each other
     # (``peak_local_max`` keeps local minima at least 2 cells apart, so
     # 1.5 is the largest safe factor). Multiply by 1.5 on top of the
-    # caller's search window, which ``WorkerModes.set_search_radii``
-    # already scales to ~1 grid cell.
+    # caller's search window, which ``WorkerModes`` already scales to
+    # ~1 grid cell.
     return 1.5 * dk, 1.5 * da
 
 
