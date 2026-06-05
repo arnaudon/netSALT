@@ -18,8 +18,13 @@ sys.path.insert(0, os.path.abspath('../../'))
 # -- Project information -----------------------------------------------------
 
 project = 'netSALT'
-copyright = '2020, Alexis Arnaudon'
+copyright = '2020-2026, Alexis Arnaudon'
 author = 'Alexis Arnaudon'
+
+# The version info for the project, acts as replacement for |version| and
+# |release|, also used in various other places throughout the built documents.
+version = '0.2.0'
+release = '0.2.0'
 
 
 # -- General configuration ---------------------------------------------------

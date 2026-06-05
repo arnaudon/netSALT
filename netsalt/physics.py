@@ -20,6 +20,11 @@ def gamma(freq: Any, params: Mapping[str, Any]) -> Any:
 
         \gamma(k) = \frac{\gamma_\perp}{ \mathrm{real}(k) - k_a + j\gamma_\perp}
 
+    The gain is evaluated at the real part of ``k`` only (the standard SALT
+    approximation): the Lorentzian is anchored to :math:`\mathrm{Re}\,k`, not the
+    full complex wavenumber. If ``gamma_perp`` is absent the gain is disabled and
+    the function returns ``-1j``.
+
     Args:
         freq (float): frequency
         params (dict): parameters, must include 'gamma_perp' and 'k_a'
@@ -59,13 +64,17 @@ def dispersion_relation_linear(freq, params=None):
 
 
 def dispersion_relation_resistance(freq, params=None):
-    r"""Linear dispersion relation with wavespeed.
+    r"""Dispersion relation for a lossy (resistive) transmission line.
 
     The dispersion relation is
 
     .. math::
 
-        k(\omega) = \sqrt{\frac{\omega^2}{c^2} - i R C \omega}
+        k(\omega) = \sqrt{\frac{\omega^2}{c^2} + i R C \omega}
+
+    The :math:`+i R C \omega` term gives :math:`\mathrm{Im}(k) > 0`, i.e. spatial
+    attenuation, matching the sign convention used for a lossy dielectric (loss
+    enters as a positive imaginary part; see :func:`set_dielectric_constant`).
 
     Args:
         freq (float): frequency
@@ -93,17 +102,19 @@ def dispersion_relation_dielectric(freq, params=None):
 def dispersion_relation_pump(freq, params=None):
     r"""Dispersion relation with dielectric constant and pump.
 
-    If a pump is given in params
+    The pump enters as an additive gain contribution to the dielectric, so
+    the pumped relation reduces continuously to the passive one as
+    :math:`D_0 \to 0`. If a pump is given in params
 
     .. math::
 
-        k(\omega) = \omega \sqrt{\epsilon + \gamma(\omega) D_0 \delta_\mathrm{pump}}
+        k(\omega) = \frac{\omega}{c} \sqrt{\epsilon + \gamma(\omega) D_0 \delta_\mathrm{pump}}
 
     otherwise
 
     .. math::
 
-        k(\omega) = \omega \sqrt{\epsilon}
+        k(\omega) = \frac{\omega}{c} \sqrt{\epsilon}
 
     Args:
         freq (float): frequency
@@ -119,8 +130,10 @@ def dispersion_relation_pump(freq, params=None):
     if "pump" not in params or "D0" not in params:
         return freq * np.sqrt(dielectric) / c
 
-    return freq * np.sqrt(
-        dielectric / c + gamma(freq, params) * params["D0"] * np.asarray(params["pump"])
+    return (
+        freq
+        * np.sqrt(dielectric + gamma(freq, params) * params["D0"] * np.asarray(params["pump"]))
+        / c
     )
 
 
@@ -207,7 +220,11 @@ def q_value(mode):
 
     .. math::
 
-        \mathcal Q = \frac{\mathrm{Real} k}{2 \mathrm{Im}(k)}
+        \mathcal Q = \frac{\mathrm{Re}\,k}{2 \alpha}
+                   = -\frac{\mathrm{Re}\,k}{2\,\mathrm{Im}(k)}
+
+    where :math:`\alpha = -\mathrm{Im}(k) \ge 0` is the stored modal decay rate,
+    so :math:`\mathcal Q \ge 0` for a leaky mode.
 
     Args:
         mode (complex): complex values mode

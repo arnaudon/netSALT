@@ -1,4 +1,12 @@
-"""Pump optimisation module."""
+"""Pump-profile optimisation for spectral control.
+
+Optimises the per-edge pump profile ``delta_pump`` (``params["pump"]``) to
+select which modes lase -- the central result of Saxena et al., Nat. Commun.
+13, 6573 (2022). The cost is built from the spatial overlap of modes with the
+pumped edges (``pump_cost``), and minimised either with
+``scipy.optimize.differential_evolution`` or a ``pulp`` linear program. See
+the ``theory`` page in the docs for the physical model.
+"""
 
 import logging
 import multiprocessing
