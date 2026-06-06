@@ -20,7 +20,14 @@ mapping.
   - `modes.py` — mode search driver (`scan_frequencies`, `find_modes`,
     `find_threshold_lasing_modes`, `pump_trajectories`,
     `compute_mode_competition_matrix`, `compute_modal_intensities`). Runs
-    `multiprocessing.Pool` over the scan grid.
+    `multiprocessing.Pool` over the scan grid. The lasing L–I curves can be
+    computed by four `intensity_method`s (issue #42, see `doc/source/lasing.rst`):
+    `linear` (default, the near-threshold competition-matrix model),
+    `self_consistent` (rebuild the matrix at the operating pump via
+    `compute_mode_competition_matrix_at_pump`, reusing `_modal_intensity_sweep`),
+    `full_salt` (per-edge hole-burning surrogate), and `full_salt_newton`
+    (operator-level nonlinear SALT — solves `(k_μ,a_μ)` so `L_sat` is singular at
+    real `k_μ`; captures gain-clamping mode suppression).
   - `algorithm.py` — rough mode detection (skimage `peak_local_max`) and
     two refinement algorithms: `refine_mode_root` (MINPACK ``hybr``,
     default) and `refine_mode_brownian_ratchet` (legacy random-walk
@@ -209,6 +216,20 @@ they are what an "old code" most needs before further work lands on top.
 - Compute-core tests are still fairly shallow. Adding a test for
   ``compute_mode_competition_matrix`` and ``find_threshold_lasing_modes``
   on a tiny analytic graph would give more regression coverage.
+- ~~**Full SALT beyond the linearised competition matrix (issue #42).**~~
+  **Landed.** Three solvers were added next to the original ``linear`` model:
+  ``self_consistent`` and ``full_salt`` (both reuse the event-driven
+  ``_modal_intensity_sweep``), and the operator-level ``full_salt_newton`` which
+  solves the real nonlinear SALT eigenproblem (saturated dispersion
+  ``dispersion_relation_pump_saturated`` + a decoupled amplitude/frequency solve
+  with continuous mode-following). All reduce to ``linear`` at threshold;
+  ``full_salt_newton`` reproduces the linear onset slope to <1 % and shows
+  gain-clamping suppression on ``line_PRA``. ``benchmark/bench_salt.py`` compares
+  them. Remaining follow-ups: (a) ``full_salt_newton`` borrows the *linear*
+  active set, so a fully self-consistent active set (modes full SALT lases that
+  linear misses) is still open; (b) it is expensive (~5 s/pump on the 11-node
+  ``line_PRA``) — a Jacobian-free amplitude update (Anderson / spectral) would
+  speed it up but must stay robust against the ``a ≥ 0`` suppression boundary.
 
 ## Git / branch policy for this repo
 
