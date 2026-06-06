@@ -93,8 +93,13 @@ def _quantum_graph(nx_graph, positions, total_length):
     return g
 
 
-def make_line(n_edges=10, total_length=1.0):
-    """Open 1D Fabry--Perot cavity (path graph; the two end edges are leads)."""
+def make_line(n_edges=10, total_length=0.5):
+    """Open 1D Fabry--Perot cavity (path graph; the two end edges are leads).
+
+    A short optical length keeps the longitudinal modes well separated in ``k``
+    (closely-spaced, near-degenerate thresholds make the operator-level Newton
+    solver's borrowed active set ambiguous -- see ``doc/source/lasing.rst``).
+    """
     g = nx.path_graph(n_edges + 1)
     pos = np.array([[i, 0.0] for i in range(n_edges + 1)], dtype=float)
     return _quantum_graph(g, pos, total_length)
