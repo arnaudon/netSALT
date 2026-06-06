@@ -375,10 +375,12 @@ def step_compute_modal_intensities(
         D0_max = p.get("D0_max", 0.1)
 
     method = p.get("intensity_method") or "linear"
+    if method != "linear":
+        # the pump-dependent solvers evaluate profiles on the pumped graph
+        qg = _attach_pump_to_graph(p, qg, pump)
     if method == "linear":
         modes_df = compute_modal_intensities(threshold_modes_df, D0_max, competition_matrix)
     elif method == "self_consistent":
-        qg = _attach_pump_to_graph(p, qg, pump)
         modes_df = compute_modal_intensities_self_consistent(
             qg,
             threshold_modes_df,
@@ -389,7 +391,6 @@ def step_compute_modal_intensities(
             damping=p.get("intensity_damping", 0.5),
         )
     elif method == "full_salt":
-        qg = _attach_pump_to_graph(p, qg, pump)
         modes_df = compute_modal_intensities_full_salt(
             qg,
             threshold_modes_df,
@@ -401,7 +402,6 @@ def step_compute_modal_intensities(
             oversample_size=p.get("intensity_oversample_size"),
         )
     elif method == "full_salt_newton":
-        qg = _attach_pump_to_graph(p, qg, pump)
         modes_df = compute_modal_intensities_full_salt_newton(
             qg,
             threshold_modes_df,

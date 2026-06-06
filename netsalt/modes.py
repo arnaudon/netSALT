@@ -1608,12 +1608,15 @@ def compute_modal_intensities_full_salt_newton(
     # Persistent pool for the per-mode refines (engaged only for a large active
     # set, see NEWTON_MP_MIN_MODES): the base graph is pickled once into the
     # workers, each Picard step then ships only the lightweight (mode, D0_eff).
-    n_workers = int(work_graph.graph["params"].get("n_workers", 1) or 1)
+    # Size the pool to the candidate count (never more than can ever be active)
+    # and only build one when it can actually be used.
+    n_candidates = int(np.sum(onset < np.inf))
+    n_workers = min(int(work_graph.graph["params"].get("n_workers", 1) or 1), n_candidates)
     pool = (
         multiprocessing.Pool(
             n_workers, initializer=_newton_pool_init, initargs=(work_graph, pump_mask)
         )
-        if n_workers > 1
+        if n_workers > 1 and n_candidates >= NEWTON_MP_MIN_MODES
         else None
     )
     try:

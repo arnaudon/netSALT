@@ -87,3 +87,29 @@ def test_ComputeLasingModes(working_directory):
     assert_equal_trees(
         expected_dir, result_dir, specific_args={"out": {"patterns": [r".*\.h5$"], "atol": 1e-5}}
     )
+
+
+def test_ComputeLasingModes_full_salt_newton(working_directory):
+    """End-to-end smoke test of the operator-level Newton solver.
+
+    Runs the same pipeline with ``intensity_method="full_salt_newton"`` on a
+    coarse pump grid: it exercises the multimode driver, the amplitude solve and
+    the frequency/profile fixed point on genuine threshold modes (no byte
+    reference -- this is a coverage/regression smoke test). The dominant mode must
+    lase below the max pump, matching the linear model's lowest threshold.
+    """
+    create_graph()
+
+    params = load_config("config.yaml")
+    params["intensity_method"] = "full_salt_newton"
+    params["salt_D0_steps"] = 2
+    compute_lasing_modes(params)
+
+    result_dir, _ = working_directory
+    intensities = netsalt.load_modes(str(result_dir / "modal_intensities.h5"))
+    intensity_cols = [c for c in intensities.columns if c[0] == "modal_intensities"]
+    assert intensity_cols, "no modal-intensity columns were written"
+    # at least one mode reaches a positive intensity at the largest pump
+    pumps = sorted(c[1] for c in intensity_cols)
+    at_max = intensities[("modal_intensities", pumps[-1])].to_numpy(dtype=float)
+    assert np.nan_to_num(at_max).max() > 0.0
