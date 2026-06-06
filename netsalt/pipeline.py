@@ -409,8 +409,8 @@ def step_compute_modal_intensities(
             D0_steps=p.get("salt_D0_steps", 30),
             tol=p.get("intensity_tol", 1e-8),
             oversample_size=p.get("intensity_oversample_size"),
-            inner_max_iter=p.get("intensity_max_iter", 10),
-            inner_damping=p.get("intensity_damping", 0.5),
+            inner_max_iter=p.get("intensity_max_iter", 25),
+            inner_damping=p.get("intensity_damping", 0.8),
         )
     else:  # pragma: no cover - guarded by the NetSaltParams Literal
         raise ValueError(

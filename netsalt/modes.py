@@ -1337,8 +1337,8 @@ def compute_modal_intensities_full_salt_newton(
     max_iter=30,
     tol=1e-8,
     oversample_size=None,
-    inner_max_iter=10,
-    inner_damping=0.5,
+    inner_max_iter=25,
+    inner_damping=0.8,
     seed=42,
     quality_method="eigenvalue",
 ):
