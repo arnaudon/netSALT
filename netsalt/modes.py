@@ -469,7 +469,15 @@ def flux_on_edges(mode, graph, check_quality=True):
 def mean_mode_on_edges(mode, graph, check_quality=True):
     r"""Compute the average :math:`Real(E^2)` on each edge."""
     edge_flux = flux_on_edges(mode, graph, check_quality=check_quality)
+    return _mean_intensity_from_flux(edge_flux, graph)
 
+
+def _mean_intensity_from_flux(edge_flux, graph):
+    """Per-edge average ``|E|^2`` from a precomputed edge flux.
+
+    Split out of :func:`mean_mode_on_edges` so callers that already hold the flux
+    (and ``graph.graph['ks']`` for the same mode) avoid a second eigen-solve.
+    """
     mean_edge_solution = np.zeros(len(graph.edges))
     for ei in range(len(graph.edges)):
         k = 1.0j * graph.graph["ks"][ei]
@@ -1222,7 +1230,10 @@ def _single_mode_field_intensity(graph, mode, pump_mask):
     BT, Bout = construct_incidence_matrix(graph)
     Winv = construct_weight_matrix(graph, with_k=False)
     pump_norm = _graph_norm(BT, Bout, Winv, z_matrix, node_solution, pump_mask)
-    intensity = mean_mode_on_edges(mode, graph, check_quality=False)
+    # reuse the single eigen-solve above for the per-edge intensity (avoids a
+    # second mode_on_nodes inside mean_mode_on_edges)
+    edge_flux = Winv.dot(Bout).dot(node_solution)
+    intensity = _mean_intensity_from_flux(edge_flux, graph)
     return intensity / abs(pump_norm)
 
 
@@ -1324,9 +1335,26 @@ def _converge_modes_fields(
     modes = [np.asarray(m, dtype=float) for m in modes0]
     fields = [np.asarray(f, dtype=float) for f in fields0]
     n = len(modes)
+    # The inner loop only needs ``alpha`` accurate enough for the outer amplitude
+    # solve, whose Jacobian perturbs ``a`` by ~1e-2 (``diff_step`` below). Driving
+    # the modes/fields to the outer ``tol`` (~1e-8) would cost ~3x more iterations
+    # for no Jacobian benefit, so the fixed point uses a looser ``inner_tol``.
+    inner_tol = max(tol, 1.0e-6)
+    # Cap each refine's allowed excursion well below the inter-mode spacing so
+    # continuous mode-following cannot grab a neighbouring mode (frequency pulling
+    # per pump step is tiny, so a tight window is safe).
+    ks0 = np.array([m[0] for m in modes])
+    if n > 1:
+        gaps = np.abs(ks0[:, None] - ks0[None, :])
+        gaps[np.diag_indices(n)] = np.inf
+        k_window = float(np.clip(0.4 * gaps.min(), 0.05, 1.0))
+    else:
+        k_window = 1.0
     for _ in range(inner_max_iter):
         g = _saturated_graph_multi(graph, modes, a, D0, pump, fields)
-        new_modes = [_refine_local(modes[i], g, tol, max_steps, seed) for i in range(n)]
+        new_modes = [
+            _refine_local(modes[i], g, inner_tol, max_steps, seed, k_window) for i in range(n)
+        ]
         new_fields = [_single_mode_field_intensity(g, new_modes[i], pump_mask) for i in range(n)]
         change = sum(np.linalg.norm(new_modes[i] - modes[i]) for i in range(n))
         change += sum(np.linalg.norm(new_fields[i] - fields[i]) for i in range(n))
@@ -1334,7 +1362,7 @@ def _converge_modes_fields(
         fields = [
             (1.0 - inner_damping) * fields[i] + inner_damping * new_fields[i] for i in range(n)
         ]
-        if change <= tol * (1.0 + sum(np.linalg.norm(f) for f in fields)):
+        if change <= inner_tol * (1.0 + sum(np.linalg.norm(f) for f in fields)):
             break
     alphas = np.array([m[1] for m in modes])
     return modes, fields, alphas
@@ -1385,6 +1413,11 @@ def _solve_amplitudes(
         return alphas
 
     a_max = max(1.0e3 * max(float(np.max(a0)) if a0.size else 0.0, 1.0e-3), 1.0e3)
+    # ``alpha(a)`` is an iteratively-converged residual (accurate to ~1e-6), so the
+    # Jacobian step must be well above that noise floor and the termination
+    # tolerances matched to it -- otherwise the solver chases unreachable
+    # precision and burns iterations.
+    ls_tol = 1.0e-6
     converged = False
     a = np.clip(a0, 0.0, None)
     try:
@@ -1392,9 +1425,10 @@ def _solve_amplitudes(
             residual,
             np.clip(np.maximum(a0, 1e-3), 0.0, a_max),
             bounds=(np.zeros(n), np.full(n, a_max)),
-            xtol=tol,
-            ftol=tol,
-            gtol=tol,
+            xtol=ls_tol,
+            ftol=ls_tol,
+            gtol=ls_tol,
+            diff_step=1.0e-2,
             max_nfev=int(max_steps),
         )
         a = np.clip(result.x, 0.0, None)
