@@ -442,8 +442,11 @@ def mode_on_nodes(mode, graph, check_quality=True):
     # Dense fast path for small graphs (see DENSE_EIG_MAX): a direct eigensolve is
     # several times faster than ARPACK shift-invert at small N and returns the same
     # nearest-zero eigenpair (smallest-magnitude eigenvalue and its eigenvector).
-    if laplacian.shape[0] <= DENSE_EIG_MAX:
-        eigenvalues, eigenvectors = np.linalg.eig(laplacian.toarray())
+    # Fall back to ARPACK if the operator is non-finite (a probed ``k`` overflowed),
+    # since ``np.linalg.eig`` would raise.
+    dense = laplacian.toarray() if laplacian.shape[0] <= DENSE_EIG_MAX else None
+    if dense is not None and np.isfinite(dense).all():
+        eigenvalues, eigenvectors = np.linalg.eig(dense)
         idx = int(np.argmin(np.abs(eigenvalues)))
         min_eigenvalue = eigenvalues[idx]
         node_solution = eigenvectors[:, idx]
@@ -889,6 +892,30 @@ def _intensity_slopes_shifts(mode_competition_matrix, lasing_thresholds, lasing_
     return slopes, shifts
 
 
+def _nonneg_active_set(mode_competition_matrix, lasing_thresholds, lasing_mode_ids, pump_intensity):
+    """Prune the active set so every modal intensity at ``pump_intensity`` is >= 0.
+
+    The SALT intensity equations only admit a physical solution with all modal
+    intensities non-negative. For the constant linear competition matrix the
+    event-driven sweep already guarantees this, so this returns the active set
+    unchanged (the linear result is byte-identical). With a *pump-dependent*
+    matrix (``self_consistent`` / ``full_salt``) the raw linear solve can return
+    negative intensities -- a mode that should have switched off, or an
+    ill-conditioned rebuild; drop the most-negative mode and re-solve until the
+    survivors are all non-negative (a small active-set / non-negative-least-
+    squares step). At least the dominant mode is always kept.
+    """
+    ids = list(lasing_mode_ids)
+    while len(ids) > 1:
+        slopes, shifts = _intensity_slopes_shifts(mode_competition_matrix, lasing_thresholds, ids)
+        intensities = slopes * pump_intensity - shifts
+        worst = int(np.argmin(intensities))
+        if intensities[worst] >= -1e-12:
+            break
+        del ids[worst]
+    return ids
+
+
 def compute_modal_intensities(modes_df, max_pump_intensity, mode_competition_matrix):
     """Compute the modal intensities of the modes up to D0, with D0_steps.
 
@@ -946,6 +973,13 @@ def _modal_intensity_sweep(modes_df, max_pump_intensity, get_matrix):
         # competition matrix at the current operating pump (constant for linear)
         mode_competition_matrix = get_matrix(pump_intensity, lasing_mode_ids)
 
+        # enforce the physical non-negativity constraint: a pump-dependent matrix
+        # can drive the linear solve negative (a no-op for the constant linear
+        # matrix, so its result is unchanged).
+        lasing_mode_ids = _nonneg_active_set(
+            mode_competition_matrix, lasing_thresholds, lasing_mode_ids, pump_intensity
+        )
+
         # 1) compute the current mode intensities
         slopes, shifts = _intensity_slopes_shifts(
             mode_competition_matrix, lasing_thresholds, lasing_mode_ids
@@ -954,12 +988,14 @@ def _modal_intensity_sweep(modes_df, max_pump_intensity, get_matrix):
         # if we hit the max intensity, we add last points and stop
         if pump_intensity >= max_pump_intensity:
             L.debug("Max pump intensity reached.")
-            modal_intensities.loc[lasing_mode_ids, max_pump_intensity] = (
-                slopes * max_pump_intensity - shifts
+            modal_intensities.loc[lasing_mode_ids, max_pump_intensity] = np.clip(
+                slopes * max_pump_intensity - shifts, 0.0, None
             )
             break
 
-        modal_intensities.loc[lasing_mode_ids, pump_intensity] = slopes * pump_intensity - shifts
+        modal_intensities.loc[lasing_mode_ids, pump_intensity] = np.clip(
+            slopes * pump_intensity - shifts, 0.0, None
+        )
 
         # 2) search for next lasing mode
         next_lasing_mode_id, next_lasing_threshold = _find_next_lasing_mode(

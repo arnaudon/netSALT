@@ -519,7 +519,13 @@ def laplacian_quality(laplacian, method="eigenvalue", rng=None):
     # without ARPACK's per-call overhead. ``rng`` is irrelevant here (no ARPACK
     # start vector), keeping the result deterministic.
     if method in ("eigenvalue", "complex_eigenvalue") and laplacian.shape[0] <= DENSE_EIG_MAX:
-        eigenvalues = np.linalg.eigvals(laplacian.toarray())
+        dense = laplacian.toarray()
+        # a root-finder can probe a ``k`` whose operator overflows to inf/NaN;
+        # ``np.linalg.eigvals`` raises there, so signal "not a mode" (quality 1)
+        # exactly as the ARPACK branch does on non-convergence.
+        if not np.isfinite(dense).all():
+            return 1.0 if method == "eigenvalue" else 1.0 + 0j
+        eigenvalues = np.linalg.eigvals(dense)
         lam = eigenvalues[np.argmin(np.abs(eigenvalues))]
         return abs(lam) if method == "eigenvalue" else complex(lam)
 
