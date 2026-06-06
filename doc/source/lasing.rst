@@ -290,24 +290,32 @@ key (default ``"linear"``), dispatched by
     per-edge-constant saturation toward the true within-edge field.
 ``"full_salt_newton"``
     :func:`~netsalt.modes.compute_modal_intensities_full_salt_newton` —
-    *experimental, single-mode prototype.* Rather than saturating the
-    competition matrix, it solves the real nonlinear SALT eigenproblem for the
-    dominant mode: at each pump it finds ``(k, a)`` so the saturated operator
+    *experimental, operator-level.* Rather than saturating the competition
+    matrix, it solves the real nonlinear SALT eigenproblem: at each pump it finds,
+    for every active mode, ``(k_μ, a_μ)`` so the shared saturated operator
     ``L_sat`` (:func:`~netsalt.physics.dispersion_relation_pump_saturated`) is
-    singular at real ``k`` (bounded trust-region least-squares, evaluated only on
-    the real axis to keep ARPACK well-conditioned). It reproduces the linear
-    onset slope ``1/(T_μμ·D0_thr)`` to <1 % and is deterministic and
-    path-independent, confirming the single-mode L–I is ~linear with only a small
-    profile-deformation correction. It warns and solves only the dominant mode if
-    several would lase (multi-mode competition is the natural follow-up), and
-    never raises — points where the eigen-solve fails freeze the warm-start. This
-    is the operator-level template for a future robust multimode SALT solver;
-    making it production-grade needs continuous mode-following rather than the
-    per-pump shift-invert used here.
+    singular at each real ``k_μ``. The solve is **decoupled** for robustness --
+    an inner frequency/profile fixed point with continuous mode-following
+    (warm-started *local* complex-``k`` refines, so a mode tracks itself across
+    pump and ARPACK cannot swap modes) wrapped in a bounded ``M``-dimensional
+    amplitude least-squares -- rather than a monolithic ``2M`` ``(k, a)`` root
+    find, which lets a weak mode's amplitude chatter. The activation structure is
+    borrowed from the linear model; the bound drives a non-lasing candidate to
+    ``a_μ = 0``.
+
+    It reproduces the linear onset slope ``1/(T_μμ·D0_thr)`` to ``<1 %``, is
+    deterministic and path-independent, and -- the qualitative payoff -- captures
+    **gain-clamping mode suppression**: full SALT lases *fewer* modes than the
+    linear model, because a strong mode's saturation pushes weaker ones below
+    threshold. It never raises (a failed step freezes the warm-start) but is
+    *expensive* (a nested per-pump solve), so use a modest ``salt_D0_steps``.
+    Borrowing the linear active set is exact at threshold; a fully self-consistent
+    active set (modes full SALT lases that the linear model misses) is the natural
+    next step.
 
 ``benchmark/bench_salt.py`` compares the solvers on speed and accuracy: it runs
 the shared pipeline once, swaps only the intensity step, writes overlaid L–I
-curves and a within-edge (oversample) convergence study, and overlays the
-single-mode Newton curve against the linear dominant-mode prediction. All
-relaxations are exact at threshold, so the linear model remains the
+curves and a within-edge (oversample) convergence study, and contrasts the
+operator-level Newton solver with the linear model (onset slope + which modes
+lase). All relaxations are exact at threshold, so the linear model remains the
 threshold-limit check.
