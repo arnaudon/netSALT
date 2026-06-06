@@ -186,8 +186,8 @@ Approximations and validity
   across the package (loss = positive imaginary part); the threshold and
   competition expressions are consistent with it.
 
-Relation to full SALT (future work)
------------------------------------
+Relation to full SALT
+---------------------
 
 The model above is the *linearized* (near-threshold) limit of SALT. The full
 SALT equation for each lasing mode :math:`\Psi_\mu` at real frequency
@@ -241,8 +241,10 @@ improved independently. Relaxing them defines a hierarchy:
        :math:`\sum_\nu T_{\mu\nu} I_\nu = D_0/D_0^{\mathrm{thr}}_\mu - 1`
      - competition to first order; exact at threshold
    * - **Self-consistent linearized** (relax the frozen profile only)
-     - fixed-point loop: solve :math:`I` → rebuild :math:`T` from the profiles
-       at the *current* :math:`D_0` → repeat
+     - same event-driven sweep, but :math:`T` is rebuilt from the profiles at
+       each operating :math:`D_0` instead of held fixed at threshold. With linear
+       saturation :math:`T` depends only on the pump, so no inner fixed point is
+       needed.
      - profile deformation, gain guiding, frequency pulling; saturation still
        linear
    * - **Full SALT** (relax both)
@@ -256,8 +258,39 @@ Quantum graphs are a favourable setting for the full solve: the per-edge field
 is two analytic plane waves, the secular matrix
 :math:`L(k) = B^{\mathsf T} W^{-1} B` is already assembled, and the saturated-gain
 integrals are the same closed-form edge integrals used in the competition
-matrix (``_compute_mode_competition_element``). A full-SALT solver would fold the
-hole-burning denominator into the gain term of
-:func:`~netsalt.quantum_graph.construct_laplacian` and Newton-solve over the
-modal amplitudes and frequencies at each pump, reusing those overlaps, with the
-linearized model as the threshold-limit check. This is tracked as future work.
+matrix (``_compute_mode_competition_element``).
+
+Selecting a solver
+^^^^^^^^^^^^^^^^^^
+
+All three levels are available and chosen with the ``intensity_method`` config
+key (default ``"linear"``), dispatched by
+:func:`~netsalt.pipeline.step_compute_modal_intensities`:
+
+``"linear"``
+    :func:`~netsalt.modes.compute_modal_intensities` — the original
+    near-threshold model described above. Unchanged; this is the default and the
+    other two reduce to it at threshold.
+``"self_consistent"``
+    :func:`~netsalt.modes.compute_modal_intensities_self_consistent` — rebuilds
+    the competition matrix at the operating pump
+    (:func:`~netsalt.modes.compute_mode_competition_matrix_at_pump`) while reusing
+    the same event-driven activation / vanishing sweep
+    (``_modal_intensity_sweep``). Relaxes the frozen-profile approximation; keeps
+    the linear saturation.
+``"full_salt"``
+    :func:`~netsalt.modes.compute_modal_intensities_full_salt` —
+    *experimental, opt-in.* Folds the per-edge hole-burning denominator in via
+    :func:`~netsalt.physics.dispersion_relation_pump_saturated` and a damped
+    fixed point in the modal intensities at each pump, on top of the same sweep,
+    so the gain clamps and the L–I curves bend over. Validated on the small
+    ``line_PRA`` example; on large graphs treat it as exploratory.
+    ``intensity_oversample_size`` (forwarded to
+    :func:`~netsalt.quantum_graph.oversample_graph`) refines the
+    per-edge-constant saturation toward the true within-edge field.
+
+``benchmark/bench_salt.py`` compares the three on speed and accuracy: it runs the
+shared pipeline once, swaps only the intensity step, and writes overlaid L–I
+curves plus a within-edge (oversample) convergence study. Both relaxations are
+exact at threshold, so the linear model remains the threshold-limit check for the
+other two.

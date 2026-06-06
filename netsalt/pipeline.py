@@ -42,6 +42,8 @@ from .io import (
 )
 from .modes import (
     compute_modal_intensities,
+    compute_modal_intensities_full_salt,
+    compute_modal_intensities_self_consistent,
     compute_mode_competition_matrix,
     find_passive_modes,
     find_threshold_lasing_modes,
@@ -354,9 +356,14 @@ def step_compute_mode_competition_matrix(
 
 
 def step_compute_modal_intensities(
-    p: NetSaltParams, threshold_modes_df, competition_matrix, lasing_modes_id
+    p: NetSaltParams, qg, threshold_modes_df, competition_matrix, pump, lasing_modes_id
 ):
-    """Compute modal intensities over the pump-strength sweep."""
+    """Compute modal intensities over the pump-strength sweep.
+
+    Dispatches on ``params["intensity_method"]`` (default ``"linear"``). The
+    ``self_consistent`` and ``full_salt`` solvers need the pumped graph, so it
+    is reattached here; the ``linear`` path is unchanged and ignores it.
+    """
     out = _outdir(p) / _apply_lasing_ids("modal_intensities.h5", lasing_modes_id)
     if out.exists() and not _force(p):
         return load_modes(str(out))
@@ -365,7 +372,38 @@ def step_compute_modal_intensities(
     D0_max = p.get("intensities_D0_max")
     if D0_max is None:
         D0_max = p.get("D0_max", 0.1)
-    modes_df = compute_modal_intensities(threshold_modes_df, D0_max, competition_matrix)
+
+    method = p.get("intensity_method") or "linear"
+    if method == "linear":
+        modes_df = compute_modal_intensities(threshold_modes_df, D0_max, competition_matrix)
+    elif method == "self_consistent":
+        qg = _attach_pump_to_graph(p, qg, pump)
+        modes_df = compute_modal_intensities_self_consistent(
+            qg,
+            threshold_modes_df,
+            D0_max,
+            D0_steps=p.get("salt_D0_steps", 30),
+            max_iter=p.get("intensity_max_iter", 20),
+            tol=p.get("intensity_tol", 1e-6),
+            damping=p.get("intensity_damping", 0.5),
+        )
+    elif method == "full_salt":
+        qg = _attach_pump_to_graph(p, qg, pump)
+        modes_df = compute_modal_intensities_full_salt(
+            qg,
+            threshold_modes_df,
+            D0_max,
+            D0_steps=p.get("salt_D0_steps", 30),
+            max_iter=p.get("intensity_max_iter", 30),
+            tol=p.get("intensity_tol", 1e-7),
+            damping=p.get("intensity_damping", 0.7),
+            oversample_size=p.get("intensity_oversample_size"),
+        )
+    else:  # pragma: no cover - guarded by the NetSaltParams Literal
+        raise ValueError(
+            f"Unknown intensity_method {method!r}; expected 'linear', "
+            "'self_consistent' or 'full_salt'."
+        )
     save_modes(modes_df, filename=str(out))
     return modes_df
 
@@ -650,7 +688,7 @@ def compute_lasing_modes(p: NetSaltParams, lasing_modes_id=None):
     plot_mode_competition_matrix_fig(p, competition, lasing_modes_id)
 
     intensities_df = step_compute_modal_intensities(
-        p, threshold_modes_df, competition, lasing_modes_id
+        p, qg, threshold_modes_df, competition, pump, lasing_modes_id
     )
     plot_ll_curve_fig(p, qg, intensities_df, lasing_modes_id)
     plot_stem_spectra_fig(p, qg, intensities_df, lasing_modes_id)
@@ -684,7 +722,9 @@ def compute_controllability(p: NetSaltParams):
             trajectories_df = step_compute_mode_trajectories(p, qg, passive_modes_df, pump, ids)
         threshold_modes_df = step_find_threshold_modes(p, qg, trajectories_df, pump, ids)
         competition = step_compute_mode_competition_matrix(p, qg, threshold_modes_df, pump, ids)
-        intensities_df = step_compute_modal_intensities(p, threshold_modes_df, competition, ids)
+        intensities_df = step_compute_modal_intensities(
+            p, qg, threshold_modes_df, competition, pump, ids
+        )
         plot_ll_curve_fig(p, qg, intensities_df, ids)
 
         spectra = intensities_df[

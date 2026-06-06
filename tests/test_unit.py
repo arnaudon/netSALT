@@ -1501,3 +1501,170 @@ class TestPlotPumpTraj:
         # |imag| minimal in the middle column -> +1 stays in range.
         df = self._modes_df([1.0, 0.0, 1.0])
         plot_pump_traj(df)
+
+
+class TestSaturatedDispersion:
+    """``dispersion_relation_pump_saturated`` (full-SALT gain term)."""
+
+    def _params(self):
+        return {
+            "dielectric_constant": np.array([2.0, 3.0, 2.5]),
+            "pump": np.array([1.0, 0.0, 1.0]),
+            "D0": 0.03,
+            "c": 1.0,
+            "gamma_perp": 0.5,
+            "k_a": 5.0,
+        }
+
+    def test_reduces_to_pumped_when_unsaturated(self):
+        """With ``D0_eff = D0 * pump`` (denominator one) it must reproduce
+        ``dispersion_relation_pump`` exactly."""
+        from netsalt.physics import (
+            dispersion_relation_pump,
+            dispersion_relation_pump_saturated,
+        )
+
+        params = self._params()
+        base = dispersion_relation_pump(5.1, params)
+        sat_params = dict(params, D0_eff=params["D0"] * params["pump"])
+        assert np.allclose(base, dispersion_relation_pump_saturated(5.1, sat_params))
+
+    def test_falls_back_to_pumped_without_D0_eff(self):
+        from netsalt.physics import (
+            dispersion_relation_pump,
+            dispersion_relation_pump_saturated,
+        )
+
+        params = self._params()
+        assert np.allclose(
+            dispersion_relation_pump(5.1, params),
+            dispersion_relation_pump_saturated(5.1, params),
+        )
+
+    def test_saturation_lowers_the_gain_contribution(self):
+        """A larger denominator (D0_eff < D0*pump) pulls k toward the passive
+        dielectric value on the pumped edges."""
+        from netsalt.physics import (
+            dispersion_relation_dielectric,
+            dispersion_relation_pump,
+            dispersion_relation_pump_saturated,
+        )
+
+        params = self._params()
+        passive = dispersion_relation_dielectric(5.1, params)
+        pumped = dispersion_relation_pump(5.1, params)
+        sat_params = dict(params, D0_eff=0.5 * params["D0"] * params["pump"])
+        saturated = dispersion_relation_pump_saturated(5.1, sat_params)
+        # on the pumped edges the saturated k sits between passive and full pump
+        gain_edges = params["pump"] > 0
+        assert np.all(
+            np.abs(saturated - passive)[gain_edges] < np.abs(pumped - passive)[gain_edges]
+        )
+
+
+class TestModeOnNodesQualityFlag:
+    """``check_quality=False`` lets the profile helpers evaluate off-threshold."""
+
+    def _line_graph(self, **kw):
+        return make_line_graph(**kw)
+
+    def test_check_quality_false_returns_vector_on_non_mode(self):
+        from netsalt.modes import mode_on_nodes
+
+        g = self._line_graph(n_edges=4)
+        g.graph["params"]["quality_threshold"] = 1e-12
+        # would raise with the default check; must not with it disabled
+        sol = mode_on_nodes([3.0, 0.05], g, check_quality=False)
+        assert sol.shape == (len(g),)
+
+    def test_mean_mode_on_edges_threads_the_flag(self):
+        import netsalt
+        from netsalt.modes import mean_mode_on_edges
+        from netsalt.physics import dispersion_relation_pump
+        from netsalt.quantum_graph import update_parameters
+
+        g = self._line_graph(n_edges=4)
+        netsalt.set_dispersion_relation(g, dispersion_relation_pump)
+        update_parameters(
+            g, {"k_a": 3.0, "gamma_perp": 1.0, "D0": 0.5, "pump": np.ones(len(g.edges))}
+        )
+        g.graph["params"]["quality_threshold"] = 1e-12
+        mean = mean_mode_on_edges([3.0, 0.05], g, check_quality=False)
+        assert mean.shape == (len(g.edges),)
+
+
+class TestIntensitySolveHelpers:
+    """Pure-algebra helpers shared by the intensity solvers."""
+
+    def test_slopes_shifts_identity_matrix(self):
+        from netsalt.modes import _intensity_slopes_shifts
+
+        thresholds = np.array([2.0, 4.0])
+        T = np.eye(2)
+        slopes, shifts = _intensity_slopes_shifts(T, thresholds, [0, 1])
+        # T = I  ->  slopes = 1/threshold, shifts = 1, so intensity(D0) = D0/thr - 1
+        assert np.allclose(slopes, 1.0 / thresholds)
+        assert np.allclose(shifts, 1.0)
+
+    def test_finalise_writes_sorted_intensity_columns(self):
+        import pandas as pd
+
+        from netsalt.modes import _finalise_modal_intensities
+
+        modal = pd.DataFrame(index=range(2))
+        modal.loc[0, 0.5] = 0.0
+        modal.loc[0, 0.2] = 0.0  # inserted out of order on purpose
+        modal.loc[0, 0.8] = 1.0
+        out = _finalise_modal_intensities(
+            pd.DataFrame(index=range(2)), modal, np.array([0.5, np.inf])
+        )
+        pumps = [c[1] for c in out.columns if c[0] == "modal_intensities"]
+        assert pumps == sorted(pumps)
+        assert np.allclose(out["interacting_lasing_thresholds"].to_numpy(), [0.5, np.inf])
+
+
+class TestIntensityMethodDispatch:
+    """``step_compute_modal_intensities`` routes on ``intensity_method``."""
+
+    def _params(self, tmp_path, method):
+        from netsalt.params import NetSaltParams
+
+        extra = {} if method is None else {"intensity_method": method}
+        return NetSaltParams.from_dict(
+            {"outdir": str(tmp_path), "force": True, "intensities_D0_max": 1.0, **extra}
+        )
+
+    def _run(self, tmp_path, monkeypatch, method):
+        import pandas as pd
+
+        from netsalt import pipeline
+
+        calls = []
+
+        def make(name):
+            def _fake(*args, **kwargs):
+                calls.append(name)
+                return pd.DataFrame({("modal_intensities", 0.5): [0.0]})
+
+            return _fake
+
+        monkeypatch.setattr(pipeline, "compute_modal_intensities", make("linear"))
+        monkeypatch.setattr(
+            pipeline, "compute_modal_intensities_self_consistent", make("self_consistent")
+        )
+        monkeypatch.setattr(pipeline, "compute_modal_intensities_full_salt", make("full_salt"))
+        monkeypatch.setattr(pipeline, "_attach_pump_to_graph", lambda p, qg, pump: qg)
+        monkeypatch.setattr(pipeline, "save_modes", lambda *a, **k: None)
+
+        p = self._params(tmp_path, method)
+        pipeline.step_compute_modal_intensities(
+            p, object(), pd.DataFrame(), np.zeros((1, 1)), None, None
+        )
+        return calls
+
+    def test_default_is_linear(self, tmp_path, monkeypatch):
+        assert self._run(tmp_path, monkeypatch, None) == ["linear"]
+
+    def test_dispatches_each_method(self, tmp_path, monkeypatch):
+        for method in ("linear", "self_consistent", "full_salt"):
+            assert self._run(tmp_path, monkeypatch, method) == [method]

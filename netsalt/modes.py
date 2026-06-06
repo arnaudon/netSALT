@@ -40,6 +40,7 @@ from .quantum_graph import (
     graph_with_params,
     graph_with_pump,
     mode_quality,
+    oversample_graph,
     set_wavenumber,
 )
 from .utils import from_complex, get_scan_grid, to_complex
@@ -424,14 +425,24 @@ def pump_linear(mode_0, graph, D0_0, D0_1):
     return from_complex(freq * np.sqrt((1.0 + gamma_overlap * D0_0) / (1.0 + gamma_overlap * D0_1)))
 
 
-def mode_on_nodes(mode, graph):
-    """Compute the mode solution on the nodes of the graph."""
+def mode_on_nodes(mode, graph, check_quality=True):
+    """Compute the mode solution on the nodes of the graph.
+
+    ``check_quality`` (default ``True``) raises if the near-null eigenvalue is
+    above ``quality_threshold`` -- i.e. ``mode`` is not actually a mode of
+    ``graph``. The self-consistent / full-SALT solvers evaluate a mode's profile
+    on a graph pumped *above* that mode's threshold (where the linear operator is
+    no longer singular at the threshold frequency); they pass
+    ``check_quality=False`` to take the smallest-eigenvalue field anyway. The
+    result still reduces continuously to the true mode as the pump returns to
+    threshold.
+    """
     laplacian = construct_laplacian(to_complex(mode), graph)
     min_eigenvalue, node_solution = sc.sparse.linalg.eigs(
         laplacian, k=1, sigma=0, v0=np.ones(len(graph)), which="LM"
     )
     quality_thresh = graph.graph["params"].get("quality_threshold", 1e-4)
-    if abs(min_eigenvalue[0]) > quality_thresh:
+    if check_quality and abs(min_eigenvalue[0]) > quality_thresh:
         raise ValueError(
             "Not a mode, as quality is too high: "
             + str(abs(min_eigenvalue[0]))
@@ -444,10 +455,10 @@ def mode_on_nodes(mode, graph):
     return node_solution[:, 0]
 
 
-def flux_on_edges(mode, graph):
+def flux_on_edges(mode, graph, check_quality=True):
     """Compute the flux on each edge (in both directions)."""
 
-    node_solution = mode_on_nodes(mode, graph)
+    node_solution = mode_on_nodes(mode, graph, check_quality=check_quality)
 
     _, B = construct_incidence_matrix(graph)
     Winv = construct_weight_matrix(graph, with_k=False)
@@ -455,9 +466,9 @@ def flux_on_edges(mode, graph):
     return Winv.dot(B).dot(node_solution)
 
 
-def mean_mode_on_edges(mode, graph):
+def mean_mode_on_edges(mode, graph, check_quality=True):
     r"""Compute the average :math:`Real(E^2)` on each edge."""
-    edge_flux = flux_on_edges(mode, graph)
+    edge_flux = flux_on_edges(mode, graph, check_quality=check_quality)
 
     mean_edge_solution = np.zeros(len(graph.edges))
     for ei in range(len(graph.edges)):
@@ -579,19 +590,19 @@ def compute_gamma_q_values(graph, modes_df, df_entry="passive"):
     ]
 
 
-def _precomputations_mode_competition(graph, pump_mask, mode_threshold):
+def _precomputations_mode_competition(graph, pump_mask, mode_threshold, check_quality=True):
     """precompute some quantities for a mode for mode competition matrix"""
     mode, threshold = mode_threshold
 
     graph = graph_with_pump(graph, threshold)
-    node_solution = mode_on_nodes(mode, graph)
+    node_solution = mode_on_nodes(mode, graph, check_quality=check_quality)
 
     z_matrix = compute_z_matrix(graph)
     BT, Bout = construct_incidence_matrix(graph)
     Winv = construct_weight_matrix(graph, with_k=False)
     pump_norm = _graph_norm(BT, Bout, Winv, z_matrix, node_solution, pump_mask)
 
-    edge_flux = flux_on_edges(mode, graph) / np.sqrt(pump_norm)
+    edge_flux = flux_on_edges(mode, graph, check_quality=check_quality) / np.sqrt(pump_norm)
     k_mu = graph.graph["ks"]
     gam = gamma(to_complex(mode), graph.graph["params"])
 
@@ -679,30 +690,38 @@ def _compute_mode_competition_element(lengths, params, data, with_gamma=True):
     return matrix_element
 
 
-def compute_mode_competition_matrix(graph, modes_df, with_gamma=True):
-    """Compute the mode competition matrix, or T matrix."""
-    threshold_modes = modes_df["threshold_lasing_modes"].to_numpy()
-    lasing_thresholds_all = modes_df["lasing_thresholds"].to_numpy()
+def _mode_competition_matrix_block(
+    graph, threshold_modes, pumps, with_gamma=True, check_quality=True
+):
+    """Build the dense competition matrix over the lasing modes only.
 
-    threshold_modes = threshold_modes[lasing_thresholds_all < np.inf]
-    lasing_thresholds = lasing_thresholds_all[lasing_thresholds_all < np.inf]
-
+    ``pumps`` is the per-mode pump strength at which each mode's profile is
+    evaluated. The production matrix uses each mode's own lasing threshold
+    (approximation #2); the self-consistent path passes a single operating pump
+    for every mode. ``_precomputations_mode_competition`` already treats its
+    ``threshold`` argument as the pump (``graph_with_pump``), so no change to the
+    precompute kernel is needed — only the pump values fed in. ``check_quality``
+    is forwarded to ``mode_on_nodes`` (set ``False`` when evaluating profiles at
+    a pump above the modes' thresholds).
+    """
     precomp = partial(
         _precomputations_mode_competition,
         graph,
         _get_mask_matrices(graph.graph["params"])[1],
+        check_quality=check_quality,
     )
 
-    chunksize = max(1, int(0.1 * len(lasing_thresholds) / graph.graph["params"]["n_workers"]))
-    with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
+    n_workers = graph.graph["params"]["n_workers"]
+    chunksize = max(1, int(0.1 * len(pumps) / n_workers))
+    with multiprocessing.Pool(n_workers) as pool:
         precomp_results = list(
             tqdm(
                 pool.imap(
                     precomp,
-                    zip(threshold_modes, lasing_thresholds, strict=True),
+                    zip(threshold_modes, pumps, strict=True),
                     chunksize=chunksize,
                 ),
-                total=len(lasing_thresholds),
+                total=len(pumps),
             )
         )
 
@@ -717,8 +736,8 @@ def compute_mode_competition_matrix(graph, modes_df, with_gamma=True):
                 ]
             )
 
-    chunksize = max(1, int(0.1 * len(input_data) / graph.graph["params"]["n_workers"]))
-    with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
+    chunksize = max(1, int(0.1 * len(input_data) / n_workers))
+    with multiprocessing.Pool(n_workers) as pool:
         output_data = list(
             tqdm(
                 pool.imap(
@@ -744,18 +763,58 @@ def compute_mode_competition_matrix(graph, modes_df, with_gamma=True):
             mode_competition_matrix[mu, nu] = output_data[index]
             index += 1
 
-    pool.close()
+    return np.real(mode_competition_matrix)
 
-    mode_competition_matrix_full = np.zeros(
-        [
-            len(modes_df["threshold_lasing_modes"]),
-            len(modes_df["threshold_lasing_modes"]),
-        ]
+
+def _scatter_competition_block(block, lasing_mask, n_total):
+    """Place a lasing-only competition block back into a full n_total matrix."""
+    full = np.zeros([n_total, n_total])
+    full[np.ix_(lasing_mask, lasing_mask)] = block
+    return full
+
+
+def compute_mode_competition_matrix(graph, modes_df, with_gamma=True):
+    """Compute the mode competition matrix, or T matrix.
+
+    Each mode's profile is evaluated at its own lasing threshold pump (the
+    linearised, near-threshold model). See
+    :func:`compute_mode_competition_matrix_at_pump` for the self-consistent
+    variant that evaluates all modes at a common operating pump.
+    """
+    threshold_modes_all = modes_df["threshold_lasing_modes"].to_numpy()
+    lasing_thresholds_all = modes_df["lasing_thresholds"].to_numpy()
+    lasing_mask = lasing_thresholds_all < np.inf
+
+    threshold_modes = threshold_modes_all[lasing_mask]
+    lasing_thresholds = lasing_thresholds_all[lasing_mask]
+
+    block = _mode_competition_matrix_block(
+        graph, threshold_modes, lasing_thresholds, with_gamma=with_gamma
     )
-    mode_competition_matrix_full[
-        np.ix_(lasing_thresholds_all < np.inf, lasing_thresholds_all < np.inf)
-    ] = np.real(mode_competition_matrix)
-    return mode_competition_matrix_full
+    return _scatter_competition_block(block, lasing_mask, len(threshold_modes_all))
+
+
+def compute_mode_competition_matrix_at_pump(graph, modes_df, pump_intensity, with_gamma=True):
+    """Competition matrix with every mode profile evaluated at ``pump_intensity``.
+
+    Relaxes the frozen-threshold-profile approximation (#2): rather than each
+    mode sitting at its own threshold, all modes are evaluated at the common
+    operating pump ``pump_intensity``. Used by
+    :func:`compute_modal_intensities_self_consistent`. Reduces to
+    :func:`compute_mode_competition_matrix` when ``pump_intensity`` equals every
+    mode's threshold.
+    """
+    threshold_modes_all = modes_df["threshold_lasing_modes"].to_numpy()
+    lasing_thresholds_all = modes_df["lasing_thresholds"].to_numpy()
+    lasing_mask = lasing_thresholds_all < np.inf
+
+    threshold_modes = threshold_modes_all[lasing_mask]
+    pumps = np.full(len(threshold_modes), float(pump_intensity))
+
+    block = _mode_competition_matrix_block(
+        graph, threshold_modes, pumps, with_gamma=with_gamma, check_quality=False
+    )
+    return _scatter_competition_block(block, lasing_mask, len(threshold_modes_all))
 
 
 def _find_next_lasing_mode(
@@ -793,8 +852,46 @@ def _find_next_lasing_mode(
     return next_lasing_mode_id, next_lasing_threshold
 
 
+def _intensity_slopes_shifts(mode_competition_matrix, lasing_thresholds, lasing_mode_ids):
+    """Linear modal-intensity solve for the active set.
+
+    Returns ``(slopes, shifts)`` such that the modal intensities at pump ``D0``
+    are ``slopes * D0 - shifts``. Shared by the ``linear`` and
+    ``self_consistent`` solvers (they differ only in which competition matrix
+    they feed in).
+    """
+    mode_competition_matrix_inv = np.linalg.pinv(
+        mode_competition_matrix[np.ix_(lasing_mode_ids, lasing_mode_ids)]
+    )
+    slopes = mode_competition_matrix_inv.dot(1.0 / lasing_thresholds[lasing_mode_ids])
+    shifts = mode_competition_matrix_inv.sum(1)
+    return slopes, shifts
+
+
 def compute_modal_intensities(modes_df, max_pump_intensity, mode_competition_matrix):
-    """Compute the modal intensities of the modes up to D0, with D0_steps."""
+    """Compute the modal intensities of the modes up to D0, with D0_steps.
+
+    Thin wrapper over :func:`_modal_intensity_sweep` with a *fixed*
+    (pump-independent) competition matrix -- the original near-threshold SALT
+    model. :func:`compute_modal_intensities_self_consistent` reuses the same
+    sweep with a pump-dependent matrix.
+    """
+    return _modal_intensity_sweep(
+        modes_df, max_pump_intensity, lambda _pump, _ids: mode_competition_matrix
+    )
+
+
+def _modal_intensity_sweep(modes_df, max_pump_intensity, get_matrix):
+    """Event-driven modal-intensity sweep over the pump strength.
+
+    ``get_matrix(pump, lasing_mode_ids)`` returns the full mode-competition
+    matrix to use at the given operating pump and active set. For the linear
+    model it ignores both arguments and returns a constant matrix (so the result
+    is byte-identical to the historical implementation); the self-consistent
+    model rebuilds the matrix from the operating-pump mode profiles; the
+    full-SALT model additionally saturates it with the lasing field. The mode
+    activation / vanishing event logic is shared by all three.
+    """
     lasing_thresholds = np.asarray(modes_df["lasing_thresholds"]).ravel()
 
     next_lasing_mode_id = int(np.argmin(lasing_thresholds))
@@ -810,15 +907,28 @@ def compute_modal_intensities(modes_df, max_pump_intensity, mode_competition_mat
 
     pump_intensity = next_lasing_threshold
     L.debug("Max pump intensity %s", max_pump_intensity)
+    # safety cap: the linear model terminates in <~2*n_modes events, but a
+    # pump-dependent matrix (self_consistent / full_salt) could in principle
+    # chatter; bound the loop so it always returns.
+    max_events = 100 * (len(modes_df) + 1)
+    event = 0
     while pump_intensity <= max_pump_intensity:
+        event += 1
+        if event > max_events:
+            warnings.warn(
+                "modal-intensity sweep hit its event cap; returning the partial L--I curve.",
+                stacklevel=2,
+            )
+            break
         L.debug("Current pump intensity %s", pump_intensity)
 
+        # competition matrix at the current operating pump (constant for linear)
+        mode_competition_matrix = get_matrix(pump_intensity, lasing_mode_ids)
+
         # 1) compute the current mode intensities
-        mode_competition_matrix_inv = np.linalg.pinv(
-            mode_competition_matrix[np.ix_(lasing_mode_ids, lasing_mode_ids)]
+        slopes, shifts = _intensity_slopes_shifts(
+            mode_competition_matrix, lasing_thresholds, lasing_mode_ids
         )
-        slopes = mode_competition_matrix_inv.dot(1.0 / lasing_thresholds[lasing_mode_ids])
-        shifts = mode_competition_matrix_inv.sum(1)
 
         # if we hit the max intensity, we add last points and stop
         if pump_intensity >= max_pump_intensity:
@@ -892,6 +1002,205 @@ def compute_modal_intensities(modes_df, max_pump_intensity, mode_competition_mat
         len(modal_intensities.index),
     )
     return modes_df
+
+
+def _finalise_modal_intensities(modes_df, modal_intensities, interacting_lasing_thresholds):
+    """Attach an L--I sweep to ``modes_df`` (shared by the iterative solvers).
+
+    Mirrors the tail of :func:`compute_modal_intensities`: stores the
+    interacting thresholds and one ``("modal_intensities", D0)`` column per pump,
+    rounded to 8 decimals. Columns are written in increasing pump order so the
+    L--I curve is monotone in ``D0`` regardless of the order they were computed.
+    """
+    modes_df["interacting_lasing_thresholds"] = interacting_lasing_thresholds
+
+    if "modal_intensities" in modes_df:
+        del modes_df["modal_intensities"]
+
+    pumps = sorted(modal_intensities.columns)
+    for pump_intensity in pumps:
+        modes_df["modal_intensities", np.around(pump_intensity, 8)] = modal_intensities[
+            pump_intensity
+        ]
+
+    n_lasing = 0
+    if pumps:
+        last = np.nan_to_num(modal_intensities[pumps[-1]].to_numpy())
+        n_lasing = int(np.sum(last > 0))
+    L.info("%s lasing modes out of %s", n_lasing, len(modal_intensities.index))
+    return modes_df
+
+
+def compute_modal_intensities_self_consistent(
+    graph,
+    modes_df,
+    max_pump_intensity,
+    D0_steps=30,
+    max_iter=20,
+    tol=1e-6,
+    damping=0.5,
+    quality_method="eigenvalue",
+):
+    r"""Modal intensities with mode profiles re-evaluated at the operating pump.
+
+    Relaxes the frozen-threshold-profile approximation (issue #42, #2): instead
+    of a single competition matrix built once with every mode at its own
+    threshold, the matrix is rebuilt at each operating pump with all modes
+    evaluated at that pump (their threshold frequency, profile taken on the
+    operating-pump dielectric -- see
+    :func:`compute_mode_competition_matrix_at_pump`). It then reuses the exact
+    same event-driven activation / mode-vanishing sweep as
+    :func:`compute_modal_intensities` (via :func:`_modal_intensity_sweep`), so it
+    inherits the linear model's competition bookkeeping and reduces to it as the
+    matrix becomes pump-independent.
+
+    The *linear* gain saturation is kept, so at a fixed operating pump the matrix
+    depends only on the pump (through the profiles) and not on the intensities --
+    there is no inner fixed point. ``D0_steps``/``max_iter``/``tol``/``damping``
+    are accepted only for interface parity with
+    :func:`compute_modal_intensities_full_salt`.
+
+    Args:
+        graph: pumped quantum graph (with ``pump``/``D0_max`` in its params).
+        modes_df: threshold-modes dataframe (``threshold_lasing_modes``,
+            ``lasing_thresholds``).
+        max_pump_intensity (float): top of the pump sweep.
+    """
+    del max_iter, tol, damping, quality_method  # linear saturation: no inner loop
+
+    # Rebuild the (expensive) competition matrix only on a bounded pump grid: the
+    # event sweep runs at fine resolution for the intensities, but snapping the
+    # matrix to ``D0_steps`` points keeps it piecewise-constant and bounds the
+    # number of rebuilds (the event spacing is otherwise unbounded once T varies
+    # with pump). The grid includes the first threshold, so the matrix there
+    # equals the linear one and the reduction-at-threshold check still holds.
+    snap = _pump_snapper(modes_df, max_pump_intensity, D0_steps)
+    cache: dict[float, np.ndarray] = {}
+
+    def get_matrix(pump, _lasing_mode_ids):
+        key = snap(pump)
+        if key not in cache:
+            cache[key] = compute_mode_competition_matrix_at_pump(graph, modes_df, key)
+        return cache[key]
+
+    return _modal_intensity_sweep(modes_df, max_pump_intensity, get_matrix)
+
+
+def _pump_snapper(modes_df, max_pump_intensity, D0_steps):
+    """Return a function snapping a pump to a bounded grid above first threshold."""
+    lasing_thresholds = np.asarray(modes_df["lasing_thresholds"]).ravel()
+    finite = lasing_thresholds[lasing_thresholds < np.inf]
+    first = float(finite.min()) if finite.size else 0.0
+    grid = np.linspace(first, float(max_pump_intensity), max(int(D0_steps), 2))
+
+    def snap(pump):
+        return float(grid[np.argmin(np.abs(grid - float(pump)))])
+
+    return snap
+
+
+def compute_modal_intensities_full_salt(
+    graph,
+    modes_df,
+    max_pump_intensity,
+    D0_steps=30,
+    max_iter=30,
+    tol=1e-7,
+    damping=0.7,
+    oversample_size=None,
+    quality_method="eigenvalue",
+):
+    r"""Best-effort nonlinear-SALT modal intensities with spatial hole burning.
+
+    *Experimental, opt-in.* Relaxes both linearised-SALT approximations
+    (issue #42): mode profiles are taken at the operating pump (as in
+    :func:`compute_modal_intensities_self_consistent`, #2) *and* the gain is
+    saturated by the lasing field through the per-edge hole-burning denominator
+    :math:`1 + \sum_\nu \Gamma_\nu a_\nu |\Psi_\nu(x)|^2` (#1), which clamps the
+    gain and bends the L--I curves over.
+
+    Implementation: the same event-driven sweep as the other two solvers
+    (:func:`_modal_intensity_sweep`) is reused, so the activation / mode-vanishing
+    bookkeeping is identical. At each operating pump a damped fixed point in the
+    active intensities saturates the competition matrix: each lasing mode's
+    effective gain is reduced by its pump-weighted hole-burning factor
+    :math:`g_\mu\in(0,1]`, which *inflates* its row of the competition matrix and
+    so lowers its intensity. As the intensities go to zero ``g`` goes to one and
+    the result reduces to :func:`compute_modal_intensities_self_consistent`
+    (hence to linear) -- asserted in the tests. Non-convergence never raises: the
+    last iterate is kept and a warning emitted.
+
+    ``oversample_size`` (forwarded to :func:`oversample_graph`) refines the
+    per-edge-constant saturation toward the true within-edge field -- smaller is
+    more accurate and slower. This solver is validated on the small ``line_PRA``
+    example; on large graphs it is best treated as exploratory.
+    """
+    del quality_method  # frozen-threshold profiles: no mode re-solve needed
+
+    lasing_thresholds = np.asarray(modes_df["lasing_thresholds"]).ravel()
+    work_graph = graph if oversample_size is None else oversample_graph(graph, oversample_size)
+    threshold_modes = modes_df["threshold_lasing_modes"].to_numpy()
+
+    # snap the (expensive) matrix/profile rebuilds onto a bounded pump grid; see
+    # compute_modal_intensities_self_consistent for the rationale.
+    snap = _pump_snapper(modes_df, max_pump_intensity, D0_steps)
+    matrix_cache: dict[float, np.ndarray] = {}
+    profile_cache: dict[tuple, tuple] = {}
+
+    def _profiles(pump, ids):
+        """(weight, mean_e2_n, gains, denom_norm) for ``ids`` at ``pump``."""
+        key = (snap(pump), tuple(ids))
+        if key not in profile_cache:
+            pumped = graph_with_pump(work_graph, key[0])
+            pump_profile = np.asarray(pumped.graph["params"]["pump"], dtype=float)
+            mean_e2 = np.array(
+                [
+                    np.abs(mean_mode_on_edges(threshold_modes[i], pumped, check_quality=False))
+                    for i in ids
+                ]
+            )
+            gains = np.array(
+                [abs(gamma(to_complex(threshold_modes[i]), pumped.graph["params"])) for i in ids]
+            )
+            weight = mean_e2 * pump_profile[None, :]
+            denom_norm = weight.sum(1)
+            denom_norm[denom_norm == 0] = 1.0
+            profile_cache[key] = (weight, mean_e2 / denom_norm[:, None], gains, denom_norm)
+        return profile_cache[key]
+
+    def get_matrix(pump, lasing_mode_ids):
+        key = snap(pump)
+        if key not in matrix_cache:
+            matrix_cache[key] = compute_mode_competition_matrix_at_pump(work_graph, modes_df, key)
+        base = matrix_cache[key]
+        ids = list(lasing_mode_ids)
+        if not ids:
+            return base
+
+        weight, mean_e2_n, gains, denom_norm = _profiles(pump, ids)
+        idx = np.ix_(ids, ids)
+        a = np.zeros(len(ids))
+        saturated = base
+        for _ in range(max_iter):
+            # per-edge spatial-hole-burning denominator -> per-mode gain clamp
+            sat = 1.0 + (gains[:, None] * a[:, None] * mean_e2_n).sum(0)  # (n_edges,)
+            g = (weight / sat[None, :]).sum(1) / denom_norm  # in (0, 1], -> 1 as a->0
+            saturated = base.copy()
+            saturated[idx] = base[idx] / g[:, None]  # inflate mode-mu rows -> lower intensity
+            slopes, shifts = _intensity_slopes_shifts(saturated, lasing_thresholds, ids)
+            a_new = np.clip(slopes * pump - shifts, 0.0, None)
+            if np.linalg.norm(a_new - a) <= tol * (np.linalg.norm(a) + tol):
+                a = a_new
+                break
+            a = (1.0 - damping) * a + damping * a_new
+        else:
+            warnings.warn(
+                f"full_salt hole-burning did not converge at D0={pump:.4g}; keeping last iterate.",
+                stacklevel=2,
+            )
+        return saturated
+
+    return _modal_intensity_sweep(modes_df, max_pump_intensity, get_matrix)
 
 
 def pump_trajectories(modes_df, graph, return_approx=False, quality_method="eigenvalue"):

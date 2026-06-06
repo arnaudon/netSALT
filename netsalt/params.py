@@ -100,6 +100,28 @@ class NetSaltParams(BaseModel):
     reduction_factor: float | None = None
     n_modes_max: int | None = None
 
+    # --- Modal-intensity solver --------------------------------------------
+    # ``intensity_method`` selects how the lasing L--I curves are computed from
+    # the threshold modes and the mode-competition matrix. Accepted values:
+    #   ``"linear"`` (default) — the original near-threshold SALT model: one
+    #     pump-independent competition matrix and a linear solve
+    #     (``compute_modal_intensities``). Piecewise-linear curves.
+    #   ``"self_consistent"`` — rebuild the competition matrix from the mode
+    #     profiles at the *operating* pump in a fixed-point loop (relaxes the
+    #     frozen-threshold-profile approximation); linear saturation kept.
+    #   ``"full_salt"`` — experimental nonlinear SALT with the spatial
+    #     hole-burning denominator (relaxes both approximations). Best-effort.
+    # See doc/source/lasing.rst and issue #42.
+    intensity_method: Literal["linear", "self_consistent", "full_salt"] | None = None
+    # Solver knobs shared by the self_consistent / full_salt iterations:
+    intensity_max_iter: int | None = None
+    intensity_tol: float | None = None
+    intensity_damping: float | None = None
+    salt_D0_steps: int | None = None
+    # full_salt only: edge_size passed to oversample_graph to refine the
+    # per-edge (piecewise-constant) saturation toward the true within-edge field.
+    intensity_oversample_size: float | None = None
+
     # --- Infrastructure ----------------------------------------------------
     n_workers: int | None = None
 
