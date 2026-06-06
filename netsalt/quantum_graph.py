@@ -21,6 +21,13 @@ from .utils import to_complex
 
 L = logging.getLogger(__name__)
 
+# Quantum-graph laplacians at or below this dimension use a direct dense
+# eigensolve instead of ARPACK shift-invert: ``eigs(sigma=0)`` carries a large
+# per-call overhead (a sparse LU factorisation + Arnoldi restart) that dominates
+# for small graphs, where ``np.linalg.eig`` on the dense matrix is several times
+# faster and returns the same nearest-zero eigenpair. Above it, ARPACK wins.
+DENSE_EIG_MAX = 256
+
 
 def create_quantum_graph(
     graph, params=None, positions=None, lengths=None, seed=42, noise_level=0.001
@@ -507,6 +514,15 @@ def laplacian_quality(laplacian, method="eigenvalue", rng=None):
             starting vector. If None, a fresh generator with fresh entropy is
             created. Pass a seeded generator for reproducibility.
     """
+    # Dense fast path for small matrices (see DENSE_EIG_MAX): the nearest-zero
+    # eigenvalue is the smallest-magnitude one, identical to ``eigs(sigma=0)`` but
+    # without ARPACK's per-call overhead. ``rng`` is irrelevant here (no ARPACK
+    # start vector), keeping the result deterministic.
+    if method in ("eigenvalue", "complex_eigenvalue") and laplacian.shape[0] <= DENSE_EIG_MAX:
+        eigenvalues = np.linalg.eigvals(laplacian.toarray())
+        lam = eigenvalues[np.argmin(np.abs(eigenvalues))]
+        return abs(lam) if method == "eigenvalue" else complex(lam)
+
     if rng is None:
         rng = np.random.default_rng()
     v0 = rng.random(laplacian.shape[0])

@@ -34,6 +34,7 @@ from .algorithm import (
 )
 from .physics import dispersion_relation_pump_saturated, gamma, q_value
 from .quantum_graph import (
+    DENSE_EIG_MAX,
     construct_incidence_matrix,
     construct_laplacian,
     construct_weight_matrix,
@@ -438,21 +439,33 @@ def mode_on_nodes(mode, graph, check_quality=True):
     threshold.
     """
     laplacian = construct_laplacian(to_complex(mode), graph)
-    min_eigenvalue, node_solution = sc.sparse.linalg.eigs(
-        laplacian, k=1, sigma=0, v0=np.ones(len(graph)), which="LM"
-    )
+    # Dense fast path for small graphs (see DENSE_EIG_MAX): a direct eigensolve is
+    # several times faster than ARPACK shift-invert at small N and returns the same
+    # nearest-zero eigenpair (smallest-magnitude eigenvalue and its eigenvector).
+    if laplacian.shape[0] <= DENSE_EIG_MAX:
+        eigenvalues, eigenvectors = np.linalg.eig(laplacian.toarray())
+        idx = int(np.argmin(np.abs(eigenvalues)))
+        min_eigenvalue = eigenvalues[idx]
+        node_solution = eigenvectors[:, idx]
+    else:
+        min_eigenvalue_arr, node_solution_arr = sc.sparse.linalg.eigs(
+            laplacian, k=1, sigma=0, v0=np.ones(len(graph)), which="LM"
+        )
+        min_eigenvalue = min_eigenvalue_arr[0]
+        node_solution = node_solution_arr[:, 0]
+
     quality_thresh = graph.graph["params"].get("quality_threshold", 1e-4)
-    if check_quality and abs(min_eigenvalue[0]) > quality_thresh:
+    if check_quality and abs(min_eigenvalue) > quality_thresh:
         raise ValueError(
             "Not a mode, as quality is too high: "
-            + str(abs(min_eigenvalue[0]))
+            + str(abs(min_eigenvalue))
             + " > "
             + str(quality_thresh)
             + ", mode: "
             + str(mode)
         )
 
-    return node_solution[:, 0]
+    return node_solution
 
 
 def flux_on_edges(mode, graph, check_quality=True):
