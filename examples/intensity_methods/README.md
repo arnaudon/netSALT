@@ -13,7 +13,21 @@ theory.
 | `full_salt_newton` | operator-level nonlinear SALT | gain clamping → can lase **fewer** modes |
 
 All four reduce to the same onset slope at threshold, so their curves share units
-and can be overlaid directly.
+and can be overlaid directly — **except** `full_salt_newton`, which solves for an
+amplitude in its own (`∫|Ê|²=1`) normalization that differs from the
+competition-matrix modal-intensity unit by a graph-dependent constant. The script
+rescales it onto the linear unit by matching the dominant mode's onset slope; on
+the same unit it sits with the other nonlinear methods (its raw amplitude is
+otherwise a few × larger and looks misleadingly different).
+
+### What to expect
+
+Near threshold all methods nearly coincide (the nonlinearity is small there). They
+diverge only as the pump is pushed well above threshold: `self_consistent` and
+`full_salt` saturate ~20–30 % below `linear`, and `full_salt_newton` adds
+gain-clamping mode suppression (it lases fewer modes, so its surviving mode can
+carry more). If the curves look very different, it is because the sweep reaches
+~2–3× the lasing threshold — reduce `D0_MAX` to stay in the gentle regime.
 
 ## Run
 
