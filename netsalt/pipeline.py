@@ -43,6 +43,7 @@ from .io import (
 from .modes import (
     compute_modal_intensities,
     compute_modal_intensities_full_salt,
+    compute_modal_intensities_full_salt_newton,
     compute_modal_intensities_self_consistent,
     compute_mode_competition_matrix,
     find_passive_modes,
@@ -399,10 +400,22 @@ def step_compute_modal_intensities(
             damping=p.get("intensity_damping", 0.7),
             oversample_size=p.get("intensity_oversample_size"),
         )
+    elif method == "full_salt_newton":
+        qg = _attach_pump_to_graph(p, qg, pump)
+        modes_df = compute_modal_intensities_full_salt_newton(
+            qg,
+            threshold_modes_df,
+            D0_max,
+            D0_steps=p.get("salt_D0_steps", 30),
+            tol=p.get("intensity_tol", 1e-8),
+            oversample_size=p.get("intensity_oversample_size"),
+            inner_max_iter=p.get("intensity_max_iter", 10),
+            inner_damping=p.get("intensity_damping", 0.5),
+        )
     else:  # pragma: no cover - guarded by the NetSaltParams Literal
         raise ValueError(
             f"Unknown intensity_method {method!r}; expected 'linear', "
-            "'self_consistent' or 'full_salt'."
+            "'self_consistent', 'full_salt' or 'full_salt_newton'."
         )
     save_modes(modes_df, filename=str(out))
     return modes_df

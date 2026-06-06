@@ -42,7 +42,9 @@ from netsalt.config_loader import load_config
 from netsalt.modes import (
     compute_modal_intensities,
     compute_modal_intensities_full_salt,
+    compute_modal_intensities_full_salt_newton,
     compute_modal_intensities_self_consistent,
+    compute_mode_competition_matrix,
 )
 from netsalt.pipeline import (
     _attach_pump_to_graph,
@@ -157,8 +159,53 @@ def benchmark(config_path: Path):
         print(f"\nwrote {(HERE / 'bench_salt_ll.pdf').relative_to(REPO)}")
 
         _oversample_study(qg, tdf, p, HERE / "bench_salt_oversample.pdf")
+        _newton_single_mode_study(qg, tdf, p, HERE / "bench_salt_newton.pdf")
     finally:
         os.chdir(cwd)
+
+
+def _newton_single_mode_study(qg, tdf, p, out):
+    """Operator-level Newton (single mode) vs the linear dominant-mode L--I.
+
+    ``full_salt_newton`` solves only the dominant mode, so it is compared against
+    that *same* mode's linear curve rather than the multi-mode totals. The key
+    check is that its onset slope matches the linear ``1/(T_μμ·D0_thr)``.
+    """
+    d0_max = p.get("intensities_D0_max") or p.get("D0_max", 0.1)
+    steps = p.get("salt_D0_steps", 30)
+    thresholds = np.asarray(tdf["lasing_thresholds"]).ravel()
+    if not np.any(thresholds < np.inf):
+        return
+    target = int(np.argmin(thresholds))
+    d0_thr = float(thresholds[target])
+
+    t_self = compute_mode_competition_matrix(qg, tdf)[target, target]
+    lin_slope = 1.0 / (t_self * d0_thr)
+
+    with time_block() as t:
+        df = compute_modal_intensities_full_salt_newton(qg, tdf.copy(), d0_max, D0_steps=steps)
+    sub = df["modal_intensities"]
+    pumps = np.array(sorted(sub.columns))
+    a = sub.loc[target, pumps].to_numpy(dtype=float)
+    above = pumps > d0_thr + 1e-9
+    newton_slope = a[above][0] / (pumps[above][0] - d0_thr) if above.any() else float("nan")
+
+    print("\noperator-level Newton (single dominant mode):")
+    print(f"  solve time            : {t.seconds:.1f} s  ({len(pumps)} pumps)")
+    print(f"  onset slope newton/lin: {newton_slope / lin_slope:.3f}  (1.0 = reduces to linear)")
+    print(f"  intensity @ max pump  : {a[-1]:.4f}")
+
+    plt.figure(figsize=(6, 4))
+    plt.plot(pumps, np.clip(lin_slope * (pumps / d0_thr - 1.0), 0, None), "--", label="linear")
+    plt.plot(pumps, a, "o-", ms=3, label="full_salt_newton")
+    plt.xlabel("pump $D_0$")
+    plt.ylabel(f"dominant-mode intensity (mode {target})")
+    plt.legend()
+    plt.title("Single-mode: operator-level Newton vs linear")
+    plt.tight_layout()
+    plt.savefig(out)
+    plt.close()
+    print(f"wrote {out.relative_to(REPO)}")
 
 
 def _plot_ll(results, out):

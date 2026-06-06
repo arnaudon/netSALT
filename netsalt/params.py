@@ -111,8 +111,12 @@ class NetSaltParams(BaseModel):
     #     frozen-threshold-profile approximation); linear saturation kept.
     #   ``"full_salt"`` — experimental nonlinear SALT with the spatial
     #     hole-burning denominator (relaxes both approximations). Best-effort.
+    #   ``"full_salt_newton"`` — experimental operator-level single-mode SALT:
+    #     Newton-solves the saturated eigenproblem for ``(real k, amplitude a)``.
     # See doc/source/lasing.rst and issue #42.
-    intensity_method: Literal["linear", "self_consistent", "full_salt"] | None = None
+    intensity_method: (
+        Literal["linear", "self_consistent", "full_salt", "full_salt_newton"] | None
+    ) = None
     # Solver knobs shared by the self_consistent / full_salt iterations:
     intensity_max_iter: int | None = None
     intensity_tol: float | None = None

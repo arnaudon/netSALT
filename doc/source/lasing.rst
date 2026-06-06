@@ -263,7 +263,7 @@ matrix (``_compute_mode_competition_element``).
 Selecting a solver
 ^^^^^^^^^^^^^^^^^^
 
-All three levels are available and chosen with the ``intensity_method`` config
+Four solvers are available and chosen with the ``intensity_method`` config
 key (default ``"linear"``), dispatched by
 :func:`~netsalt.pipeline.step_compute_modal_intensities`:
 
@@ -288,9 +288,26 @@ key (default ``"linear"``), dispatched by
     ``intensity_oversample_size`` (forwarded to
     :func:`~netsalt.quantum_graph.oversample_graph`) refines the
     per-edge-constant saturation toward the true within-edge field.
+``"full_salt_newton"``
+    :func:`~netsalt.modes.compute_modal_intensities_full_salt_newton` —
+    *experimental, single-mode prototype.* Rather than saturating the
+    competition matrix, it solves the real nonlinear SALT eigenproblem for the
+    dominant mode: at each pump it finds ``(k, a)`` so the saturated operator
+    ``L_sat`` (:func:`~netsalt.physics.dispersion_relation_pump_saturated`) is
+    singular at real ``k`` (bounded trust-region least-squares, evaluated only on
+    the real axis to keep ARPACK well-conditioned). It reproduces the linear
+    onset slope ``1/(T_μμ·D0_thr)`` to <1 % and is deterministic and
+    path-independent, confirming the single-mode L–I is ~linear with only a small
+    profile-deformation correction. It warns and solves only the dominant mode if
+    several would lase (multi-mode competition is the natural follow-up), and
+    never raises — points where the eigen-solve fails freeze the warm-start. This
+    is the operator-level template for a future robust multimode SALT solver;
+    making it production-grade needs continuous mode-following rather than the
+    per-pump shift-invert used here.
 
-``benchmark/bench_salt.py`` compares the three on speed and accuracy: it runs the
-shared pipeline once, swaps only the intensity step, and writes overlaid L–I
-curves plus a within-edge (oversample) convergence study. Both relaxations are
-exact at threshold, so the linear model remains the threshold-limit check for the
-other two.
+``benchmark/bench_salt.py`` compares the solvers on speed and accuracy: it runs
+the shared pipeline once, swaps only the intensity step, writes overlaid L–I
+curves and a within-edge (oversample) convergence study, and overlays the
+single-mode Newton curve against the linear dominant-mode prediction. All
+relaxations are exact at threshold, so the linear model remains the
+threshold-limit check.

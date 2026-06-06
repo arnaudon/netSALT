@@ -1653,6 +1653,9 @@ class TestIntensityMethodDispatch:
             pipeline, "compute_modal_intensities_self_consistent", make("self_consistent")
         )
         monkeypatch.setattr(pipeline, "compute_modal_intensities_full_salt", make("full_salt"))
+        monkeypatch.setattr(
+            pipeline, "compute_modal_intensities_full_salt_newton", make("full_salt_newton")
+        )
         monkeypatch.setattr(pipeline, "_attach_pump_to_graph", lambda p, qg, pump: qg)
         monkeypatch.setattr(pipeline, "save_modes", lambda *a, **k: None)
 
@@ -1666,5 +1669,65 @@ class TestIntensityMethodDispatch:
         assert self._run(tmp_path, monkeypatch, None) == ["linear"]
 
     def test_dispatches_each_method(self, tmp_path, monkeypatch):
-        for method in ("linear", "self_consistent", "full_salt"):
+        for method in ("linear", "self_consistent", "full_salt", "full_salt_newton"):
             assert self._run(tmp_path, monkeypatch, method) == [method]
+
+
+class TestFullSaltNewton:
+    """Building blocks of the operator-level single-mode Newton solver."""
+
+    def _pump_graph(self, n_edges=4):
+        import netsalt
+        from netsalt.physics import dispersion_relation_pump
+        from netsalt.quantum_graph import update_parameters
+
+        g = make_line_graph(n_edges=n_edges)
+        netsalt.set_dispersion_relation(g, dispersion_relation_pump)
+        update_parameters(
+            g, {"k_a": 3.0, "gamma_perp": 1.0, "D0": 0.0, "pump": np.ones(len(g.edges))}
+        )
+        g.graph["params"]["quality_threshold"] = 10.0
+        return g
+
+    def test_intensity_method_literal_accepts_newton(self):
+        from netsalt.params import NetSaltParams
+
+        assert NetSaltParams(intensity_method="full_salt_newton")["intensity_method"] == (
+            "full_salt_newton"
+        )
+
+    def test_saturated_graph_reduces_to_pumped_at_zero_amplitude(self):
+        from netsalt.modes import _saturated_graph_at
+        from netsalt.physics import dispersion_relation_pump_saturated
+
+        g = self._pump_graph()
+        pump = np.asarray(g.graph["params"]["pump"], dtype=float)
+        field = np.ones(len(g.edges))
+        gsat = _saturated_graph_at(g, [3.0, 0.0], 0.0, 0.5, pump, field)
+        # a = 0 -> denominator 1 -> D0_eff = D0 * pump (unsaturated), saturated
+        # dispersion swapped in. (Equivalence to dispersion_relation_pump at this
+        # D0_eff is covered by TestSaturatedDispersion.)
+        np.testing.assert_allclose(gsat.graph["params"]["D0_eff"], 0.5 * pump)
+        assert gsat.graph["dispersion_relation"] is dispersion_relation_pump_saturated
+        # the throwaway copy must not mutate the original graph
+        assert "D0_eff" not in g.graph["params"]
+
+    def test_saturated_graph_lowers_effective_pump_with_amplitude(self):
+        from netsalt.modes import _saturated_graph_at
+
+        g = self._pump_graph()
+        pump = np.asarray(g.graph["params"]["pump"], dtype=float)
+        field = np.ones(len(g.edges))
+        unsat = _saturated_graph_at(g, [3.0, 0.0], 0.0, 0.5, pump, field).graph["params"]["D0_eff"]
+        sat = _saturated_graph_at(g, [3.0, 0.0], 1.0, 0.5, pump, field).graph["params"]["D0_eff"]
+        # hole burning reduces the effective pump on the gain edges
+        assert np.all(sat[pump > 0] < unsat[pump > 0])
+
+    def test_field_intensity_is_finite_per_edge(self):
+        from netsalt.modes import _get_mask_matrices, _single_mode_field_intensity
+
+        g = self._pump_graph()
+        pump_mask = _get_mask_matrices(g.graph["params"])[1]
+        inten = _single_mode_field_intensity(g, [3.0, 0.05], pump_mask)
+        assert inten.shape == (len(g.edges),)
+        assert np.all(np.isfinite(inten))
