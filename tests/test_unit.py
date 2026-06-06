@@ -1622,6 +1622,30 @@ class TestIntensitySolveHelpers:
         assert pumps == sorted(pumps)
         assert np.allclose(out["interacting_lasing_thresholds"].to_numpy(), [0.5, np.inf])
 
+    def test_nonneg_active_set_keeps_all_when_positive(self):
+        from netsalt.modes import _nonneg_active_set
+
+        # diagonal (decoupled) competition matrix: every mode lases above thresh
+        T = np.diag([1.0, 1.0, 1.0])
+        thresholds = np.array([1.0, 1.0, 1.0])
+        kept = _nonneg_active_set(T, thresholds, [0, 1, 2], pump_intensity=2.0)
+        assert kept == [0, 1, 2]
+
+    def test_nonneg_active_set_prunes_negative_mode(self):
+        from netsalt.modes import _intensity_slopes_shifts, _nonneg_active_set
+
+        # strong cross-competition makes the raw linear solve drive one mode
+        # negative; the pruned active set must give only non-negative intensities
+        T = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 2.5, 1.0]])
+        thresholds = np.array([1.0, 1.0, 5.0])
+        ids = [0, 1, 2]
+        slopes, shifts = _intensity_slopes_shifts(T, thresholds, ids)
+        assert (slopes * 2.0 - shifts).min() < 0  # raw solve is unphysical
+        kept = _nonneg_active_set(T, thresholds, ids, pump_intensity=2.0)
+        assert kept != ids and len(kept) >= 1
+        s, sh = _intensity_slopes_shifts(T, thresholds, kept)
+        assert (s * 2.0 - sh).min() >= -1e-12  # survivors are non-negative
+
 
 class TestIntensityMethodDispatch:
     """``step_compute_modal_intensities`` routes on ``intensity_method``."""
