@@ -319,3 +319,10 @@ curves and a within-edge (oversample) convergence study, and contrasts the
 operator-level Newton solver with the linear model (onset slope + which modes
 lase). All relaxations are exact at threshold, so the linear model remains the
 threshold-limit check.
+
+``examples/intensity_methods/compare_intensity_methods.py`` is a self-contained
+worked example: it builds several small open graphs (a Fabry–Pérot line, a ring
+resonator, a tree splitter) and overlays the four methods' L–I curves, with a
+per-mode breakdown that makes the bend-over and gain-clamping suppression
+explicit.
+
