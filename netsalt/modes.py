@@ -1560,8 +1560,18 @@ def _solve_amplitudes(
 
 
 def _newton_onset_unit_scale(
-    graph, mode0, field0, threshold, t_self, pump, pump_mask,
-    inner_max_iter, inner_damping, tol, max_steps, seed,
+    graph,
+    mode0,
+    field0,
+    threshold,
+    t_self,
+    pump,
+    pump_mask,
+    inner_max_iter,
+    inner_damping,
+    tol,
+    max_steps,
+    seed,
 ):
     """Per-mode factor converting the Newton amplitude to the linear-intensity unit.
 
