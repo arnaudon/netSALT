@@ -157,11 +157,9 @@ def _threshold_modes(graph):
 def _ll_curves(graph, threshold_df):
     """Return ``{method: (pumps, data)}`` with ``data`` shape ``(n_modes, n_pumps)``.
 
-    ``full_salt_newton`` solves for an amplitude in the ``∫|Ê|^2 = 1`` convention,
-    which differs from the competition-matrix modal-intensity unit by a
-    graph-dependent constant. To overlay it with the other three it is rescaled to
-    the linear unit by matching the dominant mode's onset slope -- otherwise its
-    absolute height is not comparable (the *shape* always is).
+    All four solvers return modal intensities in the same unit (each reduces to the
+    linear ``1/(T_μμ·D0_thr)`` onset slope at threshold), so the curves can be
+    overlaid directly.
     """
     competition = compute_mode_competition_matrix(graph, threshold_df)
     solvers = {
@@ -183,38 +181,7 @@ def _ll_curves(graph, threshold_df):
         pumps = np.array(sorted(c[1] for c in cols))
         data = np.nan_to_num(df[[("modal_intensities", pp) for pp in pumps]].to_numpy(dtype=float))
         out[method] = (pumps, data)
-
-    out["full_salt_newton"] = (
-        out["full_salt_newton"][0],
-        out["full_salt_newton"][1] * _newton_unit_scale(out, competition, threshold_df),
-    )
     return out
-
-
-def _newton_unit_scale(out, competition, threshold_df):
-    """Factor putting full_salt_newton on the linear modal-intensity unit.
-
-    The linear dominant mode rises with slope ``1/(T_μμ·D0_thr)``. Estimate the
-    newton dominant-mode slope by a least-squares fit through ``(D0_thr, 0)`` over
-    its whole rising curve (robust to the coarse grid and the noisy near-threshold
-    point) and take the ratio. Returns 1.0 if it cannot be estimated.
-    """
-    thresholds = np.asarray(threshold_df["lasing_thresholds"]).ravel()
-    if not np.any(thresholds < np.inf):
-        return 1.0
-    t0 = int(np.argmin(thresholds))
-    thr0 = float(thresholds[t0])
-    lin_slope = 1.0 / (competition[t0, t0] * thr0)
-
-    pumps, data = out["full_salt_newton"]
-    dp = pumps - thr0
-    values = data[t0]
-    mask = (values > 1e-9) & (dp > 1e-9)
-    if mask.sum() == 0 or lin_slope <= 0:
-        return 1.0
-    # slope of the best line through the origin: argmin_s ||s*dp - v||^2
-    newton_slope = np.sum(values[mask] * dp[mask]) / np.sum(dp[mask] ** 2)
-    return lin_slope / newton_slope if newton_slope > 0 else 1.0
 
 
 def _plot_per_mode(name, curves, out):
@@ -263,8 +230,7 @@ def main():
             pumps, data = curves[method]
             total = data.sum(axis=0)
             n_active = int(np.sum(data[:, -1] > 1e-9))
-            label = method + " (rescaled)" if method == "full_salt_newton" else method
-            ax.plot(pumps, total, "o-", ms=3, color=COLORS[method], label=label)
+            ax.plot(pumps, total, "o-", ms=3, color=COLORS[method], label=method)
             print(f"{name:22s} {method:18s} {n_lasing:>9d} {n_active:>13d} {total[-1]:>11.3e}")
         ax.set_title(f"{name}\n({len(graph)} nodes, {n_lasing} lasing modes)")
         ax.set_xlabel("pump $D_0$")

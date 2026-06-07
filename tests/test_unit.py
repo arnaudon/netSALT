@@ -1755,3 +1755,83 @@ class TestFullSaltNewton:
         inten = _single_mode_field_intensity(g, [3.0, 0.05], pump_mask)
         assert inten.shape == (len(g.edges),)
         assert np.all(np.isfinite(inten))
+
+    def test_reduces_to_linear_onset_slope_on_independent_graph(self):
+        """full_salt_newton's reported intensity is in the linear modal-intensity
+        unit on a graph *other* than line_PRA: the dominant mode's onset slope
+        matches the linear ``1/(T_μμ·D0_thr)``. Guards the unit-consistency fix
+        against the graph-dependent within-edge form factor."""
+        import networkx as nx
+
+        import netsalt
+        from netsalt.modes import (
+            compute_modal_intensities_full_salt_newton,
+            compute_mode_competition_matrix,
+            find_threshold_lasing_modes,
+            pump_trajectories,
+            scan_frequencies,
+        )
+        from netsalt.physics import dispersion_relation_pump
+        from netsalt.quantum_graph import create_quantum_graph, set_total_length
+
+        # small open dielectric line cavity straddling the gain line at k_a = 15
+        n_edges = 8
+        g = nx.path_graph(n_edges + 1)
+        positions = np.array([[float(i), 0.0] for i in range(n_edges + 1)])
+        params = {
+            "open_model": "open",
+            "c": 1.0,
+            "k_a": 15.0,
+            "gamma_perp": 3.0,
+            "k_min": 12.0,
+            "k_max": 18.0,
+            "k_n": 80,
+            "alpha_min": 0.0,
+            "alpha_max": 1.0,
+            "alpha_n": 20,
+            "quality_threshold": 1e-3,
+            "search_stepsize": 0.01,
+            "max_steps": 1000,
+            "max_tries_reduction": 50,
+            "reduction_factor": 0.8,
+            "n_workers": 1,
+            "D0_max": 1.0,
+            "D0_steps": 10,
+            "dielectric_params": {
+                "method": "uniform",
+                "inner_value": 9.0,
+                "outer_value": 1.0,
+                "loss": 0.0,
+            },
+        }
+        create_quantum_graph(g, params, positions=positions)
+        set_total_length(g, 0.5)  # short -> well-separated longitudinal modes
+        netsalt.set_dielectric_constant(g, g.graph["params"])
+        netsalt.set_dispersion_relation(g, dispersion_relation_pump)
+
+        qualities = scan_frequencies(g)
+        passive = netsalt.find_passive_modes(
+            g, qualities, method="grid", min_distance=2, threshold_abs=0.1
+        )
+        pump = np.array([1.0 if g[u][v]["inner"] else 0.0 for u, v in g.edges()])
+        g.graph["params"]["pump"] = pump
+        trajectories = pump_trajectories(passive, g, return_approx=True)
+        tdf = find_threshold_lasing_modes(trajectories, g)
+
+        thresholds = np.asarray(tdf["lasing_thresholds"]).ravel()
+        assert np.any(thresholds < np.inf), "fixture must produce a lasing mode"
+        t0 = int(np.argmin(thresholds))
+        thr0 = float(thresholds[t0])
+        T = compute_mode_competition_matrix(g, tdf)
+        linear_slope = 1.0 / (T[t0, t0] * thr0)
+
+        # measure the newton onset slope just above the first threshold
+        finite = np.sort(thresholds[thresholds < np.inf])
+        d0 = thr0 + 0.4 * ((finite[1] - thr0) if finite.size > 1 else 0.3 * thr0)
+        df = compute_modal_intensities_full_salt_newton(g, tdf.copy(), d0, D0_steps=4)
+        cols = sorted(
+            c[1] for c in df.columns if isinstance(c, tuple) and c[0] == "modal_intensities"
+        )
+        a = np.nan_to_num(df.loc[t0, [("modal_intensities", c) for c in cols]].to_numpy(float))
+        newton_slope = a[-1] / (cols[-1] - thr0)
+        assert 0.8 < newton_slope / linear_slope < 1.2

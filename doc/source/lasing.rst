@@ -303,11 +303,14 @@ key (default ``"linear"``), dispatched by
     borrowed from the linear model; the bound drives a non-lasing candidate to
     ``a_μ = 0``.
 
-    It reproduces the linear onset slope ``1/(T_μμ·D0_thr)`` to ``<1 %``, is
-    deterministic and path-independent, and -- the qualitative payoff -- captures
-    **gain-clamping mode suppression**: full SALT lases *fewer* modes than the
-    linear model, because a strong mode's saturation pushes weaker ones below
-    threshold. It never raises (a failed step freezes the warm-start) but is
+    Its amplitude is reported in the **linear modal-intensity unit** -- the raw
+    Newton amplitude differs from the competition-matrix unit by a graph-dependent
+    within-edge form factor, so each mode is rescaled to match the linear
+    ``1/(T_μμ·D0_thr)`` onset slope, making it directly comparable to the other
+    solvers on any graph. It is deterministic and path-independent, and -- the
+    qualitative payoff -- captures **gain-clamping mode suppression**: full SALT
+    lases *fewer* modes than the linear model, because a strong mode's saturation
+    pushes weaker ones below threshold. It never raises (a failed step freezes the warm-start) but is
     *expensive* (a nested per-pump solve), so use a modest ``salt_D0_steps``.
     Borrowing the linear active set is exact at threshold; a fully self-consistent
     active set (modes full SALT lases that the linear model misses) is the natural

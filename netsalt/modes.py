@@ -1559,6 +1559,45 @@ def _solve_amplitudes(
     return modes, fields, a, converged
 
 
+def _newton_onset_unit_scale(
+    graph, mode0, field0, threshold, t_self, pump, pump_mask,
+    inner_max_iter, inner_damping, tol, max_steps, seed,
+):
+    """Per-mode factor converting the Newton amplitude to the linear-intensity unit.
+
+    The Newton amplitude lives in the integral-normalised (``∫|Ê|^2 = 1``)
+    convention, and its saturation is applied per-edge with the *mean* ``|Ê|^2``;
+    the competition matrix instead integrates the true ``|E|^4`` along each edge.
+    The two therefore differ by a graph/mode-dependent within-edge form factor (the
+    same approximation ``oversample_size`` refines), so the raw amplitude is not in
+    the linear modal-intensity unit. Match the *single-mode* onset slope -- the
+    linear mode rises as ``1/(T_μμ·D0_thr)`` -- by probing the isolated mode at a
+    small pump above threshold and taking the ratio, so the reported intensities
+    reduce to linear at threshold on any graph (above threshold the genuine SALT
+    saturation is preserved). Returns 1.0 if the probe is degenerate.
+    """
+    s_linear = 1.0 / (t_self * threshold)
+    eps = 0.05
+    _, _, a_probe, _ = _solve_amplitudes(
+        graph,
+        [mode0],
+        [field0],
+        [s_linear * threshold * eps],
+        threshold * (1.0 + eps),
+        pump,
+        pump_mask,
+        inner_max_iter,
+        inner_damping,
+        tol,
+        max_steps,
+        seed,
+    )
+    s_newton = float(a_probe[0]) / (threshold * eps)
+    if not np.isfinite(s_newton) or s_newton <= 0.0:
+        return 1.0
+    return s_linear / s_newton
+
+
 def compute_modal_intensities_full_salt_newton(
     graph,
     modes_df,
@@ -1590,9 +1629,15 @@ def compute_modal_intensities_full_salt_newton(
     competition matrix), which also sets the amplitude warm-start magnitude;
     a non-lasing mode in the active set is driven to ``a_μ = 0`` by the bound.
     Borrowing the linear active set is an approximation, exact at threshold; a
-    fully self-consistent active set is the natural next step. It reduces to the
-    linear onset slope ``1/(T_μμ·D0_thr)`` at threshold (validated in the tests),
-    and never raises -- a failed step freezes the warm-start and warns.
+    fully self-consistent active set is the natural next step.
+
+    The amplitude is reported in the **linear modal-intensity unit**: the raw
+    Newton amplitude (integral-normalised field, per-edge-mean saturation) differs
+    from the competition-matrix unit by a graph-dependent within-edge form factor,
+    so each mode is rescaled (:func:`_newton_onset_unit_scale`) to match the linear
+    ``1/(T_μμ·D0_thr)`` onset slope -- making the curves directly comparable to the
+    other solvers on any graph (validated in the tests). It never raises -- a
+    failed step freezes the warm-start and warns.
     """
     del max_iter, quality_method  # interface parity with the other solvers
 
@@ -1639,6 +1684,7 @@ def compute_modal_intensities_full_salt_newton(
     mode_state: dict[int, np.ndarray] = {}
     field_state: dict[int, np.ndarray] = {}
     a_state: dict[int, float] = {}
+    unit_scale: dict[int, float] = {}  # native amplitude -> linear modal-intensity unit
     first_onset = float(np.min(onset[onset < np.inf]))
 
     # Persistent pool for the per-mode refines (engaged only for a large active
@@ -1669,6 +1715,22 @@ def compute_modal_intensities_full_salt_newton(
                         pump_mask,
                     )
                     a_state[i] = 0.0
+                    # convert this mode's amplitude to the linear modal-intensity
+                    # unit so it is comparable to the other solvers on any graph
+                    unit_scale[i] = _newton_onset_unit_scale(
+                        work_graph,
+                        mode_state[i],
+                        field_state[i],
+                        float(lasing_thresholds[i]),
+                        t_diag[i],
+                        pump,
+                        pump_mask,
+                        inner_max_iter,
+                        inner_damping,
+                        tol,
+                        max_steps,
+                        seed,
+                    )
 
             a0 = [
                 max(a_state[i], (D0 / float(lasing_thresholds[i]) - 1.0) / t_diag[i], 0.0)
@@ -1698,7 +1760,7 @@ def compute_modal_intensities_full_salt_newton(
                 mode_state[i] = modes_out[j]
                 field_state[i] = fields_out[j]
                 a_state[i] = float(a_out[j])
-                modal_intensities.loc[i, D0] = max(a_state[i], 0.0)
+                modal_intensities.loc[i, D0] = max(a_state[i] * unit_scale[i], 0.0)
                 if a_state[i] > 0 and D0 < interacting_lasing_thresholds[i]:
                     interacting_lasing_thresholds[i] = D0
     finally:

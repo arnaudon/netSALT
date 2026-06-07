@@ -12,13 +12,9 @@ theory.
 | `full_salt` | + per-edge spatial hole burning (surrogate) | bends over with saturation |
 | `full_salt_newton` | operator-level nonlinear SALT | gain clamping → can lase **fewer** modes |
 
-All four reduce to the same onset slope at threshold, so their curves share units
-and can be overlaid directly — **except** `full_salt_newton`, which solves for an
-amplitude in its own (`∫|Ê|²=1`) normalization that differs from the
-competition-matrix modal-intensity unit by a graph-dependent constant. The script
-rescales it onto the linear unit by matching the dominant mode's onset slope; on
-the same unit it sits with the other nonlinear methods (its raw amplitude is
-otherwise a few × larger and looks misleadingly different).
+All four reduce to the same `1/(T_μμ·D0_thr)` onset slope at threshold, so their
+curves share units and can be overlaid directly (`full_salt_newton` rescales its
+own amplitude onto this unit internally).
 
 ### What to expect
 
