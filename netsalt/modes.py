@@ -818,7 +818,9 @@ def compute_mode_competition_matrix(graph, modes_df, with_gamma=True):
     return _scatter_competition_block(block, lasing_mask, len(threshold_modes_all))
 
 
-def compute_mode_competition_matrix_at_pump(graph, modes_df, pump_intensity, with_gamma=True):
+def compute_mode_competition_matrix_at_pump(
+    graph, modes_df, pump_intensity, with_gamma=True, follow_modes=True
+):
     """Competition matrix with every mode profile evaluated at ``pump_intensity``.
 
     Relaxes the frozen-threshold-profile approximation (#2): rather than each
@@ -827,6 +829,16 @@ def compute_mode_competition_matrix_at_pump(graph, modes_df, pump_intensity, wit
     :func:`compute_modal_intensities_self_consistent`. Reduces to
     :func:`compute_mode_competition_matrix` when ``pump_intensity`` equals every
     mode's threshold.
+
+    With ``follow_modes`` (default) each mode is first **refined to the actual
+    mode of the operating-pump operator** (:func:`_refine_local`, warm-started
+    from its threshold position) before its profile is taken. This matters far
+    above threshold: the frozen threshold-frequency field is no longer an
+    eigenmode of the strongly-pumped operator (its ``|λ₁|`` grows large), and the
+    distortion -- worst for the lowest-threshold / highest-gain mode -- inflates
+    that mode's self-saturation and can spuriously flip the mode ordering.
+    Following the mode keeps every profile physical. Refining at a mode's own
+    threshold is a no-op, so the reduction to the linear matrix is preserved.
     """
     threshold_modes_all = modes_df["threshold_lasing_modes"].to_numpy()
     lasing_thresholds_all = modes_df["lasing_thresholds"].to_numpy()
@@ -835,10 +847,46 @@ def compute_mode_competition_matrix_at_pump(graph, modes_df, pump_intensity, wit
     threshold_modes = threshold_modes_all[lasing_mask]
     pumps = np.full(len(threshold_modes), float(pump_intensity))
 
+    if follow_modes and len(threshold_modes):
+        threshold_modes = _follow_modes_to_pump(
+            graph, threshold_modes, lasing_thresholds_all[lasing_mask], float(pump_intensity)
+        )
+
     block = _mode_competition_matrix_block(
         graph, threshold_modes, pumps, with_gamma=with_gamma, check_quality=False
     )
     return _scatter_competition_block(block, lasing_mask, len(threshold_modes_all))
+
+
+def _follow_modes_to_pump(graph, modes_complex, thresholds, pump_intensity, n_steps=5, seed=42):
+    """Refine each (complex) mode to the operating-pump operator's nearby mode.
+
+    Returns the refined modes in the same complex ``k - i·alpha`` storage format.
+    A mode pumped well above its threshold sits deep in the gain half-plane, too
+    far for a single refine to reach from the threshold position, so it is tracked
+    by **continuation** -- a few warm-started refines through intermediate pumps
+    from its own threshold up to ``pump_intensity``. The real-``k`` excursion of
+    each refine is capped below the inter-mode spacing so a mode cannot hop onto a
+    neighbour (only the imaginary part moves much, as the mode goes into gain).
+    """
+    ks = np.array([np.real(z) for z in modes_complex])
+    if len(ks) > 1:
+        gaps = np.abs(ks[:, None] - ks[None, :])
+        gaps[np.diag_indices(len(ks))] = np.inf
+        k_window = float(np.clip(0.4 * gaps.min(), 0.05, 1.0))
+    else:
+        k_window = 1.0
+
+    refined = []
+    for z, threshold in zip(modes_complex, thresholds, strict=True):
+        mode = from_complex(z)
+        # ramp from the mode's own threshold to the operating pump (a single step
+        # if the operating pump is at or below threshold)
+        start = min(float(threshold), pump_intensity)
+        for d0 in np.linspace(start, pump_intensity, n_steps):
+            mode = _refine_local(mode, graph_with_pump(graph, float(d0)), 1e-9, 100, seed, k_window)
+        refined.append(to_complex(mode))
+    return np.array(refined)
 
 
 def _find_next_lasing_mode(
@@ -1103,8 +1151,8 @@ def compute_modal_intensities_self_consistent(
     Relaxes the frozen-threshold-profile approximation (issue #42, #2): instead
     of a single competition matrix built once with every mode at its own
     threshold, the matrix is rebuilt at each operating pump with all modes
-    evaluated at that pump (their threshold frequency, profile taken on the
-    operating-pump dielectric -- see
+    **followed to that pump** (each refined to the actual mode of the pumped
+    operator, not its frozen threshold field -- see
     :func:`compute_mode_competition_matrix_at_pump`). It then reuses the exact
     same event-driven activation / mode-vanishing sweep as
     :func:`compute_modal_intensities` (via :func:`_modal_intensity_sweep`), so it

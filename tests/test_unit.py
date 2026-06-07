@@ -1697,6 +1697,65 @@ class TestIntensityMethodDispatch:
             assert self._run(tmp_path, monkeypatch, method) == [method]
 
 
+def _independent_lasing_fixture():
+    """Build a small open dielectric line cavity and return ``(graph, threshold_df)``.
+
+    A short Fabry--Perot straddling the gain line at ``k_a = 15`` with a handful of
+    well-separated lasing modes -- an independent fixture (not ``line_PRA``) for
+    the full-SALT consistency tests. Runs the real passive -> pump -> trajectories
+    -> threshold pipeline so the modes are genuine.
+    """
+    import networkx as nx
+
+    import netsalt
+    from netsalt.modes import find_threshold_lasing_modes, pump_trajectories, scan_frequencies
+    from netsalt.physics import dispersion_relation_pump
+    from netsalt.quantum_graph import create_quantum_graph, set_total_length
+
+    n_edges = 8
+    g = nx.path_graph(n_edges + 1)
+    positions = np.array([[float(i), 0.0] for i in range(n_edges + 1)])
+    params = {
+        "open_model": "open",
+        "c": 1.0,
+        "k_a": 15.0,
+        "gamma_perp": 3.0,
+        "k_min": 12.0,
+        "k_max": 18.0,
+        "k_n": 80,
+        "alpha_min": 0.0,
+        "alpha_max": 1.0,
+        "alpha_n": 20,
+        "quality_threshold": 1e-3,
+        "search_stepsize": 0.01,
+        "max_steps": 1000,
+        "max_tries_reduction": 50,
+        "reduction_factor": 0.8,
+        "n_workers": 1,
+        "D0_max": 1.0,
+        "D0_steps": 10,
+        "dielectric_params": {
+            "method": "uniform",
+            "inner_value": 9.0,
+            "outer_value": 1.0,
+            "loss": 0.0,
+        },
+    }
+    create_quantum_graph(g, params, positions=positions)
+    set_total_length(g, 0.5)  # short -> well-separated longitudinal modes
+    netsalt.set_dielectric_constant(g, g.graph["params"])
+    netsalt.set_dispersion_relation(g, dispersion_relation_pump)
+
+    qualities = scan_frequencies(g)
+    passive = netsalt.find_passive_modes(
+        g, qualities, method="grid", min_distance=2, threshold_abs=0.1
+    )
+    pump = np.array([1.0 if g[u][v]["inner"] else 0.0 for u, v in g.edges()])
+    g.graph["params"]["pump"] = pump
+    trajectories = pump_trajectories(passive, g, return_approx=True)
+    return g, find_threshold_lasing_modes(trajectories, g)
+
+
 class TestFullSaltNewton:
     """Building blocks of the operator-level single-mode Newton solver."""
 
@@ -1761,62 +1820,12 @@ class TestFullSaltNewton:
         unit on a graph *other* than line_PRA: the dominant mode's onset slope
         matches the linear ``1/(T_μμ·D0_thr)``. Guards the unit-consistency fix
         against the graph-dependent within-edge form factor."""
-        import networkx as nx
-
-        import netsalt
         from netsalt.modes import (
             compute_modal_intensities_full_salt_newton,
             compute_mode_competition_matrix,
-            find_threshold_lasing_modes,
-            pump_trajectories,
-            scan_frequencies,
         )
-        from netsalt.physics import dispersion_relation_pump
-        from netsalt.quantum_graph import create_quantum_graph, set_total_length
 
-        # small open dielectric line cavity straddling the gain line at k_a = 15
-        n_edges = 8
-        g = nx.path_graph(n_edges + 1)
-        positions = np.array([[float(i), 0.0] for i in range(n_edges + 1)])
-        params = {
-            "open_model": "open",
-            "c": 1.0,
-            "k_a": 15.0,
-            "gamma_perp": 3.0,
-            "k_min": 12.0,
-            "k_max": 18.0,
-            "k_n": 80,
-            "alpha_min": 0.0,
-            "alpha_max": 1.0,
-            "alpha_n": 20,
-            "quality_threshold": 1e-3,
-            "search_stepsize": 0.01,
-            "max_steps": 1000,
-            "max_tries_reduction": 50,
-            "reduction_factor": 0.8,
-            "n_workers": 1,
-            "D0_max": 1.0,
-            "D0_steps": 10,
-            "dielectric_params": {
-                "method": "uniform",
-                "inner_value": 9.0,
-                "outer_value": 1.0,
-                "loss": 0.0,
-            },
-        }
-        create_quantum_graph(g, params, positions=positions)
-        set_total_length(g, 0.5)  # short -> well-separated longitudinal modes
-        netsalt.set_dielectric_constant(g, g.graph["params"])
-        netsalt.set_dispersion_relation(g, dispersion_relation_pump)
-
-        qualities = scan_frequencies(g)
-        passive = netsalt.find_passive_modes(
-            g, qualities, method="grid", min_distance=2, threshold_abs=0.1
-        )
-        pump = np.array([1.0 if g[u][v]["inner"] else 0.0 for u, v in g.edges()])
-        g.graph["params"]["pump"] = pump
-        trajectories = pump_trajectories(passive, g, return_approx=True)
-        tdf = find_threshold_lasing_modes(trajectories, g)
+        g, tdf = _independent_lasing_fixture()
 
         thresholds = np.asarray(tdf["lasing_thresholds"]).ravel()
         assert np.any(thresholds < np.inf), "fixture must produce a lasing mode"
@@ -1835,3 +1844,29 @@ class TestFullSaltNewton:
         a = np.nan_to_num(df.loc[t0, [("modal_intensities", c) for c in cols]].to_numpy(float))
         newton_slope = a[-1] / (cols[-1] - thr0)
         assert 0.8 < newton_slope / linear_slope < 1.2
+
+    def test_self_consistent_does_not_flip_mode_ordering(self):
+        """Mode-following in compute_mode_competition_matrix_at_pump keeps the
+        lowest-threshold (dominant) mode dominant far above threshold: without it
+        the frozen threshold field degrades and spuriously inflates that mode's
+        self-saturation, letting a weaker mode overtake it."""
+        from netsalt.modes import (
+            compute_modal_intensities,
+            compute_modal_intensities_self_consistent,
+            compute_mode_competition_matrix,
+        )
+
+        g, tdf = _independent_lasing_fixture()
+        thresholds = np.asarray(tdf["lasing_thresholds"]).ravel()
+        assert np.sum(thresholds < np.inf) >= 2, "need >=2 lasing modes to test ordering"
+        t0 = int(np.argmin(thresholds))
+        d0_max = 2.5 * float(thresholds[t0])  # well above threshold (where it used to flip)
+
+        # linear keeps the lowest-threshold mode dominant; self_consistent must too
+        T = compute_mode_competition_matrix(g, tdf)
+        lin = compute_modal_intensities(tdf.copy(), d0_max, T)
+        sc = compute_modal_intensities_self_consistent(g, tdf.copy(), d0_max, D0_steps=6)
+        for df in (lin, sc):
+            cols = [c for c in df.columns if isinstance(c, tuple) and c[0] == "modal_intensities"]
+            last = np.nan_to_num(df[max(cols, key=lambda c: c[1])].to_numpy(float))
+            assert int(np.argmax(last)) == t0
