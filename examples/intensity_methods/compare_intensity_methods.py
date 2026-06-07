@@ -187,24 +187,37 @@ def _ll_curves(graph, threshold_df):
 def _plot_per_mode(name, curves, out):
     """One subplot per method, each showing every lasing mode's L--I curve.
 
-    Within a method the amplitude unit is consistent, so this panel makes the
-    *qualitative* differences plain: ``linear`` is piecewise-linear with kinks at
-    each activation, ``full_salt`` bends the curves over via saturation, and
-    ``full_salt_newton`` clamps the gain so some modes never switch on.
+    The faint dashed curves in every panel are the *linear* per-mode result, drawn
+    as a fixed reference so the differences are obvious: ``full_salt`` bends the
+    curves over via saturation, and ``full_salt_newton`` clamps the gain so some
+    modes the linear model lases are **suppressed** (a dashed curve with no solid
+    partner). Colours are keyed by mode, so a solid/dashed pair is the same mode.
     """
+    cmap = plt.get_cmap("tab10")
+    lin_pumps, lin_data = curves["linear"]
+    lin_active = np.where(lin_data.max(axis=1) > 1e-9)[0]
+
     fig, axes = plt.subplots(2, 2, figsize=(10, 7), sharex=True)
     for ax, method in zip(axes.ravel(), METHODS, strict=True):
         pumps, data = curves[method]
         active = np.where(data.max(axis=1) > 1e-9)[0]
+        # faint linear reference (skip on the linear panel itself)
+        if method != "linear":
+            for mu in lin_active:
+                ax.plot(lin_pumps, lin_data[mu], "--", color=cmap(mu % 10), alpha=0.35, lw=1.2)
         for mu in active:
-            ax.plot(pumps, data[mu], ".-", ms=4, label=f"mode {mu}")
-        ax.set_title(f"{method}  ({len(active)} lasing)")
+            ax.plot(pumps, data[mu], ".-", ms=4, color=cmap(mu % 10), label=f"mode {mu}")
+        suppressed = [mu for mu in lin_active if mu not in active]
+        title = f"{method}  ({len(active)} lasing"
+        if method != "linear" and suppressed:
+            title += f", {len(suppressed)} suppressed vs linear"
+        ax.set_title(title + ")")
         ax.set_ylabel("modal intensity")
         if active.size:
             ax.legend(fontsize=7, ncol=2)
     for ax in axes[1]:
         ax.set_xlabel("pump $D_0$")
-    fig.suptitle(f"Per-mode L--I on the {name} graph", y=1.0)
+    fig.suptitle(f"Per-mode L--I on the {name} graph  (dashed = linear reference)", y=1.0)
     fig.tight_layout()
     fig.savefig(out, bbox_inches="tight")
     plt.close(fig)
