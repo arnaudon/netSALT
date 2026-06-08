@@ -86,7 +86,8 @@ On these small, strongly-overlapping graphs (line, ring, tree) that count is
 threshold. This is exactly where `linear` / `full_salt` **over-count** (2–3
 modes): they don't impose the self-consistent gain-clamping condition. Genuine
 multimode under full SALT needs **spatially-distinct, low-overlap** modes, where
-each mode burns its own spatial hole — see **`two_ring_multimode.py`** below.
+each mode burns its own spatial hole — see **`two_ring_multimode.py`** and
+**`chaotic_ring_multimode.py`** below.
 `full_salt_newton` is more expensive than the matrix methods, so those remain a
 good first pass for multimode L–I.
 
@@ -98,6 +99,23 @@ onto one ring (identical rings would give symmetric/antisymmetric modes spread
 over *both*, with high overlap). With a narrow gain on a cross-ring pair, all four
 solvers — including `full_salt_newton` — lase **3 modes** (one in one ring, two in
 the other). Run it with `OMP_NUM_THREADS=1 python two_ring_multimode.py`.
+
+### Multimode demo: `chaotic_ring_multimode.py`
+
+You don't need a multi-component graph for multimode lasing — a **single** 14-node
+ring with **6 random chords** (extra edges across it) already does it, on a much
+smaller graph. This is the buffon-network mechanism shrunk down: each chord closes
+a new loop, so the cavity supports many interfering path lengths → a **dense,
+irregular spectrum** of **spatially-distinct** modes (each concentrated on
+different loops — see the per-mode *participation ratio* the script prints). They
+burn their holes in different places and co-lase. With a narrow gain on a
+four-mode cluster, `full_salt_newton` lases **4 modes**. The four solvers disagree
+on the count (newton 4, linear 3, the surrogate clamps harder) — that *is* the
+physics: `linear` has no gain clamping, the per-edge-mean surrogate over-clamps,
+and the operator-level Newton imposes the exact self-consistent condition. The
+chord layout is hard-coded (from a small seed scan), so the result is reproducible
+regardless of the NumPy RNG. Run it with
+`OMP_NUM_THREADS=1 python chaotic_ring_multimode.py`.
 
 ## Run
 

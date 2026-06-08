@@ -319,11 +319,16 @@ disagree on the mode count while still agreeing on the total intensity.
       one ring -- identical rings would give symmetric/antisymmetric modes spread
       over both, with high overlap -- so with a narrow gain the modes barely
       compete and ``full_salt_newton`` lases three at once (one in one ring, two in
-      the other). Getting there did need two fixes: a tight ``k``-window (a loose
-      one let the trust region collapse the multimode set to one mode by drifting a
-      mode's ``k`` to a spurious ``a = 0`` root), and dropping off-grid threshold
-      columns that put spurious dips in the curves. Multimode remains the more
-      delicate path, so treat it as experimental and sanity-check the mode count.
+      the other). ``examples/intensity_methods/chaotic_ring_multimode.py`` shows
+      the same effect on a *single* small graph: one 14-node ring with six random
+      chords (the buffon mechanism shrunk down). The chords close extra loops, so
+      the spectrum is dense and the modes localise on different loops; with a
+      narrow gain on a four-mode cluster ``full_salt_newton`` lases four. Getting
+      there did need two fixes: a tight ``k``-window (a loose one let the trust
+      region collapse the multimode set to one mode by drifting a mode's ``k`` to a
+      spurious ``a = 0`` root), and dropping off-grid threshold columns that put
+      spurious dips in the curves. Multimode remains the more delicate path, so
+      treat it as experimental and sanity-check the mode count.
 
 Selecting a solver
 ^^^^^^^^^^^^^^^^^^

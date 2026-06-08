@@ -193,3 +193,77 @@ def test_full_salt_newton_multimode_two_ring():
     peak = max(data.max(), 1e-9)
     n_lasing = int(np.sum(data.max(axis=1) > 1e-2 * peak))
     assert n_lasing >= 2, f"expected multimode lasing, got {n_lasing}"
+
+
+def test_full_salt_newton_multimode_chaotic_ring():
+    """full_salt_newton lases several modes on a single ring with random chords.
+
+    A 14-node ring plus six fixed chords (the buffon mechanism shrunk down): the
+    chords close extra loops, so the spectrum is dense and the modes localise on
+    different loops. With a narrow gain on a mode cluster, several co-lase on one
+    small single-component graph -- guards the multimode example
+    ``examples/intensity_methods/chaotic_ring_multimode.py``.
+    """
+    import networkx as nx
+
+    from netsalt.modes import (
+        compute_modal_intensities_full_salt_newton,
+        find_passive_modes,
+        find_threshold_lasing_modes,
+        pump_trajectories,
+    )
+    from netsalt.physics import dispersion_relation_pump
+    from netsalt.quantum_graph import create_quantum_graph, set_total_length
+
+    m = 14
+    chords = [(0, 7), (1, 5), (2, 12), (3, 5), (3, 10), (7, 11)]
+    g = nx.cycle_graph(m)
+    g.add_edges_from(chords)
+    g.add_edge(0, m)
+    g.add_edge(m // 2, m + 1)
+    pos = {i: [np.cos(2 * np.pi * i / m), np.sin(2 * np.pi * i / m)] for i in range(m)}
+    pos[m] = [1.6, 0.0]
+    pos[m + 1] = [-1.6, 0.0]
+    positions = np.array([pos[i] for i in range(len(g))])
+    params = {
+        "open_model": "open",
+        "c": 1.0,
+        "k_a": 2.81,
+        "gamma_perp": 0.10,
+        "k_min": 2.55,
+        "k_max": 3.25,
+        "alpha_min": -0.05,
+        "alpha_max": 0.25,
+        "n_workers": 1,
+        "n_modes_max": 40,
+        "quality_threshold": 1e-3,
+        "search_stepsize": 0.005,
+        "max_steps": 1000,
+        "max_tries_reduction": 50,
+        "reduction_factor": 0.8,
+        "D0_max": 0.5,
+        "D0_steps": 14,
+        "dielectric_params": {
+            "method": "uniform",
+            "inner_value": 9.0,
+            "outer_value": 1.0,
+            "loss": 0.0,
+        },
+    }
+    create_quantum_graph(g, params, positions=positions)
+    set_total_length(g, 12.0)
+    netsalt.set_dielectric_constant(g, g.graph["params"])
+    netsalt.set_dispersion_relation(g, dispersion_relation_pump)
+
+    passive = find_passive_modes(g, method="contour")
+    assert len(passive) >= 3, "fixture should find several modes"
+    g.graph["params"]["pump"] = np.array([1.0 if g[u][v]["inner"] else 0.0 for u, v in g.edges()])
+    trajectories = pump_trajectories(passive, g, return_approx=True)
+    tdf = find_threshold_lasing_modes(trajectories, g)
+
+    df = compute_modal_intensities_full_salt_newton(g, tdf.copy(), 0.5, D0_steps=10)
+    cols = [c for c in df.columns if isinstance(c, tuple) and c[0] == "modal_intensities"]
+    data = np.nan_to_num(df[cols].to_numpy(dtype=float))
+    peak = max(data.max(), 1e-9)
+    n_lasing = int(np.sum(data.max(axis=1) > 1e-2 * peak))
+    assert n_lasing >= 3, f"expected multimode lasing, got {n_lasing}"
