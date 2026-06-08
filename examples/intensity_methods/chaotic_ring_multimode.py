@@ -203,7 +203,10 @@ def _plot_li(ax, grid_lin, linear, n_cols, newton, thr, cmap, xmax=None):
         if thr[m] < (xmax if xmax is not None else np.inf):
             ax.axvline(thr[m], color=col, ls=":", lw=0.8, alpha=0.6)
         ax.plot(grid_lin, linear[m], "--", color=col, lw=1.3, alpha=0.8)
-        ax.plot(n_cols, newton[m], "-", color=col, lw=1.8, label=f"mode {m}")
+        # markers: newton's values are discrete per-pump equilibria. A small
+        # one-sample dip where a new mode joins the active set (the coupled solve
+        # redistributing gain) then reads as sampled data, not a broken line.
+        ax.plot(n_cols, newton[m], ".-", color=col, lw=1.8, ms=5, label=f"mode {m}")
     if xmax is not None:
         ax.set_xlim(0, xmax)
         top = max(
