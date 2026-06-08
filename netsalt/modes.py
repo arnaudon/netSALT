@@ -1685,7 +1685,15 @@ def compute_modal_intensities_full_salt_newton(
                 if c not in mode_state:
                     _init(c)
                 kc = _refine_local(mode_state[c], background, 1e-9, max_steps, seed, k_window=0.3)
-                if kc[1] < -1e-4:  # alpha = mode[1] < 0  => net gain => above threshold
+                # alpha = mode[1] < 0 => net gain => the mode lases. Use a *tight*
+                # margin: gain clamping pins an above-threshold mode's alpha at ~0^-
+                # (the lasing modes hold it right at threshold), often only ~1e-4
+                # negative. A looser cutoff (e.g. -1e-4, the same magnitude) then adds
+                # the mode many pump steps late and snaps it to its already-large
+                # amplitude -- a spurious jump in its L--I curve and a matching dip in
+                # the others. Adding right at the crossing makes it ramp continuously;
+                # the a < 1e-4 drop rule above is the safety net against false adds.
+                if kc[1] < -1e-6:
                     mode_state[c] = np.array([float(kc[0]), 0.0])
                     a_state[c] = 1e-3
                     active.append(c)
