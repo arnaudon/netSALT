@@ -298,16 +298,18 @@ disagree on the mode count while still agreeing on the total intensity.
 
 .. note::
 
-   ``full_salt_newton`` is robust where a **single dominant mode** lases (others
-   gain-clamped below threshold). Its genuinely-multimode regime (several modes
-   co-lasing) is **not yet robust**: the coupled amplitude solve borrows the
-   linear active set and re-solves each pump independently, so near-degenerate
-   co-lasing modes can swap/chatter and the per-mode L–I curves become jagged. For
-   multimode L–I use the competition-matrix methods (``linear`` /
-   ``self_consistent`` / ``full_salt``), whose event-driven sweep handles many
-   modes stably; a self-consistent active set with eigenvector-overlap mode
-   tracking is the open follow-up that would make the operator-level solver
-   robustly multimode.
+   ``full_salt_newton`` solves this self-consistently: at each pump it freezes the
+   saturated background fields, solves all active ``(k_μ, a_μ)`` with one
+   trust-region step (clean residual, no chatter), refreshes the fields, and grows
+   the active set by adding a candidate only when it has net gain on the current
+   background. So it reports the **physically-correct mode count**, which on
+   strongly-overlapping graphs (a short line, a small ring) is often **one** --
+   precisely the case where ``linear`` / ``full_salt`` *over-count*. Genuine
+   multimode appears when the modes are spatially distinct enough to burn separate
+   holes (disordered / multi-cavity graphs, e.g. buffon); there it lases as many
+   modes as the saturated gain truly supports. It is more expensive than the
+   competition-matrix methods, so for quick multimode L–I those remain a good
+   first pass.
 
 Selecting a solver
 ^^^^^^^^^^^^^^^^^^
@@ -341,29 +343,30 @@ key (default ``"linear"``), dispatched by
     :func:`~netsalt.modes.compute_modal_intensities_full_salt_newton` —
     *experimental, operator-level.* Rather than saturating the competition
     matrix, it solves the real nonlinear SALT eigenproblem: at each pump it finds,
-    for every active mode, ``(k_μ, a_μ)`` so the shared saturated operator
+    for every lasing mode, ``(k_μ, a_μ)`` so the shared saturated operator
     ``L_sat`` (:func:`~netsalt.physics.dispersion_relation_pump_saturated`) is
-    singular at each real ``k_μ``. The solve is **decoupled** for robustness --
-    an inner frequency/profile fixed point with continuous mode-following
-    (warm-started *local* complex-``k`` refines, so a mode tracks itself across
-    pump and ARPACK cannot swap modes) wrapped in a bounded ``M``-dimensional
-    amplitude least-squares -- rather than a monolithic ``2M`` ``(k, a)`` root
-    find, which lets a weak mode's amplitude chatter. The activation structure is
-    borrowed from the linear model; the bound drives a non-lasing candidate to
-    ``a_μ = 0``.
+    singular at each real ``k_μ``. Two ingredients make it robust:
 
-    Its amplitude is reported in the **linear modal-intensity unit** -- the raw
-    Newton amplitude differs from the competition-matrix unit by a graph-dependent
-    within-edge form factor, so each mode is rescaled to match the linear
-    ``1/(T_μμ·D0_thr)`` onset slope, making it directly comparable to the other
-    solvers on any graph. It is deterministic and path-independent, and -- the
-    qualitative payoff -- captures **gain-clamping mode suppression**: full SALT
-    lases *fewer* modes than the linear model, because a strong mode's saturation
-    pushes weaker ones below threshold. It never raises (a failed step freezes the warm-start) but is
-    *expensive* (a nested per-pump solve), so use a modest ``salt_D0_steps``.
-    Borrowing the linear active set is exact at threshold; a fully self-consistent
-    active set (modes full SALT lases that the linear model misses) is the natural
-    next step.
+    * **Frozen-field trust-region solve** (:func:`~netsalt.modes._solve_active_set`)
+      -- for a fixed active set the saturated background fields are frozen while a
+      bounded trust-region least-squares solves all ``(k_μ, a_μ)``; the fields are
+      then refreshed and the step repeated. Freezing the field makes each residual a
+      single clean eigensolve (no inner fixed point), so the Jacobian is noise-free
+      -- the earlier decoupled solve, whose residual re-ran an inner fixed point,
+      chattered for several co-lasing modes.
+    * **Gain-clamping active-set continuation** -- the pump is stepped up; the
+      confirmed lasing set is solved, modes whose amplitude vanishes are dropped,
+      and a candidate is added only when it has net gain (``α < 0``) on the current
+      saturated background. This is self-consistent (not borrowed from the linear
+      model), so it neither over-counts nor flips the lasing winner.
+
+    Its amplitude is reported in the **linear modal-intensity unit** (each mode
+    rescaled to match the linear ``1/(T_μμ·D0_thr)`` onset slope), so it is directly
+    comparable to the other solvers and reduces to linear at threshold. It is
+    deterministic and path-independent, captures **gain-clamping mode suppression**
+    (it lases *fewer* modes than the linear model where they over-count), and never
+    raises. It is *expensive* (a nested per-pump solve), so use a modest
+    ``salt_D0_steps``.
 
 ``benchmark/bench_salt.py`` compares the solvers on speed and accuracy: it runs
 the shared pipeline once, swaps only the intensity step, writes overlaid L–I

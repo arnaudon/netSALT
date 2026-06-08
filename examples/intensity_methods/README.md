@@ -73,21 +73,23 @@ the linear model omits it entirely; the surrogate approximates it too softly. Th
 truth here is a *marginal* call (`α` only `+0.046`), which is why the methods
 disagree on this particular mode.
 
-## Reliability of `full_salt_newton` (single vs multimode)
+## How many modes does `full_salt_newton` lase?
 
-`full_salt_newton` is robust in the regime where a **single dominant mode**
-lases (with others gain-clamped below threshold) — the line and ring here. Its
-*genuinely multimode* regime (several modes co-lasing) is **not yet robust**: the
-coupled amplitude solve, which borrows the linear active set and re-solves each
-pump, can swap/chatter between near-degenerate co-lasing modes, giving jagged L–I
-curves. That is the open *self-consistent active set + robust mode-tracking*
-problem (see ``doc/source/lasing.rst``).
+`full_salt_newton` uses a **self-consistent active set**: at each pump it freezes
+the saturated background field, solves all lasing `(k_μ, a_μ)` with one
+trust-region step (clean residual → no chatter), refreshes the field, and adds a
+candidate only when it has net gain on the current background. So it reports the
+**physically-correct mode count**.
 
-So for **multimode** L–I curves use the competition-matrix methods (`linear` /
-`self_consistent` / `full_salt`), whose event-driven sweep handles many modes
-stably; use `full_salt_newton` for the **operator-level dominant-mode / gain-
-clamping** physics (e.g. the single-vs-suppressed contrast above), not for
-counting many co-lasing modes.
+On these small, strongly-overlapping graphs (line, ring, tree) that count is
+**one** — the dominant mode clamps the gain and genuinely holds the others below
+threshold. This is exactly where `linear` / `full_salt` **over-count** (2–3
+modes): they don't impose the self-consistent gain-clamping condition. Genuine
+multimode under full SALT needs **spatially-distinct, low-overlap** modes
+(disordered / multi-cavity graphs, e.g. buffon), where each mode burns its own
+spatial hole; there the solver lases as many modes as the saturated gain truly
+supports. `full_salt_newton` is more expensive than the matrix methods, so those
+remain a good first pass for multimode L–I.
 
 ## Run
 
