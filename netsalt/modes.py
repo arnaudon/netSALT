@@ -1613,9 +1613,10 @@ def compute_modal_intensities_full_salt_newton(
     )
     threshold_modes = modes_df["threshold_lasing_modes"].to_numpy()
 
-    for i in candidates:
-        if lasing_thresholds[i] <= max_pump_intensity:
-            modal_intensities.loc[i, float(lasing_thresholds[i])] = 0.0
+    # NB: do not add per-mode "0 at its own threshold" baseline columns -- a
+    # mode's threshold is off the shared pump grid, so the *other* modes are then
+    # undefined (NaN -> 0) at that pump, putting a spurious dip in their curves.
+    # The grid already records every mode at every pump, with 0 below activation.
 
     mode_state: dict[int, np.ndarray] = {}
     field_state: dict[int, np.ndarray] = {}
