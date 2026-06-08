@@ -1470,12 +1470,16 @@ def _solve_active_set(
     k0 = np.array([float(m[0]) for m in modes0])
     a = np.clip(np.asarray(a0, dtype=float), 1e-3, None)
     fields = [np.asarray(f, dtype=float) for f in fields0]
+    # Confine k to a *tight* window: frequency pulling above threshold is small,
+    # and a loose window lets the trust region zero a mode's residual by drifting
+    # its k to a spurious nearby root with a=0 (collapsing multimode to one mode)
+    # instead of raising its amplitude to lase. Keep it well below the spacing.
     if n > 1:
         gaps = np.abs(k0[:, None] - k0[None, :])
         gaps[np.diag_indices(n)] = np.inf
-        window = float(np.clip(0.4 * gaps.min(), 0.05, 0.5))
+        window = float(np.clip(0.2 * gaps.min(), 0.02, 0.1))
     else:
-        window = 0.5
+        window = 0.1
     a_max = max(1.0e3 * max(float(np.max(a)), 1.0e-3), 1.0e3)
     lo = np.concatenate([k0 - window, np.zeros(n)])
     hi = np.concatenate([k0 + window, np.full(n, a_max)])
