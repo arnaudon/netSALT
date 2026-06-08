@@ -85,11 +85,19 @@ On these small, strongly-overlapping graphs (line, ring, tree) that count is
 **one** — the dominant mode clamps the gain and genuinely holds the others below
 threshold. This is exactly where `linear` / `full_salt` **over-count** (2–3
 modes): they don't impose the self-consistent gain-clamping condition. Genuine
-multimode under full SALT needs **spatially-distinct, low-overlap** modes
-(disordered / multi-cavity graphs, e.g. buffon), where each mode burns its own
-spatial hole; there the solver lases as many modes as the saturated gain truly
-supports. `full_salt_newton` is more expensive than the matrix methods, so those
-remain a good first pass for multimode L–I.
+multimode under full SALT needs **spatially-distinct, low-overlap** modes, where
+each mode burns its own spatial hole — see **`two_ring_multimode.py`** below.
+`full_salt_newton` is more expensive than the matrix methods, so those remain a
+good first pass for multimode L–I.
+
+### Multimode demo: `two_ring_multimode.py`
+
+Two **detuned** rings (radii 0.9 / 1.25) joined by a bridge, with a lead on each.
+The size difference breaks the left/right symmetry and **localizes** each mode
+onto one ring (identical rings would give symmetric/antisymmetric modes spread
+over *both*, with high overlap). With a narrow gain on a cross-ring pair, all four
+solvers — including `full_salt_newton` — lase **3 modes** (one in one ring, two in
+the other). Run it with `OMP_NUM_THREADS=1 python two_ring_multimode.py`.
 
 ## Run
 

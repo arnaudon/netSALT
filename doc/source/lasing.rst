@@ -311,16 +311,19 @@ disagree on the mode count while still agreeing on the total intensity.
    competition-matrix methods, so for quick multimode L–I those remain a good
    first pass.
 
-   .. warning::
+   .. note::
 
-      The single-dominant-mode regime (with correct gain-clamping suppression of
-      the others) is validated; the genuinely multi-*lasing* regime is **not yet
-      demonstrated end-to-end** -- every small test graph turns out single-mode
-      under faithful SALT, and the disordered graphs that would be multimode are
-      expensive to drive. The active-set machinery is designed to add co-lasing
-      modes when they have gain, and the solve is now stable (a tight ``k``-window
-      prevents the multimode collapse that an earlier version suffered), but treat
-      multimode output as experimental until validated on a true multimode graph.
+      Multimode lasing is demonstrated in
+      ``examples/intensity_methods/two_ring_multimode.py``: two **detuned** rings
+      (different sizes) joined by a bridge. The detuning localises each mode onto
+      one ring -- identical rings would give symmetric/antisymmetric modes spread
+      over both, with high overlap -- so with a narrow gain the modes barely
+      compete and ``full_salt_newton`` lases three at once (one in one ring, two in
+      the other). Getting there did need two fixes: a tight ``k``-window (a loose
+      one let the trust region collapse the multimode set to one mode by drifting a
+      mode's ``k`` to a spurious ``a = 0`` root), and dropping off-grid threshold
+      columns that put spurious dips in the curves. Multimode remains the more
+      delicate path, so treat it as experimental and sanity-check the mode count.
 
 Selecting a solver
 ^^^^^^^^^^^^^^^^^^
