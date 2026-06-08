@@ -306,10 +306,21 @@ disagree on the mode count while still agreeing on the total intensity.
    strongly-overlapping graphs (a short line, a small ring) is often **one** --
    precisely the case where ``linear`` / ``full_salt`` *over-count*. Genuine
    multimode appears when the modes are spatially distinct enough to burn separate
-   holes (disordered / multi-cavity graphs, e.g. buffon); there it lases as many
-   modes as the saturated gain truly supports. It is more expensive than the
+   holes (disordered / multi-cavity graphs, e.g. buffon); there it should lase as
+   many modes as the saturated gain truly supports. It is more expensive than the
    competition-matrix methods, so for quick multimode L–I those remain a good
    first pass.
+
+   .. warning::
+
+      The single-dominant-mode regime (with correct gain-clamping suppression of
+      the others) is validated; the genuinely multi-*lasing* regime is **not yet
+      demonstrated end-to-end** -- every small test graph turns out single-mode
+      under faithful SALT, and the disordered graphs that would be multimode are
+      expensive to drive. The active-set machinery is designed to add co-lasing
+      modes when they have gain, and the solve is now stable (a tight ``k``-window
+      prevents the multimode collapse that an earlier version suffered), but treat
+      multimode output as experimental until validated on a true multimode graph.
 
 Selecting a solver
 ^^^^^^^^^^^^^^^^^^
