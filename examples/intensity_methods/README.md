@@ -110,8 +110,11 @@ irregular spectrum** of **spatially-distinct** modes (each concentrated on
 different loops — see the per-mode *participation ratio* the script prints). They
 burn their holes in different places and co-lase. With a narrow gain on a
 four-mode cluster, `full_salt_newton` lases **4 modes**. The figure has three
-panels: the **graph geometry** (ring edges, chords, leads), and the L–I curves for
-`linear` and `full_salt_newton`.
+panels: the **graph geometry** (ring edges, chords, leads), the **full-range L–I**,
+and a **zoom on the onset** (`linear` dashed, `newton` solid, thresholds dotted).
+The zoom shows the modes switching on in turn — and that newton turns the fourth
+mode on *well above* its bare threshold: gain clamping delays it until enough pump
+is present, exactly what the clamping-free `linear` model misses.
 
 This deep-multimode regime (4–5 strongly-clustered thresholds) is exactly where
 the solvers part ways — and where the cheap ones stop being reliable:

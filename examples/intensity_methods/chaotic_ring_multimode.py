@@ -39,9 +39,13 @@ clustered thresholds) is exactly where the cheap solvers part ways:
   imposes the exact self-consistent gain clamping.
 
 So this script plots only the two solvers that are sensible in this regime --
-``linear`` (reference) and ``full_salt_newton`` (faithful) -- alongside the graph
-geometry. It still *runs* the surrogate solvers and prints their endpoint counts
-so you can see them disagree.
+``linear`` (dashed) and ``full_salt_newton`` (solid) -- in three panels: the graph
+geometry, the full-range L--I, and a **zoom on the onset** (the four thresholds
+sit in ``0.016--0.026``, marked by dotted lines). The zoom shows the modes
+switching on in turn, and in particular that newton turns the fourth mode on *well
+above* its bare threshold -- gain clamping delays it until enough pump is present,
+which is exactly what ``linear`` (no clamping) misses. It still *runs* the
+surrogate solvers and prints their endpoint counts so you can see them disagree.
 
 Run::
 
@@ -107,7 +111,9 @@ PARAMS = {
     "dielectric_params": {"method": "uniform", "inner_value": 9.0, "outer_value": 1.0, "loss": 0.0},
 }
 D0_MAX = 0.5
-D0_STEPS = 14
+D0_STEPS = 40  # pump points over the full range
+D0_ZOOM = 0.08  # onset window (the four thresholds sit in 0.016--0.026)
+D0_STEPS_ZOOM = 36  # pump points within the zoom (fine, to resolve each turn-on)
 
 
 def build_chaotic_ring():
@@ -171,6 +177,45 @@ def _endpoint(df):
     return np.nan_to_num(df[("modal_intensities", cols[-1])].to_numpy(dtype=float))
 
 
+def _curves(df):
+    """(pumps, intensities[n_modes, n_pumps]) from an L--I dataframe."""
+    cols = np.array(
+        sorted(c[1] for c in df.columns if isinstance(c, tuple) and c[0] == "modal_intensities")
+    )
+    data = np.nan_to_num(df[[("modal_intensities", c) for c in cols]].to_numpy(dtype=float))
+    return cols, data
+
+
+def _linear_on_grid(tdf, competition, grid, n_modes):
+    """Sample the (exact, piecewise-linear) linear model on a uniform pump grid."""
+    out = np.zeros((n_modes, grid.size))
+    for j, d0 in enumerate(grid):
+        out[:, j] = _endpoint(compute_modal_intensities(tdf.copy(), d0, competition))
+    return out
+
+
+def _plot_li(ax, grid_lin, linear, n_cols, newton, thr, cmap, xmax=None):
+    """Overlay linear (dashed) and newton (solid) L--I curves, coloured by mode id."""
+    n_modes = newton.shape[0]
+    active = [m for m in range(n_modes) if max(linear[m].max(), newton[m].max()) > 1e-3]
+    for m in active:
+        col = cmap(m % 10)
+        if thr[m] < (xmax if xmax is not None else np.inf):
+            ax.axvline(thr[m], color=col, ls=":", lw=0.8, alpha=0.6)
+        ax.plot(grid_lin, linear[m], "--", color=col, lw=1.3, alpha=0.8)
+        ax.plot(n_cols, newton[m], "-", color=col, lw=1.8, label=f"mode {m}")
+    if xmax is not None:
+        ax.set_xlim(0, xmax)
+        top = max(
+            (newton[m][n_cols <= xmax].max() if np.any(n_cols <= xmax) else 0) for m in active
+        )
+        ax.set_ylim(0, 1.15 * max(top, 1e-9))
+    ax.set_xlabel("pump $D_0$")
+    ax.set_ylabel("modal intensity")
+    if active:
+        ax.legend(fontsize=8)
+
+
 def main():
     graph = build_chaotic_ring()
     passive = find_passive_modes(graph, method="contour")
@@ -191,27 +236,28 @@ def main():
             print(f"  {i}: k={k:.3f}  thr={thr[i]:.3f}  participation={part:.1f}")
 
     competition = compute_mode_competition_matrix(graph, tdf)
-
-    # Sample linear on the same uniform pump grid newton uses: the event-driven
-    # sweep otherwise only stores points at mode thresholds, which here all
-    # cluster near 0.02 and collapse to a 2-point grid. linear is exact between
-    # events, so endpoint-sampling a uniform grid simply draws the true line.
+    n_modes = len(tdf)
     first = float(thr[thr < np.inf].min())
-    grid = np.linspace(first, D0_MAX, D0_STEPS)
-    linear = np.zeros((len(tdf), grid.size))
-    for j, d0 in enumerate(grid):
-        linear[:, j] = _endpoint(compute_modal_intensities(tdf.copy(), d0, competition))
 
-    newton_df = compute_modal_intensities_full_salt_newton(
-        graph, tdf.copy(), D0_MAX, D0_steps=D0_STEPS
+    # Full range. Sample linear on the same uniform grid newton uses: the
+    # event-driven sweep otherwise only stores points at mode thresholds, which
+    # here all cluster near 0.02 and collapse to a 2-point grid. linear is exact
+    # between events, so endpoint-sampling a uniform grid simply draws the line.
+    grid = np.linspace(first, D0_MAX, D0_STEPS)
+    linear = _linear_on_grid(tdf, competition, grid, n_modes)
+    n_cols, newton = _curves(
+        compute_modal_intensities_full_salt_newton(graph, tdf.copy(), D0_MAX, D0_steps=D0_STEPS)
     )
-    n_cols = np.array(
-        sorted(
-            c[1] for c in newton_df.columns if isinstance(c, tuple) and c[0] == "modal_intensities"
+
+    # Zoom on the onset: the four thresholds sit in 0.016--0.026, so re-sample a
+    # fine grid over a small pump window (a newton run with a small max_pump is
+    # just a dense linspace there) to see each mode switch on in turn.
+    grid_z = np.linspace(first, D0_ZOOM, D0_STEPS_ZOOM)
+    linear_z = _linear_on_grid(tdf, competition, grid_z, n_modes)
+    n_cols_z, newton_z = _curves(
+        compute_modal_intensities_full_salt_newton(
+            graph, tdf.copy(), D0_ZOOM, D0_steps=D0_STEPS_ZOOM
         )
-    )
-    newton = np.nan_to_num(
-        newton_df[[("modal_intensities", c) for c in n_cols]].to_numpy(dtype=float)
     )
 
     # Also run the surrogate sweeps once, only to report their (unreliable) counts.
@@ -221,21 +267,12 @@ def main():
     fs = _endpoint(compute_modal_intensities_full_salt(graph, tdf.copy(), D0_MAX, D0_steps=12))
 
     cmap = plt.get_cmap("tab10")
-    fig, axes = plt.subplots(1, 3, figsize=(15, 4.6))
+    fig, axes = plt.subplots(1, 3, figsize=(16, 4.7))
     _draw_geometry(axes[0], graph)
-    for ax, name, xs, data in (
-        (axes[1], "linear (reference, no clamping)", grid, linear),
-        (axes[2], "full_salt_newton (faithful)", n_cols, newton),
-    ):
-        peak = max(data.max(), 1e-9)
-        active = [m for m in range(data.shape[0]) if data[m].max() > 1e-2 * peak]
-        for m in active:
-            ax.plot(xs, data[m], ".-", color=cmap(m % 10), label=f"mode {m}")
-        ax.set_title(f"{name}  ({len(active)} lasing)")
-        ax.set_xlabel("pump $D_0$")
-        ax.set_ylabel("modal intensity")
-        if active:
-            ax.legend(fontsize=8)
+    _plot_li(axes[1], grid, linear, n_cols, newton, thr, cmap)
+    axes[1].set_title("L--I, full range (dashed = linear, solid = newton)")
+    _plot_li(axes[2], grid_z, linear_z, n_cols_z, newton_z, thr, cmap, xmax=D0_ZOOM)
+    axes[2].set_title("zoom on onset (dotted = thresholds)")
 
     fig.suptitle("Single ring + random chords: genuine multimode lasing", y=1.02)
     fig.tight_layout()
