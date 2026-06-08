@@ -22,15 +22,32 @@ With a narrow gain centred on a cluster of these modes, ``full_salt_newton`` las
 reproducible regardless of the NumPy RNG); it came from a small seed scan picking
 a graph whose spectrum has a clean four-mode cluster.
 
+**Which solvers to trust here.** This deep-multimode regime (4--5 strongly
+clustered thresholds) is exactly where the cheap solvers part ways:
+
+* ``linear`` -- exact near-threshold model, gives clean piecewise-linear L--I
+  curves, but has **no gain clamping** (it never asks whether a lasing mode still
+  has net gain once the others saturate it), so its count can err either way --
+  here it lases *one fewer* than newton, because its frozen-threshold competition
+  matrix over-estimates how strongly the cluster suppresses the fourth mode.
+* ``self_consistent`` / ``full_salt`` -- the event-driven sweep with a
+  per-pump-rebuilt competition matrix becomes **numerically erratic** with this
+  many strongly-competing modes (intensities go non-monotone, modes flick on and
+  off). They are reliable near threshold / on weakly-multimode graphs (see
+  ``compare_intensity_methods.py``), not here.
+* ``full_salt_newton`` -- the operator-level solve stays smooth and physical and
+  imposes the exact self-consistent gain clamping.
+
+So this script plots only the two solvers that are sensible in this regime --
+``linear`` (reference) and ``full_salt_newton`` (faithful) -- alongside the graph
+geometry. It still *runs* the surrogate solvers and prints their endpoint counts
+so you can see them disagree.
+
 Run::
 
     OMP_NUM_THREADS=1 python chaotic_ring_multimode.py
 
-Modes are found by Beyn's contour method (robust on this hand-built graph). The
-four solvers disagree on the count -- that is the physics: ``linear`` has no gain
-clamping, the surrogate ``full_salt`` over-clamps through its per-edge-mean hole
-burning, and the operator-level ``full_salt_newton`` imposes the exact
-self-consistent condition.
+Modes are found by Beyn's contour method (robust on this hand-built graph).
 """
 
 from __future__ import annotations
@@ -43,6 +60,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
+from matplotlib.lines import Line2D
 
 import netsalt
 from netsalt.modes import (
@@ -89,6 +107,7 @@ PARAMS = {
     "dielectric_params": {"method": "uniform", "inner_value": 9.0, "outer_value": 1.0, "loss": 0.0},
 }
 D0_MAX = 0.5
+D0_STEPS = 14
 
 
 def build_chaotic_ring():
@@ -115,6 +134,43 @@ def _participation(mode, graph):
     return 1.0 / np.sum(prob**2)
 
 
+def _draw_geometry(ax, graph):
+    """Draw the ring/chord/lead geometry in the plane."""
+    pos = {n: graph.nodes[n]["position"] for n in graph.nodes}
+    chord_set = {tuple(sorted(c)) for c in CHORDS}
+    for u, v in graph.edges():
+        x = [pos[u][0], pos[v][0]]
+        y = [pos[u][1], pos[v][1]]
+        su, sv = min(u, v), max(u, v)
+        if sv >= M:  # lead edge (nodes M, M + 1)
+            ax.plot(x, y, color="crimson", lw=2.0, ls="--", zorder=1)
+        elif (su, sv) in chord_set:
+            ax.plot(x, y, color="royalblue", lw=2.2, zorder=2)
+        else:  # ring edge
+            ax.plot(x, y, color="0.6", lw=2.2, zorder=1)
+    for n in graph.nodes:
+        ax.scatter(*pos[n], s=220 if n < M else 160, color="white", edgecolor="black", zorder=3)
+        ax.text(pos[n][0], pos[n][1], str(n), ha="center", va="center", fontsize=7, zorder=4)
+    ax.legend(
+        handles=[
+            Line2D([0], [0], color="0.6", lw=2.2, label="ring edge"),
+            Line2D([0], [0], color="royalblue", lw=2.2, label="random chord"),
+            Line2D([0], [0], color="crimson", lw=2.0, ls="--", label="output lead"),
+        ],
+        loc="upper right",
+        fontsize=7,
+    )
+    ax.set_aspect("equal")
+    ax.axis("off")
+    ax.set_title(f"{M}-node ring + {len(CHORDS)} chords + 2 leads")
+
+
+def _endpoint(df):
+    """Modal intensities at the largest pump of an L--I dataframe."""
+    cols = sorted(c[1] for c in df.columns if isinstance(c, tuple) and c[0] == "modal_intensities")
+    return np.nan_to_num(df[("modal_intensities", cols[-1])].to_numpy(dtype=float))
+
+
 def main():
     graph = build_chaotic_ring()
     passive = find_passive_modes(graph, method="contour")
@@ -131,47 +187,71 @@ def main():
     for i in range(len(tdf)):
         if thr[i] < D0_MAX:
             k = from_complex(threshold_modes[i])[0]
-            print(
-                f"  {i}: k={k:.3f}  thr={thr[i]:.3f}  participation={_participation(threshold_modes[i], graph):.1f}"
-            )
+            part = _participation(threshold_modes[i], graph)
+            print(f"  {i}: k={k:.3f}  thr={thr[i]:.3f}  participation={part:.1f}")
 
     competition = compute_mode_competition_matrix(graph, tdf)
-    solvers = {
-        "linear": compute_modal_intensities(tdf.copy(), D0_MAX, competition),
-        "self_consistent": compute_modal_intensities_self_consistent(
-            graph, tdf.copy(), D0_MAX, D0_steps=12
-        ),
-        "full_salt": compute_modal_intensities_full_salt(graph, tdf.copy(), D0_MAX, D0_steps=12),
-        "full_salt_newton": compute_modal_intensities_full_salt_newton(
-            graph, tdf.copy(), D0_MAX, D0_steps=16
-        ),
-    }
-    cmap = plt.get_cmap("tab10")
-    fig, axes = plt.subplots(2, 2, figsize=(11, 7.5), sharex=True)
-    for ax, (name, df) in zip(axes.ravel(), solvers.items(), strict=True):
-        cols = np.array(
-            sorted(c[1] for c in df.columns if isinstance(c, tuple) and c[0] == "modal_intensities")
+
+    # Sample linear on the same uniform pump grid newton uses: the event-driven
+    # sweep otherwise only stores points at mode thresholds, which here all
+    # cluster near 0.02 and collapse to a 2-point grid. linear is exact between
+    # events, so endpoint-sampling a uniform grid simply draws the true line.
+    first = float(thr[thr < np.inf].min())
+    grid = np.linspace(first, D0_MAX, D0_STEPS)
+    linear = np.zeros((len(tdf), grid.size))
+    for j, d0 in enumerate(grid):
+        linear[:, j] = _endpoint(compute_modal_intensities(tdf.copy(), d0, competition))
+
+    newton_df = compute_modal_intensities_full_salt_newton(
+        graph, tdf.copy(), D0_MAX, D0_steps=D0_STEPS
+    )
+    n_cols = np.array(
+        sorted(
+            c[1] for c in newton_df.columns if isinstance(c, tuple) and c[0] == "modal_intensities"
         )
-        data = np.nan_to_num(df[[("modal_intensities", c) for c in cols]].to_numpy(dtype=float))
+    )
+    newton = np.nan_to_num(
+        newton_df[[("modal_intensities", c) for c in n_cols]].to_numpy(dtype=float)
+    )
+
+    # Also run the surrogate sweeps once, only to report their (unreliable) counts.
+    sc = _endpoint(
+        compute_modal_intensities_self_consistent(graph, tdf.copy(), D0_MAX, D0_steps=12)
+    )
+    fs = _endpoint(compute_modal_intensities_full_salt(graph, tdf.copy(), D0_MAX, D0_steps=12))
+
+    cmap = plt.get_cmap("tab10")
+    fig, axes = plt.subplots(1, 3, figsize=(15, 4.6))
+    _draw_geometry(axes[0], graph)
+    for ax, name, xs, data in (
+        (axes[1], "linear (reference, no clamping)", grid, linear),
+        (axes[2], "full_salt_newton (faithful)", n_cols, newton),
+    ):
         peak = max(data.max(), 1e-9)
         active = [m for m in range(data.shape[0]) if data[m].max() > 1e-2 * peak]
         for m in active:
-            ax.plot(cols, data[m], ".-", color=cmap(m % 10), label=f"mode {m}")
+            ax.plot(xs, data[m], ".-", color=cmap(m % 10), label=f"mode {m}")
         ax.set_title(f"{name}  ({len(active)} lasing)")
+        ax.set_xlabel("pump $D_0$")
         ax.set_ylabel("modal intensity")
         if active:
-            ax.legend(fontsize=7, ncol=2)
-        print(
-            f"{name}: {len(active)} lasing @max "
-            + str({int(m): round(float(data[m, -1]), 3) for m in active})
-        )
-    for ax in axes[1]:
-        ax.set_xlabel("pump $D_0$")
-    fig.suptitle("Single ring + random chords: genuine multimode lasing", y=1.0)
+            ax.legend(fontsize=8)
+
+    fig.suptitle("Single ring + random chords: genuine multimode lasing", y=1.02)
     fig.tight_layout()
     out = HERE / "chaotic_ring_multimode.png"
     fig.savefig(out, dpi=120, bbox_inches="tight")
     plt.close(fig)
+
+    def _count(arr):
+        return int(np.sum(arr > 1e-2 * max(arr.max(), 1e-9)))
+
+    print(f"linear: {_count(linear[:, -1])} lasing @max")
+    print(f"full_salt_newton: {_count(newton[:, -1])} lasing @max")
+    print(
+        f"self_consistent: {_count(sc)} / full_salt: {_count(fs)} @max "
+        "(event-sweep surrogates -- erratic in this deep-multimode regime, not plotted)"
+    )
     print(f"wrote {out}")
 
 

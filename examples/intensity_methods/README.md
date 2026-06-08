@@ -109,12 +109,27 @@ a new loop, so the cavity supports many interfering path lengths → a **dense,
 irregular spectrum** of **spatially-distinct** modes (each concentrated on
 different loops — see the per-mode *participation ratio* the script prints). They
 burn their holes in different places and co-lase. With a narrow gain on a
-four-mode cluster, `full_salt_newton` lases **4 modes**. The four solvers disagree
-on the count (newton 4, linear 3, the surrogate clamps harder) — that *is* the
-physics: `linear` has no gain clamping, the per-edge-mean surrogate over-clamps,
-and the operator-level Newton imposes the exact self-consistent condition. The
-chord layout is hard-coded (from a small seed scan), so the result is reproducible
-regardless of the NumPy RNG. Run it with
+four-mode cluster, `full_salt_newton` lases **4 modes**. The figure has three
+panels: the **graph geometry** (ring edges, chords, leads), and the L–I curves for
+`linear` and `full_salt_newton`.
+
+This deep-multimode regime (4–5 strongly-clustered thresholds) is exactly where
+the solvers part ways — and where the cheap ones stop being reliable:
+
+- `linear` is exact between events (clean straight lines) but has no gain clamping,
+  so its count can be off either way (here it lases **3**, one fewer than newton,
+  because its frozen-profile competition matrix over-estimates suppression of the
+  fourth mode).
+- `self_consistent` / `full_salt` — the event-driven sweep with a per-pump-rebuilt
+  competition matrix becomes **numerically erratic** with this many competing
+  modes (intensities go non-monotone; modes flick on/off). They are reliable near
+  threshold and on weakly-multimode graphs, not here, so the script runs them
+  (printing their unreliable endpoint counts) but does **not** plot them.
+- `full_salt_newton` stays smooth and physical and imposes the exact
+  self-consistent gain clamping → **4 modes**.
+
+The chord layout is hard-coded (from a small seed scan), so the result is
+reproducible regardless of the NumPy RNG. Run it with
 `OMP_NUM_THREADS=1 python chaotic_ring_multimode.py`.
 
 ## Run
