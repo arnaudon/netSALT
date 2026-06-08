@@ -1,29 +1,93 @@
 # Modal-intensity approximations
 
 A self-contained, runnable comparison of the four `intensity_method` solvers that
-turn threshold modes into lasing L–I (intensity-vs-pump) curves. See
-[`doc/source/lasing.rst`](../../doc/source/lasing.rst) and issue #42 for the
-theory.
+turn threshold modes into lasing L–I (intensity-vs-pump) curves, with a worked
+explanation of the underlying physics and of what each algorithm approximates.
+See [`doc/source/lasing.rst`](../../doc/source/lasing.rst) and issue #42 for more.
 
-| method | what it relaxes | curve shape |
-|---|---|---|
-| `linear` | nothing (near-threshold competition matrix, linear solve) | piecewise-linear, kinks at activations |
-| `self_consistent` | competition matrix rebuilt at the operating pump | piecewise-linear, shifted |
-| `full_salt` | + per-edge spatial hole burning (surrogate) | bends over with saturation |
-| `full_salt_newton` | operator-level nonlinear SALT | gain clamping → can lase **fewer** modes |
+## The physics in one paragraph
 
-All four reduce to the same `1/(T_μμ·D0_thr)` onset slope at threshold, so their
-curves share units and can be overlaid directly (`full_salt_newton` rescales its
-own amplitude onto this unit internally).
+A network laser turns on when the pump `D₀` makes a mode's round-trip gain equal
+its loss — its **lasing threshold** `D0_thr`. Above threshold the mode's field
+grows until it **saturates** the gain it feeds on: the gain medium can only supply
+so much, so each lasing mode **burns a spatial hole** in the gain along the edges
+where its intensity `|E(x)|²` is large (the saturation term
+`1 + Σ_ν Γ_ν a_ν |E_ν(x)|²`). Two consequences drive everything below:
 
-### What to expect
+- **Gain clamping.** Once a mode lases it pins the *saturated* gain at its own
+  threshold level. Other modes then see a reduced, clamped gain.
+- **Mode competition.** Whether a second mode can still lase depends on how much
+  its field **overlaps** the first mode's spatial hole. Strong overlap (same
+  region of the graph) → it is starved → *winner-take-all*. Weak overlap
+  (different regions / distinct standing-wave patterns) → it finds untouched gain
+  → *multimode* lasing. The overlap integrals are the **competition matrix** `T`.
 
-Near threshold all methods nearly coincide (the nonlinearity is small there). They
-diverge only as the pump is pushed well above threshold: `self_consistent` and
-`full_salt` saturate ~20–30 % below `linear`, and `full_salt_newton` adds
-gain-clamping mode suppression (it lases fewer modes, so its surviving mode can
-carry more). If the curves look very different, it is because the sweep reaches
-~2–3× the lasing threshold — reduce `D0_MAX` to stay in the gentle regime.
+## The four solvers (what each approximates)
+
+| method | gain saturation | mode profiles | how intensities are found |
+|---|---|---|---|
+| `linear` | linearised (fixed `T`) | frozen at each mode's own threshold | one linear solve `T·I = …`, event sweep for activation |
+| `self_consistent` | linearised (fixed `T` at each pump) | **followed** to the operating pump | same event sweep, `T` rebuilt per pump |
+| `full_salt` | spatial hole burning, **per-edge-mean** surrogate | followed to the operating pump | saturate `T`'s rows in a fixed point, same sweep |
+| `full_salt_newton` | spatial hole burning, **operator-level** | re-solved at every pump (mode-following) | solve the real nonlinear SALT eigenproblem `(kμ, aμ)` |
+
+- **`linear`** — the original near-threshold SALT model. The competition matrix is
+  built once with each mode at its own threshold and the intensities grow
+  piecewise-linearly. It has **no gain clamping**: it never re-checks whether a
+  lasing mode still has net gain once others saturate it.
+- **`self_consistent`** — rebuilds `T` at the operating pump with every mode
+  *followed* there (refined to the actual mode of the pumped operator). This
+  relaxes the frozen-profile approximation but keeps the linear gain saturation.
+- **`full_salt`** — additionally folds in spatial hole burning, but as a
+  **per-edge-constant** factor (the mean `|E|²` on each edge) that inflates a
+  mode's row of `T`; the curves then bend over. `intensity_oversample_size`
+  subdivides edges to refine this toward the true within-edge field.
+- **`full_salt_newton`** — abandons the competition matrix for the intensities and
+  solves the **actual nonlinear SALT eigenproblem**: find `(kμ real, aμ ≥ 0)` so
+  the shared *saturated operator* is singular at each real `kμ` simultaneously.
+  The `aμ ≥ 0` bound enforces a sharp on/off: a mode that cannot satisfy its
+  lasing condition with positive amplitude is driven to `aμ = 0` (suppressed).
+
+All four are constructed to reduce to the same `1/(T_μμ·D0_thr)` onset slope at
+threshold, so their curves share units and overlay directly (`full_salt_newton`
+rescales its amplitude onto this unit internally).
+
+## What the linear / surrogate models *miss* (why they over-count modes)
+
+On the **narrow-gain** line, `linear`/`self_consistent`/`full_salt` lase **2**
+modes but `full_salt_newton` lases **1**. The difference is exactly gain clamping:
+
+- **`linear`** never imposes the saturated threshold condition. It lets the second
+  mode lase as soon as its *interacting* threshold (a fixed-`T` extrapolation) is
+  crossed, and never asks "given mode 0 lasing, does mode 1 still have net gain?"
+  Here it does not — with mode 0 lasing, mode 1 sits at `α ≈ +0.046` (just *below*
+  threshold), but `linear` cannot see that.
+- **`full_salt`** *does* clamp, but through a **per-edge-mean** surrogate that
+  smears `|E|²` over each edge; the effective hole burning is softer than reality,
+  so it under-clamps and leaves the marginal second mode weakly on.
+- **`full_salt_newton`** imposes the exact per-mode condition (operator singular at
+  real `k` with `a ≥ 0`) and finds the second mode is sub-threshold → suppressed.
+
+So the missing ingredient is the **self-consistent, operator-level gain clamping**:
+the linear model omits it entirely; the surrogate approximates it too softly. The
+truth here is a *marginal* call (`α` only `+0.046`), which is why the methods
+disagree on this particular mode.
+
+## Reliability of `full_salt_newton` (single vs multimode)
+
+`full_salt_newton` is robust in the regime where a **single dominant mode**
+lases (with others gain-clamped below threshold) — the line and ring here. Its
+*genuinely multimode* regime (several modes co-lasing) is **not yet robust**: the
+coupled amplitude solve, which borrows the linear active set and re-solves each
+pump, can swap/chatter between near-degenerate co-lasing modes, giving jagged L–I
+curves. That is the open *self-consistent active set + robust mode-tracking*
+problem (see ``doc/source/lasing.rst``).
+
+So for **multimode** L–I curves use the competition-matrix methods (`linear` /
+`self_consistent` / `full_salt`), whose event-driven sweep handles many modes
+stably; use `full_salt_newton` for the **operator-level dominant-mode / gain-
+clamping** physics (e.g. the single-vs-suppressed contrast above), not for
+counting many co-lasing modes.
 
 ## Run
 
@@ -35,19 +99,17 @@ bash run.sh
 
 The script builds three small **open** quantum graphs in memory — a 1D
 Fabry–Pérot line, a ring resonator with two leads, and a binary-tree splitter
-(the degree-1 lead nodes provide the radiative loss that sets a lasing
-threshold) — runs the shared passive → pump → trajectories → threshold →
-competition pipeline once per graph, then computes the L–I curves with every
-method.
+(the degree-1 lead nodes provide the radiative loss that sets a lasing threshold)
+— runs the shared passive → pump → trajectories → threshold → competition
+pipeline once per graph, then computes the L–I curves with every method.
 
 ## Output
 
 - `intensity_methods_comparison.pdf` — one panel per graph, the four total-L–I
-  curves overlaid (the **various graphs × approximations** view).
-- `intensity_methods_per_mode.pdf` — per-mode L–I on the line graph, one subplot
-  per method. This makes the qualitative differences explicit: `full_salt` bends
-  the individual curves over, and `full_salt_newton` suppresses modes the linear
-  model lases (gain clamping).
+  curves overlaid (the **graphs × approximations** view).
+- `intensity_methods_per_mode.pdf` — per-mode L–I on the line. Dashed curves are
+  the `linear` reference (colour-keyed by mode); a dashed curve with **no solid
+  partner** is a mode `full_salt_newton` suppressed (gain clamping).
 - a summary table on stdout (`n_lasing`, `n_active@max`, `total@max` per method).
 
 To compare methods on the *full* example configs instead, see

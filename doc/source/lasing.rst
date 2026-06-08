@@ -260,6 +260,55 @@ is two analytic plane waves, the secular matrix
 integrals are the same closed-form edge integrals used in the competition
 matrix (``_compute_mode_competition_element``).
 
+How many modes lase? Gain clamping vs. competition
+--------------------------------------------------
+
+The most visible difference between the solvers is **how many modes they lase**,
+and it comes straight from the hole-burning denominator. Once mode :math:`\mu`
+lases it **clamps** the saturated gain at its own threshold level. A second mode
+:math:`\nu` keeps lasing only if it still has net gain *after* that clamping,
+which depends on how much its intensity :math:`|E_\nu|^2` **overlaps** mode
+:math:`\mu`'s spatial hole — exactly the off-diagonal :math:`T_{\mu\nu}` relative
+to the self-saturation :math:`T_{\mu\mu}`:
+
+* **Strong overlap** (modes share the same region of the graph, e.g. a short
+  cavity with a narrow gain line) — the second mode is starved → *winner-take-all*
+  single-mode lasing.
+* **Weak overlap** (modes occupy different regions / have distinct standing-wave
+  patterns, e.g. a broad gain line exciting well-separated modes) — the second
+  mode finds gain the first did not burn → *multimode* lasing.
+
+What the cheaper models **miss** is precisely this self-consistent clamping:
+
+* ``linear`` has **no clamping** at all. A mode is switched on when its
+  fixed-:math:`T` *interacting threshold* is crossed and is never re-tested, so the
+  linear model **over-counts** lasing modes — it can keep a mode on that the
+  saturated gain no longer supports.
+* ``full_salt`` *does* clamp, but with a **per-edge-mean** surrogate that smears
+  :math:`|E|^2` over each edge; the effective hole burning is softer than reality,
+  so it under-clamps and leaves a marginal mode weakly on.
+* ``full_salt_newton`` imposes the exact per-mode condition (the saturated operator
+  is singular at real :math:`k` with :math:`a\ge 0`), so a mode that has gone
+  sub-threshold is driven to :math:`a_\mu = 0` — the sharpest, most faithful
+  clamping of the four.
+
+Near a suppression boundary the call is marginal (the suppressed mode sits a hair
+below threshold), which is exactly where ``full_salt`` and ``full_salt_newton``
+disagree on the mode count while still agreeing on the total intensity.
+
+.. note::
+
+   ``full_salt_newton`` is robust where a **single dominant mode** lases (others
+   gain-clamped below threshold). Its genuinely-multimode regime (several modes
+   co-lasing) is **not yet robust**: the coupled amplitude solve borrows the
+   linear active set and re-solves each pump independently, so near-degenerate
+   co-lasing modes can swap/chatter and the per-mode L–I curves become jagged. For
+   multimode L–I use the competition-matrix methods (``linear`` /
+   ``self_consistent`` / ``full_salt``), whose event-driven sweep handles many
+   modes stably; a self-consistent active set with eigenvector-overlap mode
+   tracking is the open follow-up that would make the operator-level solver
+   robustly multimode.
+
 Selecting a solver
 ^^^^^^^^^^^^^^^^^^
 
@@ -324,8 +373,8 @@ lase). All relaxations are exact at threshold, so the linear model remains the
 threshold-limit check.
 
 ``examples/intensity_methods/compare_intensity_methods.py`` is a self-contained
-worked example: it builds several small open graphs (a Fabry–Pérot line, a ring
-resonator, a tree splitter) and overlays the four methods' L–I curves, with a
-per-mode breakdown that makes the bend-over and gain-clamping suppression
-explicit.
+worked example (with a physics walkthrough in its ``README``): it builds several
+small open graphs -- a Fabry–Pérot line, a ring resonator, a tree splitter -- and
+overlays the four methods' L–I curves, with a per-mode breakdown that makes the
+bend-over and the gain-clamping suppression explicit.
 

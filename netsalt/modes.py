@@ -1790,8 +1790,15 @@ def compute_modal_intensities_full_salt_newton(
                         seed,
                     )
 
+            # Warm-start the amplitudes from the previous pump for continuity
+            # (a continuation in D0): only a *freshly* activated mode is seeded
+            # from the linear estimate. Re-seeding active modes from the linear
+            # estimate each step makes the coupled solve jump between competing
+            # local solutions and the multimode L--I curves chatter.
             a0 = [
-                max(a_state[i], (D0 / float(lasing_thresholds[i]) - 1.0) / t_diag[i], 0.0)
+                a_state[i]
+                if a_state[i] > 1e-9
+                else max((D0 / float(lasing_thresholds[i]) - 1.0) / t_diag[i], 0.0)
                 for i in active
             ]
             modes_out, fields_out, a_out, converged = _solve_amplitudes(

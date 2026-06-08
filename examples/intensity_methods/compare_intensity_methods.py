@@ -83,10 +83,15 @@ PARAMS = {
 D0_MAX = 1.4  # max pump for the L--I sweep (== intensities_D0_max)
 
 
-def _quantum_graph(nx_graph, positions, total_length):
-    """Wrap a networkx graph as a pumped, open netSALT quantum graph."""
+def _quantum_graph(nx_graph, positions, total_length, **overrides):
+    """Wrap a networkx graph as a pumped, open netSALT quantum graph.
+
+    ``overrides`` patch the shared :data:`PARAMS` (e.g. a broader ``gamma_perp``).
+    """
     g = nx.convert_node_labels_to_integers(nx_graph)
-    create_quantum_graph(g, dict(PARAMS), positions=positions)
+    params = dict(PARAMS)
+    params.update(overrides)
+    create_quantum_graph(g, params, positions=positions)
     set_total_length(g, total_length)
     netsalt.set_dielectric_constant(g, g.graph["params"])
     netsalt.set_dispersion_relation(g, dispersion_relation_pump)
@@ -99,6 +104,9 @@ def make_line(n_edges=10, total_length=0.5):
     A short optical length keeps the longitudinal modes well separated in ``k``
     (closely-spaced, near-degenerate thresholds make the operator-level Newton
     solver's borrowed active set ambiguous -- see ``doc/source/lasing.rst``).
+    With the narrow gain here the two modes near the line centre compete for the
+    same gain, so once the dominant one clamps the gain the other is held just
+    below threshold -> single-mode lasing under ``full_salt_newton``.
     """
     g = nx.path_graph(n_edges + 1)
     pos = np.array([[i, 0.0] for i in range(n_edges + 1)], dtype=float)
@@ -184,6 +192,15 @@ def _ll_curves(graph, threshold_df):
     return out
 
 
+def _active_modes(data, peak):
+    """Indices of modes carrying more than 1% of the peak modal intensity.
+
+    A relative cut-off so a mode the bounded Newton solve drove to a tiny residual
+    (a suppressed mode) is not miscounted as lasing.
+    """
+    return np.where(data.max(axis=1) > max(1e-2 * peak, 1e-9))[0]
+
+
 def _plot_per_mode(name, curves, out):
     """One subplot per method, each showing every lasing mode's L--I curve.
 
@@ -195,12 +212,13 @@ def _plot_per_mode(name, curves, out):
     """
     cmap = plt.get_cmap("tab10")
     lin_pumps, lin_data = curves["linear"]
-    lin_active = np.where(lin_data.max(axis=1) > 1e-9)[0]
+    peak = max(c[1].max() for c in curves.values())
+    lin_active = _active_modes(lin_data, peak)
 
     fig, axes = plt.subplots(2, 2, figsize=(10, 7), sharex=True)
     for ax, method in zip(axes.ravel(), METHODS, strict=True):
         pumps, data = curves[method]
-        active = np.where(data.max(axis=1) > 1e-9)[0]
+        active = _active_modes(data, peak)
         # faint linear reference (skip on the linear panel itself)
         if method != "linear":
             for mu in lin_active:
@@ -230,19 +248,19 @@ def main():
     print(f"{'graph':22s} {'method':18s} {'n_lasing':>9s} {'n_active@max':>13s} {'total@max':>11s}")
     print("-" * 76)
 
-    first_curves = first_name = None
+    saved_curves = {}
     for ax, (name, builder) in zip(axes[0], GRAPHS.items(), strict=True):
         graph = builder()
         threshold_df = _threshold_modes(graph)
         n_lasing = int(np.sum(np.asarray(threshold_df["lasing_thresholds"]) < np.inf))
         curves = _ll_curves(graph, threshold_df)
-        if first_curves is None:
-            first_curves, first_name = curves, name
+        saved_curves[name] = curves
+        peak = max(c[1].max() for c in curves.values())
 
         for method in METHODS:
             pumps, data = curves[method]
             total = data.sum(axis=0)
-            n_active = int(np.sum(data[:, -1] > 1e-9))
+            n_active = len(_active_modes(data, peak))
             ax.plot(pumps, total, "o-", ms=3, color=COLORS[method], label=method)
             print(f"{name:22s} {method:18s} {n_lasing:>9d} {n_active:>13d} {total[-1]:>11.3e}")
         ax.set_title(f"{name}\n({len(graph)} nodes, {n_lasing} lasing modes)")
@@ -257,9 +275,13 @@ def main():
     plt.close(fig)
     print(f"\nwrote {out}")
 
-    # a per-mode breakdown on the first graph makes the activation / bend-over /
-    # gain-clamping differences between the methods explicit
-    _plot_per_mode(first_name, first_curves, HERE / "intensity_methods_per_mode.pdf")
+    # a per-mode breakdown on the line makes the activation / bend-over /
+    # gain-clamping (full_salt_newton suppresses the second mode) explicit
+    _plot_per_mode(
+        "line (Fabry-Perot)",
+        saved_curves["line (Fabry-Perot)"],
+        HERE / "intensity_methods_per_mode.pdf",
+    )
 
 
 if __name__ == "__main__":
