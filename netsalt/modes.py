@@ -1652,6 +1652,14 @@ def _full_salt_newton_impl(
     threshold. Pass ``oversample_size=0`` for the old (over-clamping) bare-edge
     behaviour, or a float to set it explicitly.
 
+    **Well-separated modes only.** The coupled ``(k, a)`` solve confines each
+    mode's ``k`` to a window of order the inter-mode spacing, floored at 0.05.
+    On a *dense* spectrum (e.g. a buffon network: modes spaced ~1e-3 in ``k``)
+    that floor far exceeds the spacing, so near-degenerate modes collide in the
+    solve and the amplitudes diverge. Use the competition-matrix solvers
+    (``linear`` / ``self_consistent`` / ``full_salt``) there; ``full_salt_newton``
+    targets well-separated modes (lines, rings, chord networks).
+
     It never raises -- a step that fails to fully converge keeps its iterate and
     warns. (``max_iter``, ``tol``, ``inner_max_iter``, ``inner_damping`` are
     accepted for interface parity.)
