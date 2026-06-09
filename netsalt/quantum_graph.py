@@ -28,9 +28,13 @@ L = logging.getLogger(__name__)
 # faster and returns the same nearest-zero eigenpair. Above the crossover (~50
 # nodes, measured) ARPACK wins decisively: it is ~flat in N on the banded
 # quantum-graph laplacian (~2.5 ms at N=60, ~6 ms at N=1000), whereas dense is
-# O(N^3) (~24 ms at N=120, ~160 ms at N=250). Keeping this low is what lets the
-# oversampled full_salt_newton solves (and medium-graph mode finding) scale.
-DENSE_EIG_MAX = 50
+# O(N^3) (~24 ms at N=120, ~160 ms at N=250). Kept high (256) here for robust
+# *mode finding* on dense-spectrum 2D graphs (e.g. buffon): the grid scan probes
+# many near-singular k, where ARPACK shift-invert (sigma=0, an LU of a near-singular
+# matrix) is slow/unstable, while dense is robust. ``full_salt_newton`` lowers it
+# *locally* (NEWTON_DENSE_EIG_MAX) for its own banded, oversampled saturated solves,
+# where ARPACK is both fast (~flat in N) and stable (isolated lasing modes).
+DENSE_EIG_MAX = 256
 
 
 def create_quantum_graph(

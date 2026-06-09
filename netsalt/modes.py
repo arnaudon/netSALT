@@ -1541,6 +1541,11 @@ def _newton_onset_unit_scale(
     return s_linear / s_newton
 
 
+NEWTON_DENSE_EIG_MAX = (
+    50  # full_salt_newton runs its (banded, oversampled) eigensolves through ARPACK
+)
+
+
 def _auto_oversample_size(graph, modes_df, resolution=12, node_cap=3000):
     """Sub-edge length that resolves the lasing standing wave (for hole burning).
 
@@ -1573,7 +1578,27 @@ def _auto_oversample_size(graph, modes_df, resolution=12, node_cap=3000):
     return float(target)
 
 
-def compute_modal_intensities_full_salt_newton(
+def compute_modal_intensities_full_salt_newton(*args, **kwargs):
+    """Operator-level full-SALT L--I curves (public entry).
+
+    Thin wrapper that temporarily lowers ``DENSE_EIG_MAX`` so the saturated
+    eigensolves -- on the *banded*, oversampled graph, targeting isolated lasing
+    modes -- run through ARPACK shift-invert (~flat in N, far cheaper than dense
+    O(N^3) at the medium/large sizes oversampling produces). The global default is
+    left high so dense-spectrum mode *finding* on 2D graphs keeps the robust dense
+    path. See :data:`~netsalt.quantum_graph.DENSE_EIG_MAX`.
+    """
+    from netsalt import quantum_graph as _qg
+
+    saved = _qg.DENSE_EIG_MAX
+    _qg.DENSE_EIG_MAX = min(saved, NEWTON_DENSE_EIG_MAX)
+    try:
+        return _full_salt_newton_impl(*args, **kwargs)
+    finally:
+        _qg.DENSE_EIG_MAX = saved
+
+
+def _full_salt_newton_impl(
     graph,
     modes_df,
     max_pump_intensity,
