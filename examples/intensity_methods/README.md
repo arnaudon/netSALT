@@ -135,6 +135,23 @@ The chord layout is hard-coded (from a small seed scan), so the result is
 reproducible regardless of the NumPy RNG. Run it with
 `OMP_NUM_THREADS=1 python chaotic_ring_multimode.py`.
 
+### Newton-vs-linear consistency: `dense_ring_compare.py`
+
+A bigger, more strongly-competing graph — a **16-node ring with 10 chords** —
+used to check *what should differ* between `full_salt_newton` and the
+near-threshold `linear` model, and why. Both share the onset slope at threshold,
+so they **coincide just above it**; above threshold they diverge because newton
+re-solves each lasing mode's **profile** at the operating pump (so the spatial
+holes, and hence the competition, shift), while `linear` freezes the profiles and
+fixes `T`. The script prints a per-mode table (onset, near-threshold slope,
+intensity at max) and overlays the curves (dashed linear / solid newton). The
+signature: the **dominant** mode tracks linear closely (same onset, near-equal
+initial slope, slope drifting as it saturates), while the **secondary** modes are
+*reshuffled* — they switch on at different pumps and reach different intensities
+than the frozen-profile model predicts (here one secondary lights up earlier and
+stronger, another later and largely suppressed). Run it with
+`OMP_NUM_THREADS=1 python dense_ring_compare.py`.
+
 ## Run
 
 ```bash
