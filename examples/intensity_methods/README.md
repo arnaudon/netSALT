@@ -152,6 +152,18 @@ than the frozen-profile model predicts (here one secondary lights up earlier and
 stronger, another later and largely suppressed). Run it with
 `OMP_NUM_THREADS=1 python dense_ring_compare.py`.
 
+### The same picture on the simple cavities: `simple_graphs_compare.py`
+
+The geometry + `linear` (dashed) vs `full_salt_newton` (solid) view applied to the
+three textbook graphs from `compare_intensity_methods.py` — the **line**
+(Fabry–Pérot), the **ring + leads**, and the **binary tree** splitter. These are
+the *opposite* regime to the chord rings: their modes overlap strongly, so they are
+**single-mode under faithful SALT**. The plots show it directly — on the line and
+the ring `linear` lases **2** modes but `full_salt_newton` lases **1**, the second
+mode appearing as a dashed curve with no solid partner (gain clamping holds it
+below threshold); the tree is single-mode for both. Run it with
+`OMP_NUM_THREADS=1 python simple_graphs_compare.py`.
+
 ## Run
 
 ```bash
