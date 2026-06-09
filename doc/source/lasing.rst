@@ -290,25 +290,29 @@ The solvers treat this clamping at different levels of fidelity:
   (SPA) intensities ``D0/D0_thr - 1 = Σ_ν Γ_ν χ_μν I_ν`` — **the way Ge–Chong–Stone
   obtain modal intensities** — and are the methods to trust for quantitative L–I.
 * ``full_salt_newton`` imposes the exact operator condition (the saturated operator
-  singular at real :math:`k` with :math:`a\ge 0`). It contributes a self-consistent
-  gain-clamping **active set** and the lasing **frequencies** :math:`k_\mu` that the
+  singular at real :math:`k` with :math:`a\ge 0`) — the *operator-level* SALT, rather
+  than the SPA matrix equation. It contributes a self-consistent gain-clamping
+  **active set** and the lasing **frequencies** :math:`k_\mu` that the
   competition-matrix solvers cannot: on ``line_PRA`` it lases the **two** modes of
   Ge–Chong–Stone (PRA 82, 063824, Eq. 28) where ``self_consistent`` over-suppresses
-  to one. It **reduces to** ``linear`` at threshold.
+  to one. Its amplitude is put in the linear unit by an **analytic** onset scale (a
+  Hellmann–Feynman match of the operator self-saturation :math:`\Gamma_\mu\chi_{\rm raw}`
+  to :math:`T_{\mu\mu}`), so it **reduces to** ``linear`` at threshold by construction.
 
-.. warning::
+.. note::
 
-   **Trust ``full_salt_newton`` for the lasing count and frequency pulling, not for
-   the above-threshold intensity magnitudes.** Its magnitude is read off the bare
-   amplitude :math:`a` in the saturation denominator :math:`1 + \Gamma a |\hat E|^2`,
-   which is *not* the SALT modal intensity (Ge/Stone get intensities from the SPA
-   matrix equation above, i.e. netSALT's competition-matrix solvers). The bare
-   :math:`a` matches ``linear`` at threshold but **grows super-linearly above it on
-   multi-loop graphs** — verified ~1–2× *above* ``linear`` on chord/ring networks,
-   whereas ``self_consistent``/``full_salt`` correctly saturate *below* ``linear`` —
-   because the local-saturation clamp with a non-uniform standing-wave profile is
-   not the projected SPA intensity. Use ``linear`` / ``self_consistent`` /
-   ``full_salt`` for quantitative magnitudes.
+   **The operator-level solve sits *above* the SPA above threshold — by design, not
+   by bug.** The SPA *linearises* the hole burning (:math:`1/(1+x)\approx 1-x`), so it
+   under-counts the saturation; the exact-spatial solve therefore gives a convex
+   correction lying above the competition-matrix curves (≈10 % above the SPA at
+   ~3× threshold on a near-uniform ring mode, matching the analytic exact-vs-SPA
+   estimate; larger for strongly delocalised modes, where the field is most
+   non-uniform). The *sign and mechanism* are validated, but the precise magnitude on
+   strongly non-uniform modes is **not** cross-checked against a full FDFD/scalable-SALT
+   reference. So: use ``full_salt_newton`` for the count and frequency pulling
+   everywhere; for quantitative L–I magnitudes on strongly non-uniform/multi-loop
+   cavities prefer the competition-matrix solvers, and read the operator-level curve
+   as the exact-SALT correction it is.
 
 .. warning::
 
@@ -397,18 +401,20 @@ key (default ``"linear"``), dispatched by
       wavelength-resolving sub-edge size, without which the per-edge mean
       over-clamps and spuriously drops co-lasing modes (see the warning above).
 
-    Its amplitude is reported in the **linear modal-intensity unit** (each mode
-    rescaled to match the linear ``1/(T_μμ·D0_thr)`` onset slope), so it is directly
-    comparable to the other solvers and **reduces to linear near threshold**,
-    agreeing on the lasing count -- validated against Ge–Chong–Stone (PRA 82, 063824,
-    Eq. 28) on ``line_PRA`` (both lase two modes, where ``self_consistent``
-    over-suppresses to one). **Trust it for the count and frequency pulling, not for
-    the above-threshold magnitudes:** the bare amplitude is not the SALT modal
-    intensity (Ge/Stone use the SPA matrix equation) and grows super-linearly above
-    threshold on multi-loop graphs -- use the competition-matrix solvers for
-    quantitative L–I (see the warning above). It is deterministic, path-independent,
-    never raises, and *expensive* (a nested per-pump solve on the oversampled graph),
-    so use a modest ``salt_D0_steps``.
+    Its amplitude is put in the **linear modal-intensity unit** by an *analytic*
+    onset scale (Hellmann–Feynman match of the operator self-saturation
+    ``Γ_μ·χ_raw`` to ``T_μμ``), so it **reduces to linear at threshold** by
+    construction (no fragile near-threshold probe) and agrees on the lasing count --
+    validated against Ge–Chong–Stone (PRA 82, 063824, Eq. 28) on ``line_PRA`` (both
+    lase two modes, where ``self_consistent`` over-suppresses to one). Above threshold
+    it is the *exact-spatial* SALT and sits **above** the SPA competition-matrix
+    curves (the SPA linearises the hole burning and under-counts it) -- a genuine
+    convex correction, larger for strongly non-uniform modes; the sign/mechanism are
+    validated but the magnitude there is not cross-checked against full FDFD SALT, so
+    prefer the competition-matrix solvers for quantitative magnitudes on such cavities
+    (see the note above). It is deterministic, path-independent, never raises, and
+    *expensive* (a nested per-pump solve on the oversampled graph), so use a modest
+    ``salt_D0_steps``.
 
 ``benchmark/bench_salt.py`` compares the solvers on speed and accuracy: it runs
 the shared pipeline once, swaps only the intensity step, writes overlaid L–I

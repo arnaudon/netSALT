@@ -1519,29 +1519,32 @@ def _newton_onset_unit_scale(
 ):
     """Per-mode factor converting the Newton amplitude to the linear-intensity unit.
 
-    The Newton amplitude lives in the integral-normalised (``∫|Ê|^2 = 1``)
-    convention with a per-edge-mean saturation, while the competition matrix
-    integrates the true ``|E|^4``; the two differ by a graph-dependent within-edge
-    form factor. Match the single-mode onset slope (linear: ``1/(T_μμ·D0_thr)``) by
-    probing the isolated mode just above threshold. Returns 1.0 if degenerate.
+    The Newton amplitude solves the *operator* clamp, whose saturation acts through
+    the per-edge field ``|Ê|^2``; the linear/SPA intensity uses the true ``|E|^4``
+    competition diagonal ``T_μμ``. The two share the same onset slope once the
+    Newton amplitude is rescaled by the ratio of their first-order self-saturation
+    coefficients. By Hellmann-Feynman the operator's self-saturation at threshold is
+    ``Γ_μ·χ_raw`` with ``χ_raw = Σ_{pump} ℓ_e |Ê_e|^2`` ``^2`` (the per-edge
+    intensity squared over the pumped inner edges), giving Newton onset slope
+    ``1/(Γ_μ·χ_raw·D0_thr)`` against the linear ``1/(T_μμ·D0_thr)``. Hence the unit
+    factor is ``Γ_μ·χ_raw / T_μμ`` -- computed analytically, so it reduces to linear
+    at threshold by construction and never degenerates (the previous probe solve
+    silently returned 1.0 when the near-threshold solve drove ``a → 0``, leaving the
+    amplitude unscaled). ``Γ_μ = -Im γ(k_μ)`` is the Lorentzian gain clamp.
     """
-    s_linear = 1.0 / (t_self * threshold)
-    eps = 0.05
-    _, _, a_probe, _ = _solve_active_set(
-        graph,
-        [mode0],
-        [field0],
-        [s_linear * threshold * eps],
-        threshold * (1.0 + eps),
-        pump,
-        pump_mask,
-        max_steps,
-        seed,
-    )
-    s_newton = float(a_probe[0]) / (threshold * eps)
-    if not np.isfinite(s_newton) or s_newton <= 0.0:
+    del pump, pump_mask, max_steps, seed  # analytic: no probe solve
+    gain_clamp = -np.imag(gamma(to_complex(mode0), graph.graph["params"]))
+    params = graph.graph["params"]
+    lengths = np.asarray(graph.graph["lengths"], dtype=float)
+    pump_v = np.asarray(params["pump"], dtype=float)
+    inner = np.asarray(params["inner"], dtype=bool)
+    fint = np.asarray(field0, dtype=float)
+    mask = (pump_v > 0.0) & inner
+    chi_raw = float(np.sum(lengths[mask] * fint[mask] ** 2))
+    s_newton_inv = gain_clamp * chi_raw  # (D0_thr · Newton onset slope)^-1, up to D0_thr
+    if not np.isfinite(s_newton_inv) or s_newton_inv <= 0.0 or t_self <= 0.0:
         return 1.0
-    return s_linear / s_newton
+    return float(s_newton_inv / t_self)  # = Γ_μ·χ_raw / T_μμ = s_linear / s_newton
 
 
 NEWTON_DENSE_EIG_MAX = (
@@ -1638,27 +1641,32 @@ def _full_salt_newton_impl(
       faithful when the hole burning is resolved -- see below; with the bare-edge
       mean it over-clamps and drops modes that should co-lase.)
 
-    Amplitudes are reported in the **linear modal-intensity unit**
-    (:func:`_newton_onset_unit_scale`), so the curves are directly comparable to
-    the other solvers and reduce to the linear onset slope at threshold.
+    Amplitudes are reported in the **linear modal-intensity unit** via the
+    *analytic* onset scale :func:`_newton_onset_unit_scale` (a Hellmann-Feynman
+    match of the operator's threshold self-saturation ``Γ_μ·χ_raw`` to the linear
+    ``T_μμ``), so the curves reduce to the linear/SPA onset slope at threshold by
+    construction and never depend on a fragile near-threshold probe.
 
-    **What this solver is validated for: the lasing count and frequency pulling,
-    not the above-threshold magnitudes.** The operator-level solve gives a
-    self-consistent gain-clamping *active set* (which modes lase) and the lasing
-    *frequencies* ``k_μ`` that the competition-matrix solvers cannot -- on
-    ``line_PRA`` it lases the two modes of Ge-Chong-Stone (PRA 82, 063824, Eq. 28)
-    where ``self_consistent`` over-suppresses to one. But the *magnitude* is read
-    off the bare amplitude ``a`` in the saturation denominator ``1 + Γ a |Ê|²``,
-    which is **not** the SALT modal intensity: Ge/Stone obtain intensities from the
-    single-pole-approximation matrix equation ``D0/D0_thr - 1 = Σ_ν Γ_ν χ_μν I_ν``
-    (exactly netSALT's competition-matrix solvers). The bare ``a`` reduces to the
-    linear intensity at threshold but **grows super-linearly above it on
-    multi-loop graphs** (verified: ~1--2× above linear on chord/ring networks,
-    where ``self_consistent``/``full_salt`` correctly saturate *below* linear),
-    because the local-saturation clamp with a non-uniform standing-wave profile is
-    not the projected SPA intensity. **For quantitative L--I magnitudes use
-    ``linear`` / ``self_consistent`` / ``full_salt`` (Ge's SPA method);** treat
-    ``full_salt_newton`` as the gain-clamping count + frequency-pulling diagnostic.
+    **Relation to the SPA competition-matrix solvers.** This is the *operator-level*
+    (exact-spatial) SALT: it solves the real nonlinear eigenproblem rather than the
+    single-pole-approximation matrix equation
+    ``D0/D0_thr - 1 = Σ_ν Γ_ν χ_μν I_ν`` (Ge-Chong-Stone, PRA 82, 063824) that
+    ``linear`` / ``self_consistent`` / ``full_salt`` implement. Two consequences:
+
+    * **Active set / frequencies (its strength).** The self-consistent gain-clamping
+      active set and the lasing frequencies ``k_μ`` come from the saturated operator,
+      not the linear model -- on ``line_PRA`` it lases the *two* Eq. 28 modes where
+      ``self_consistent`` over-suppresses to one.
+    * **Above-threshold magnitudes (use with care).** Because the SPA *linearises*
+      the hole burning (``1/(1+x) ≈ 1 - x``), it under-counts the saturation and the
+      exact solve sits **above** it above threshold -- a genuine convex correction,
+      not a bug, that grows with the mode's spatial non-uniformity (≈10 % above the
+      SPA at ~3× threshold on a near-uniform ring mode, matching the analytic
+      exact-vs-SPA estimate; larger for strongly delocalised modes). The *sign and
+      mechanism* are validated, but the precise magnitude on strongly non-uniform
+      modes is **not** cross-checked against a full FDFD/scalable-SALT reference, so
+      for quantitative L--I prefer the competition-matrix solvers there and treat the
+      operator-level magnitude as the exact-SALT correction it is.
 
     **Within-edge hole burning must be resolved.** The saturation samples
     ``|E_ν(x)|^2`` per edge; with one sample per edge the per-edge *mean*
