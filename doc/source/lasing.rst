@@ -306,9 +306,12 @@ threshold.
    Eq. 28 and the competition matrix lase two. ``oversample_size=None`` therefore
    auto-picks a wavelength-resolving sub-edge size
    (:func:`~netsalt.modes._auto_oversample_size`); resolving the standing wave
-   removes the over-clamping and recovers the correct count. This makes the solver
-   markedly more expensive (it eigensolves on the oversampled graph), so the
-   competition-matrix methods remain the cheaper first pass for the lasing count.
+   removes the over-clamping and recovers the correct count. The oversampled graph
+   is larger, but the eigensolve stays cheap because it runs through ARPACK
+   shift-invert (which is ~flat in the node count on the banded quantum-graph
+   laplacian; see ``DENSE_EIG_MAX``), so the solver scales to large graphs. It is
+   still the heaviest of the four, so the competition-matrix methods remain the
+   cheaper first pass for the lasing count.
 
 .. note::
 

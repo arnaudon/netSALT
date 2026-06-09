@@ -232,10 +232,14 @@ they are what an "old code" most needs before further work lands on top.
   mean over-clamps and spuriously suppresses co-lasing modes (it lased one mode on
   ``line_PRA`` until ``oversample_size`` auto-defaulted to a wavelength-resolving
   size, ``_auto_oversample_size``). ``benchmark/bench_salt.py`` compares the
-  solvers. Remaining follow-ups: (a) it is **expensive** — oversampling
-  eigensolves on a much larger graph (~10x the test time); an analytic coherent
-  within-edge hole-burning integral (as the competition matrix already does) would
-  avoid oversampling; (b) a Jacobian-free amplitude update for further speed.
+  solvers. **Scaling/speed (landed):** the cost is the eigensolve, and oversampling
+  scales fine via ARPACK — the bottleneck was the dense-eigensolve threshold.
+  ``DENSE_EIG_MAX`` was lowered 256 → 50 (the measured dense/ARPACK crossover; dense
+  is O(N³), ARPACK ~flat in N on the banded laplacian), and the inner trust-region
+  solve was stopped from over-converging against the frozen field (tol 1e-6,
+  fewer field refreshes). line_PRA newton 47s → 14s, byte-identical. Optional
+  future refinements: an analytic coherent within-edge hole-burning integral (to
+  drop oversampling entirely) and a Jacobian-free amplitude update.
 
 ## Git / branch policy for this repo
 
