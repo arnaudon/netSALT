@@ -1473,11 +1473,14 @@ def _solve_active_set(
     # Confine k to a *tight* window: frequency pulling above threshold is small,
     # and a loose window lets the trust region zero a mode's residual by drifting
     # its k to a spurious nearby root with a=0 (collapsing multimode to one mode)
-    # instead of raising its amplitude to lase. Keep it well below the spacing.
+    # instead of raising its amplitude to lase. The window tracks the spacing
+    # (0.2 * min gap) with only a numerical floor, so it stays below the spacing
+    # even for a dense/near-degenerate spectrum (a fixed floor that exceeded the
+    # spacing made near-degenerate modes collide -> collapse or divergence).
     if n > 1:
         gaps = np.abs(k0[:, None] - k0[None, :])
         gaps[np.diag_indices(n)] = np.inf
-        window = float(np.clip(0.2 * gaps.min(), 0.02, 0.1))
+        window = float(np.clip(0.2 * gaps.min(), 1e-6, 0.1))
     else:
         window = 0.1
     a_max = max(1.0e3 * max(float(np.max(a)), 1.0e-3), 1.0e3)
@@ -1652,13 +1655,22 @@ def _full_salt_newton_impl(
     threshold. Pass ``oversample_size=0`` for the old (over-clamping) bare-edge
     behaviour, or a float to set it explicitly.
 
-    **Well-separated modes only.** The coupled ``(k, a)`` solve confines each
-    mode's ``k`` to a window of order the inter-mode spacing, floored at 0.05.
-    On a *dense* spectrum (e.g. a buffon network: modes spaced ~1e-3 in ``k``)
-    that floor far exceeds the spacing, so near-degenerate modes collide in the
-    solve and the amplitudes diverge. Use the competition-matrix solvers
-    (``linear`` / ``self_consistent`` / ``full_salt``) there; ``full_salt_newton``
-    targets well-separated modes (lines, rings, chord networks).
+    **Best for sparse spectra (few, resolved modes).** The coupled ``(k, a)``
+    solve confines each mode's ``k`` to a window ``0.2 * min_spacing`` so a mode
+    cannot drift to a neighbour's root; the window tracks the actual spacing (no
+    fixed floor), so it stays robust as the spectrum tightens -- on a near-degenerate
+    triplet (Δk ~ 1e-4) it lases the cluster instead of collapsing or diverging.
+    Two practical limits remain on a genuinely *dense* spectrum (e.g. a buffon
+    network, ~10^2--10^3 modes per unit ``k``): (i) **cost** -- the active set is
+    re-solved at every pump with a numerical Jacobian over all lasing ``(k, a)``,
+    each residual an operator eigensolve, so the work grows steeply with the
+    number of co-lasing modes and the graph size (minutes for a few dozen modes on
+    a 200-node graph); (ii) **near-degeneracy** -- the spacing is so small that any
+    physically broad gain window holds dozens of modes within ~1e-4 of each other,
+    and the per-mode amplitudes become ill-conditioned. The competition-matrix
+    solvers (``linear`` / ``self_consistent`` / ``full_salt``) remain the right
+    tool at buffon scale; ``full_salt_newton`` is aimed at sparse-spectrum cavities
+    (lines, rings, chord networks) and small mode counts.
 
     It never raises -- a step that fails to fully converge keeps its iterate and
     warns. (``max_iter``, ``tol``, ``inner_max_iter``, ``inner_damping`` are
