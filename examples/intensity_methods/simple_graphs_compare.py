@@ -9,13 +9,14 @@ right), applied to the three small textbook cavities built in
 * **ring + leads** -- a closed loop made open by two pendant leads;
 * **binary tree** -- a depth-3 splitter, one input lead and several leaf leads.
 
-These are all **single-mode under faithful SALT**: their modes overlap strongly, so
-once the dominant mode clamps the gain it holds the others below threshold. The
-plots make the contrast explicit -- ``linear`` (no gain clamping) lases several
-modes, while ``full_salt_newton`` reports the physically-correct one (the extra
-``linear`` modes appear as dashed curves with no solid partner). This is the
-opposite regime to the chord rings, where spatially-distinct modes genuinely
-co-lase.
+With the within-edge hole burning resolved (``full_salt_newton`` auto-oversamples),
+the operator-level solver **agrees with ``linear`` on the lasing count** and tracks
+it near threshold: the line and ring lase **two** modes under both, the tree one.
+Above threshold the solid (newton) curves bend below the dashed (linear) ones --
+the genuine full-SALT gain saturation that the near-threshold linear model omits.
+(With the bare per-edge-mean hole burning the operator over-clamped and spuriously
+reported a single mode here; resolving the standing wave fixes it, consistent with
+Ge-Chong-Stone Eq. 28 -- see ``line_PRA`` and ``doc/source/lasing.rst``.)
 
 Run::
 

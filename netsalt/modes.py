@@ -1541,6 +1541,34 @@ def _newton_onset_unit_scale(
     return s_linear / s_newton
 
 
+def _auto_oversample_size(graph, modes_df, resolution=6, node_cap=1200):
+    """Sub-edge length that resolves the lasing standing wave (for hole burning).
+
+    The operator-level hole burning samples ``|E_ν(x)|^2`` per edge; with the bare
+    edges (one sample per edge) the per-edge **mean** intensity over-estimates the
+    spatial overlap between modes -- it washes out the within-edge nodes/antinodes
+    where the coherent competition is actually weak -- so the saturation
+    **over-clamps** and suppresses co-lasing modes that the competition matrix (and
+    the Ge-Chong-Stone single-pole SALT, PRA 82, 063824) correctly lases. Sampling
+    a few points per wavelength fixes it. The local wavelength is
+    ``λ = 2π / (n·Re k)`` with ``n = sqrt(ε)``; target ``λ_min / resolution``,
+    capped so the oversampled graph stays bounded.
+    """
+    cand = np.where(np.asarray(modes_df["lasing_thresholds"]).ravel() < np.inf)[0]
+    tms = modes_df["threshold_lasing_modes"].to_numpy()
+    k_max = max((abs(from_complex(tms[i])[0]) for i in cand), default=0.0)
+    if k_max <= 0.0:
+        return None
+    eps = [abs(graph[u][v].get("dielectric_constant", 1.0) or 1.0) for u, v in graph.edges]
+    n_max = float(np.sqrt(max(eps) if eps else 1.0))
+    target = 2.0 * np.pi / (n_max * k_max) / resolution
+    lengths = np.array([graph[u][v]["length"] for u, v in graph.edges], dtype=float)
+    est_nodes = float(np.sum(np.maximum(lengths / max(target, 1e-12), 1.0)))
+    if est_nodes > node_cap:  # keep the oversampled graph (and its eigensolves) bounded
+        target *= est_nodes / node_cap
+    return float(target)
+
+
 def compute_modal_intensities_full_salt_newton(
     graph,
     modes_df,
@@ -1570,21 +1598,34 @@ def compute_modal_intensities_full_salt_newton(
       step repeated. The frozen field makes the residual a single clean eigensolve
       per mode, so the Jacobian is noise-free -- unlike the old decoupled solve
       whose residual re-ran an inner fixed point and chattered.
-    * **Gain-clamping active-set continuation.** The pump is stepped up; at each
-      step the confirmed lasing set is solved, modes whose amplitude vanishes are
-      dropped, and a non-lasing candidate is added only when it has net gain
-      (``α < 0``) on the *current saturated background*. This is the physical
-      criterion (gain clamping): a mode that the lasing modes have pushed below
-      threshold stays off. It is self-consistent, not borrowed from the linear
-      model, so it neither over-counts (as ``linear`` / ``full_salt`` can) nor
-      flips the winner.
+    * **Self-consistent active set.** The pump is stepped up; at each step the
+      confirmed lasing set is solved, modes whose amplitude vanishes are dropped,
+      and a non-lasing candidate is added when it has net gain (``α < 0``) on the
+      *current saturated background*. The active set is thus found self-consistently
+      from the saturated operator, not borrowed from the linear model. (This is only
+      faithful when the hole burning is resolved -- see below; with the bare-edge
+      mean it over-clamps and drops modes that should co-lase.)
 
     Amplitudes are reported in the **linear modal-intensity unit**
     (:func:`_newton_onset_unit_scale`), so the curves are directly comparable to
-    the other solvers and reduce to the linear onset slope at threshold. Within-edge
-    hole burning is refined by ``oversample_size``. It never raises -- a step that
-    fails to fully converge keeps its iterate and warns. (``max_iter``, ``tol``,
-    ``inner_max_iter``, ``inner_damping`` are accepted for interface parity.)
+    the other solvers and reduce to the linear onset slope at threshold, then
+    deviate above threshold (the genuine full-SALT correction: bent curves and
+    competition-shifted secondary modes).
+
+    **Within-edge hole burning must be resolved.** The saturation samples
+    ``|E_ν(x)|^2`` per edge; with one sample per edge the per-edge *mean*
+    over-estimates the spatial overlap (it washes out the standing-wave
+    nodes/antinodes) and **over-clamps**, spuriously suppressing co-lasing modes --
+    it lased one mode on ``line_PRA`` where Ge-Chong-Stone (PRA 82, 063824, Eq. 28)
+    and the competition matrix lase two. ``oversample_size=None`` therefore
+    auto-picks a wavelength-resolving sub-edge size (:func:`_auto_oversample_size`);
+    with it newton reproduces the two-mode result and reduces to linear near
+    threshold. Pass ``oversample_size=0`` for the old (over-clamping) bare-edge
+    behaviour, or a float to set it explicitly.
+
+    It never raises -- a step that fails to fully converge keeps its iterate and
+    warns. (``max_iter``, ``tol``, ``inner_max_iter``, ``inner_damping`` are
+    accepted for interface parity.)
     """
     del max_iter, tol, inner_max_iter, inner_damping, quality_method  # interface parity
 
@@ -1598,7 +1639,14 @@ def compute_modal_intensities_full_salt_newton(
             modes_df, modal_intensities, interacting_lasing_thresholds
         )
 
-    work_graph = graph if oversample_size is None else oversample_graph(graph, oversample_size)
+    # Resolve the within-edge field for the hole burning: the bare-edge (per-edge
+    # mean) sampling over-clamps and spuriously suppresses co-lasing modes (it
+    # disagreed with Ge-Chong-Stone Eq. 28 on line_PRA, lasing one mode where two
+    # lase). ``oversample_size=None`` now auto-picks a wavelength-resolving size;
+    # pass 0 to force the old bare-edge behaviour.
+    if oversample_size is None:
+        oversample_size = _auto_oversample_size(graph, modes_df)
+    work_graph = graph if not oversample_size else oversample_graph(graph, oversample_size)
     pump = np.asarray(work_graph.graph["params"]["pump"], dtype=float)
     pump_mask = _get_mask_matrices(work_graph.graph["params"])[1]
     # small, fixed budget for each trust-region sub-solve (a local, warm-started

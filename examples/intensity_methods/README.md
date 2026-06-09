@@ -52,53 +52,39 @@ All four are constructed to reduce to the same `1/(T_μμ·D0_thr)` onset slope 
 threshold, so their curves share units and overlay directly (`full_salt_newton`
 rescales its amplitude onto this unit internally).
 
-## What the linear / surrogate models *miss* (why they over-count modes)
-
-On the **narrow-gain** line, `linear`/`self_consistent`/`full_salt` lase **2**
-modes but `full_salt_newton` lases **1**. The difference is exactly gain clamping:
-
-- **`linear`** never imposes the saturated threshold condition. It lets the second
-  mode lase as soon as its *interacting* threshold (a fixed-`T` extrapolation) is
-  crossed, and never asks "given mode 0 lasing, does mode 1 still have net gain?"
-  Here it does not — with mode 0 lasing, mode 1 sits at `α ≈ +0.046` (just *below*
-  threshold), but `linear` cannot see that.
-- **`full_salt`** *does* clamp, but through a **per-edge-mean** surrogate that
-  smears `|E|²` over each edge; the effective hole burning is softer than reality,
-  so it under-clamps and leaves the marginal second mode weakly on.
-- **`full_salt_newton`** imposes the exact per-mode condition (operator singular at
-  real `k` with `a ≥ 0`) and finds the second mode is sub-threshold → suppressed.
-
-So the missing ingredient is the **self-consistent, operator-level gain clamping**:
-the linear model omits it entirely; the surrogate approximates it too softly. The
-truth here is a *marginal* call (`α` only `+0.046`), which is why the methods
-disagree on this particular mode.
-
-## How many modes does `full_salt_newton` lase?
+## How `full_salt_newton` relates to `linear` (and a validation against Ge)
 
 `full_salt_newton` uses a **self-consistent active set**: at each pump it freezes
 the saturated background field, solves all lasing `(k_μ, a_μ)` with one
 trust-region step (clean residual → no chatter), refreshes the field, and adds a
-candidate only when it has net gain on the current background. So it reports the
-**physically-correct mode count**.
+candidate when it has net gain on the current background.
 
-On these small, strongly-overlapping graphs (line, ring, tree) that count is
-**one** — the dominant mode clamps the gain and genuinely holds the others below
-threshold. This is exactly where `linear` / `full_salt` **over-count** (2–3
-modes): they don't impose the self-consistent gain-clamping condition. Genuine
-multimode under full SALT needs **spatially-distinct, low-overlap** modes, where
-each mode burns its own spatial hole — see **`two_ring_multimode.py`** and
-**`chaotic_ring_multimode.py`** below.
-`full_salt_newton` is more expensive than the matrix methods, so those remain a
-good first pass for multimode L–I.
+Done correctly it **reduces to `linear` near threshold** and agrees with it on the
+lasing count; *above* threshold it gives the genuine full-SALT correction — the
+L–I curves **bend over** and the secondary modes' intensities/onsets **shift** as
+the spatial holes deepen (the linear model freezes the profiles and can't see
+this). On the simple cavities (line/ring/tree) both lase the same count
+(`simple_graphs_compare.py`).
+
+**One subtlety that matters (and a validation).** The operator-level hole burning
+samples `|E_ν(x)|²` per edge; with one sample per edge the per-edge *mean*
+over-estimates the mode overlap (it washes out the standing-wave nodes) and
+**over-clamps**, spuriously suppressing co-lasing modes. On the 1D `line_PRA`
+cavity this made newton lase **one** mode where the competition matrix — and
+**Ge–Chong–Stone, Phys. Rev. A 82, 063824 (2010), Eq. 28** — lase **two**.
+Resolving the standing wave fixes it: `full_salt_newton` now auto-picks a
+wavelength-resolving `oversample_size`, recovering the two-mode result (intensities
+within a few % of Ge near threshold). The matrix methods remain a cheaper first
+pass for the lasing count; full SALT adds the above-threshold saturation.
 
 ### Multimode demo: `two_ring_multimode.py`
 
 Two **detuned** rings (radii 0.9 / 1.25) joined by a bridge, with a lead on each.
 The size difference breaks the left/right symmetry and **localizes** each mode
 onto one ring (identical rings would give symmetric/antisymmetric modes spread
-over *both*, with high overlap). With a narrow gain on a cross-ring pair, all four
-solvers — including `full_salt_newton` — lase **3 modes** (one in one ring, two in
-the other). Run it with `OMP_NUM_THREADS=1 python two_ring_multimode.py`.
+over *both*, with high overlap). With a narrow gain on a cross-ring pair,
+`full_salt_newton` lases **several modes** spread across the two rings (genuine
+multimode). Run it with `OMP_NUM_THREADS=1 python two_ring_multimode.py`.
 
 ### Multimode demo: `chaotic_ring_multimode.py`
 
@@ -156,12 +142,11 @@ stronger, another later and largely suppressed). Run it with
 
 The geometry + `linear` (dashed) vs `full_salt_newton` (solid) view applied to the
 three textbook graphs from `compare_intensity_methods.py` — the **line**
-(Fabry–Pérot), the **ring + leads**, and the **binary tree** splitter. These are
-the *opposite* regime to the chord rings: their modes overlap strongly, so they are
-**single-mode under faithful SALT**. The plots show it directly — on the line and
-the ring `linear` lases **2** modes but `full_salt_newton` lases **1**, the second
-mode appearing as a dashed curve with no solid partner (gain clamping holds it
-below threshold); the tree is single-mode for both. Run it with
+(Fabry–Pérot), the **ring + leads**, and the **binary tree** splitter. With the
+hole burning resolved, `full_salt_newton` **agrees with `linear` on the count**:
+the line and ring lase **2** modes under both, the tree **1**. The solid (newton)
+curves track the dashed (linear) ones near threshold and then bend below them above
+threshold — the full-SALT gain saturation. Run it with
 `OMP_NUM_THREADS=1 python simple_graphs_compare.py`.
 
 ## Run
@@ -183,8 +168,8 @@ pipeline once per graph, then computes the L–I curves with every method.
 - `intensity_methods_comparison.pdf` — one panel per graph, the four total-L–I
   curves overlaid (the **graphs × approximations** view).
 - `intensity_methods_per_mode.pdf` — per-mode L–I on the line. Dashed curves are
-  the `linear` reference (colour-keyed by mode); a dashed curve with **no solid
-  partner** is a mode `full_salt_newton` suppressed (gain clamping).
+  the `linear` reference (colour-keyed by mode); the solid `full_salt_newton`
+  curves track them near threshold and bend below above it (full-SALT saturation).
 - a summary table on stdout (`n_lasing`, `n_active@max`, `total@max` per method).
 
 To compare methods on the *full* example configs instead, see

@@ -278,57 +278,55 @@ to the self-saturation :math:`T_{\mu\mu}`:
   patterns, e.g. a broad gain line exciting well-separated modes) — the second
   mode finds gain the first did not burn → *multimode* lasing.
 
-What the cheaper models **miss** is precisely this self-consistent clamping:
+The solvers treat this clamping at different levels of fidelity:
 
-* ``linear`` has **no clamping** at all. A mode is switched on when its
-  fixed-:math:`T` *interacting threshold* is crossed and is never re-tested, so the
-  linear model **over-counts** lasing modes — it can keep a mode on that the
-  saturated gain no longer supports.
-* ``full_salt`` *does* clamp, but with a **per-edge-mean** surrogate that smears
-  :math:`|E|^2` over each edge; the effective hole burning is softer than reality,
-  so it under-clamps and leaves a marginal mode weakly on.
-* ``full_salt_newton`` imposes the exact per-mode condition (the saturated operator
-  is singular at real :math:`k` with :math:`a\ge 0`), so a mode that has gone
-  sub-threshold is driven to :math:`a_\mu = 0` — the sharpest, most faithful
-  clamping of the four.
+* ``linear`` switches a mode on when its fixed-:math:`T` *interacting threshold* is
+  crossed and never re-tests it. It captures the near-threshold competition exactly
+  (that is what :math:`T` is) but freezes the mode profiles, so above threshold it
+  misses how the deepening holes reshape the competition.
+* ``full_salt`` and ``full_salt_newton`` re-solve the saturated problem at the
+  operating pump, so the L–I curves **bend over** and the secondary modes'
+  intensities/onsets shift. ``full_salt_newton`` imposes the exact operator
+  condition (the saturated operator singular at real :math:`k` with :math:`a\ge 0`).
 
-Near a suppression boundary the call is marginal (the suppressed mode sits a hair
-below threshold), which is exactly where ``full_salt`` and ``full_salt_newton``
-disagree on the mode count while still agreeing on the total intensity.
+Done faithfully, ``full_salt_newton`` **reduces to** ``linear`` near threshold and
+**agrees with it on the lasing count**; the differences are the genuine
+above-threshold full-SALT corrections, not a different number of modes. This was
+validated against Ge–Chong–Stone (PRA 82, 063824, Eq. 28) on the 1D ``line_PRA``
+cavity: both lase **two** modes, with intensities matching to a few percent near
+threshold.
+
+.. warning::
+
+   The operator-level hole burning samples :math:`|E_\nu(x)|^2` per edge. With the
+   bare edges (one sample per edge) the per-edge **mean** over-estimates the mode
+   overlap — it washes out the standing-wave nodes/antinodes where the coherent
+   competition is weak — and **over-clamps**, spuriously suppressing co-lasing
+   modes. On ``line_PRA`` this made ``full_salt_newton`` lase one mode where Ge
+   Eq. 28 and the competition matrix lase two. ``oversample_size=None`` therefore
+   auto-picks a wavelength-resolving sub-edge size
+   (:func:`~netsalt.modes._auto_oversample_size`); resolving the standing wave
+   removes the over-clamping and recovers the correct count. This makes the solver
+   markedly more expensive (it eigensolves on the oversampled graph), so the
+   competition-matrix methods remain the cheaper first pass for the lasing count.
 
 .. note::
 
-   ``full_salt_newton`` solves this self-consistently: at each pump it freezes the
-   saturated background fields, solves all active ``(k_μ, a_μ)`` with one
-   trust-region step (clean residual, no chatter), refreshes the fields, and grows
-   the active set by adding a candidate only when it has net gain on the current
-   background. So it reports the **physically-correct mode count**, which on
-   strongly-overlapping graphs (a short line, a small ring) is often **one** --
-   precisely the case where ``linear`` / ``full_salt`` *over-count*. Genuine
-   multimode appears when the modes are spatially distinct enough to burn separate
-   holes (disordered / multi-cavity graphs, e.g. buffon); there it should lase as
-   many modes as the saturated gain truly supports. It is more expensive than the
-   competition-matrix methods, so for quick multimode L–I those remain a good
-   first pass.
-
-   .. note::
-
-      Multimode lasing is demonstrated in
-      ``examples/intensity_methods/two_ring_multimode.py``: two **detuned** rings
-      (different sizes) joined by a bridge. The detuning localises each mode onto
-      one ring -- identical rings would give symmetric/antisymmetric modes spread
-      over both, with high overlap -- so with a narrow gain the modes barely
-      compete and ``full_salt_newton`` lases three at once (one in one ring, two in
-      the other). ``examples/intensity_methods/chaotic_ring_multimode.py`` shows
-      the same effect on a *single* small graph: one 14-node ring with six random
-      chords (the buffon mechanism shrunk down). The chords close extra loops, so
-      the spectrum is dense and the modes localise on different loops; with a
-      narrow gain on a four-mode cluster ``full_salt_newton`` lases four. Getting
-      there did need two fixes: a tight ``k``-window (a loose one let the trust
-      region collapse the multimode set to one mode by drifting a mode's ``k`` to a
-      spurious ``a = 0`` root), and dropping off-grid threshold columns that put
-      spurious dips in the curves. Multimode remains the more delicate path, so
-      treat it as experimental and sanity-check the mode count.
+   Multimode lasing is demonstrated in
+   ``examples/intensity_methods/two_ring_multimode.py``: two **detuned** rings
+   (different sizes) joined by a bridge. The detuning localises each mode onto
+   one ring -- identical rings would give symmetric/antisymmetric modes spread
+   over both, with high overlap -- so with a narrow gain the modes barely
+   compete and ``full_salt_newton`` lases several at once (spread across the two
+   rings). ``examples/intensity_methods/chaotic_ring_multimode.py`` shows
+   the same effect on a *single* small graph: one 14-node ring with six random
+   chords (the buffon mechanism shrunk down). The chords close extra loops, so
+   the spectrum is dense and the modes localise on different loops; with a
+   narrow gain on a four-mode cluster ``full_salt_newton`` lases four. Getting
+   there did need a tight ``k``-window (a loose one let the trust region collapse
+   the multimode set to one mode by drifting a mode's ``k`` to a spurious
+   ``a = 0`` root). Multimode remains the more delicate path, so treat it as
+   experimental and sanity-check the mode count.
 
 Selecting a solver
 ^^^^^^^^^^^^^^^^^^
@@ -373,19 +371,23 @@ key (default ``"linear"``), dispatched by
       single clean eigensolve (no inner fixed point), so the Jacobian is noise-free
       -- the earlier decoupled solve, whose residual re-ran an inner fixed point,
       chattered for several co-lasing modes.
-    * **Gain-clamping active-set continuation** -- the pump is stepped up; the
+    * **Self-consistent active-set continuation** -- the pump is stepped up; the
       confirmed lasing set is solved, modes whose amplitude vanishes are dropped,
-      and a candidate is added only when it has net gain (``α < 0``) on the current
-      saturated background. This is self-consistent (not borrowed from the linear
-      model), so it neither over-counts nor flips the lasing winner.
+      and a candidate is added when it has net gain (``α < 0``) on the current
+      saturated background. The active set is found from the saturated operator, not
+      borrowed from the linear model. This is only faithful when the within-edge
+      hole burning is **resolved**: ``oversample_size=None`` auto-picks a
+      wavelength-resolving sub-edge size, without which the per-edge mean
+      over-clamps and spuriously drops co-lasing modes (see the warning above).
 
     Its amplitude is reported in the **linear modal-intensity unit** (each mode
     rescaled to match the linear ``1/(T_μμ·D0_thr)`` onset slope), so it is directly
-    comparable to the other solvers and reduces to linear at threshold. It is
-    deterministic and path-independent, captures **gain-clamping mode suppression**
-    (it lases *fewer* modes than the linear model where they over-count), and never
-    raises. It is *expensive* (a nested per-pump solve), so use a modest
-    ``salt_D0_steps``.
+    comparable to the other solvers and **reduces to linear near threshold**,
+    agreeing on the lasing count; above threshold it adds the genuine full-SALT
+    correction (bent curves, competition-shifted secondary modes). Validated against
+    Ge–Chong–Stone (PRA 82, 063824, Eq. 28) on ``line_PRA`` (both lase two modes).
+    It is deterministic, path-independent, never raises, and *expensive* (a nested
+    per-pump solve on the oversampled graph), so use a modest ``salt_D0_steps``.
 
 ``benchmark/bench_salt.py`` compares the solvers on speed and accuracy: it runs
 the shared pipeline once, swaps only the intensity step, writes overlaid L–I
@@ -398,5 +400,5 @@ threshold-limit check.
 worked example (with a physics walkthrough in its ``README``): it builds several
 small open graphs -- a Fabry–Pérot line, a ring resonator, a tree splitter -- and
 overlays the four methods' L–I curves, with a per-mode breakdown that makes the
-bend-over and the gain-clamping suppression explicit.
+above-threshold bend-over explicit.
 

@@ -168,10 +168,14 @@ def _newton_study(qg, tdf, p, out, steps=8):
     """Operator-level full-SALT Newton vs the linear model.
 
     Highlights two things: (1) the dominant mode's onset slope reduces to the
-    linear ``1/(T_μμ·D0_thr)``, and (2) full SALT's gain clamping suppresses
-    modes the linear model lases -- the active sets differ. The Newton solve is
-    expensive (a nested frequency/profile + amplitude solve per pump), so it runs
-    on a coarse ``steps`` grid.
+    linear ``1/(T_μμ·D0_thr)`` near threshold, and (2) above threshold full SALT
+    deviates -- bent curves and competition-shifted secondary modes. With the
+    within-edge hole burning resolved (default auto-oversampling) the lasing set
+    agrees with the linear/competition-matrix count (e.g. both modes on
+    ``line_PRA``, matching Ge-Chong-Stone Eq. 28); a too-coarse mesh over-clamps
+    and spuriously drops modes. The Newton solve is expensive (a nested
+    frequency/profile + amplitude solve per pump, on an oversampled graph), so it
+    runs on a coarse ``steps`` grid.
     """
     d0_max = p.get("intensities_D0_max") or p.get("D0_max", 0.1)
     thresholds = np.asarray(tdf["lasing_thresholds"]).ravel()
@@ -198,7 +202,9 @@ def _newton_study(qg, tdf, p, out, steps=8):
     print(f"  dominant-mode onset slope newton/linear: {newton_slope / lin_slope:.3f}  (1.0 = ok)")
     print(f"  linear lases modes : {sorted(int(i) for i in np.where(lin_last > 0)[0])}")
     print(f"  newton lases modes : {sorted(int(i) for i in np.where(new_last > 1e-6)[0])}")
-    print("  (fewer modes under full SALT = gain-clamping suppression)")
+    print(
+        "  (counts should agree with resolved hole burning; full SALT bends the curves above threshold)"
+    )
 
     plt.figure(figsize=(6, 4))
     plt.plot(

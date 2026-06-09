@@ -8,8 +8,9 @@ burning approximation (see ``doc/source/lasing.rst`` and issue #42):
                           (piecewise-linear curves);
 * ``self_consistent``  -- competition matrix rebuilt at the operating pump;
 * ``full_salt``        -- per-edge hole-burning surrogate (curves bend over);
-* ``full_salt_newton`` -- operator-level nonlinear SALT (gain-clamping mode
-                          suppression -- can lase *fewer* modes than ``linear``).
+* ``full_salt_newton`` -- operator-level nonlinear SALT (reduces to ``linear`` near
+                          threshold, agreeing on the count; bends the curves above
+                          it). Auto-resolves the within-edge hole burning.
 
 This script builds a few small **open** graphs (leads at the degree-1 nodes give
 the radiative loss that sets a lasing threshold), runs the shared passive ->
@@ -205,10 +206,10 @@ def _plot_per_mode(name, curves, out):
     """One subplot per method, each showing every lasing mode's L--I curve.
 
     The faint dashed curves in every panel are the *linear* per-mode result, drawn
-    as a fixed reference so the differences are obvious: ``full_salt`` bends the
-    curves over via saturation, and ``full_salt_newton`` clamps the gain so some
-    modes the linear model lases are **suppressed** (a dashed curve with no solid
-    partner). Colours are keyed by mode, so a solid/dashed pair is the same mode.
+    as a fixed reference so the differences are obvious: ``full_salt`` /
+    ``full_salt_newton`` track the linear curves near threshold and **bend over**
+    above it as the saturated gain clamps. Colours are keyed by mode, so a
+    solid/dashed pair is the same mode.
     """
     cmap = plt.get_cmap("tab10")
     lin_pumps, lin_data = curves["linear"]

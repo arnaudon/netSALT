@@ -84,7 +84,7 @@ PARAMS = {
     "dielectric_params": {"method": "uniform", "inner_value": 9.0, "outer_value": 1.0, "loss": 0.0},
 }
 D0_MAX = 0.5
-D0_STEPS = 44
+D0_STEPS = 24
 
 
 def build_dense_ring():

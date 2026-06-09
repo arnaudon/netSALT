@@ -187,7 +187,7 @@ def test_full_salt_newton_multimode_two_ring():
     trajectories = pump_trajectories(passive, g, return_approx=True)
     tdf = find_threshold_lasing_modes(trajectories, g)
 
-    df = compute_modal_intensities_full_salt_newton(g, tdf.copy(), 1.0, D0_steps=10)
+    df = compute_modal_intensities_full_salt_newton(g, tdf.copy(), 1.0, D0_steps=5)
     cols = [c for c in df.columns if isinstance(c, tuple) and c[0] == "modal_intensities"]
     data = np.nan_to_num(df[cols].to_numpy(dtype=float))
     peak = max(data.max(), 1e-9)
@@ -261,7 +261,7 @@ def test_full_salt_newton_multimode_chaotic_ring():
     trajectories = pump_trajectories(passive, g, return_approx=True)
     tdf = find_threshold_lasing_modes(trajectories, g)
 
-    df = compute_modal_intensities_full_salt_newton(g, tdf.copy(), 0.5, D0_steps=10)
+    df = compute_modal_intensities_full_salt_newton(g, tdf.copy(), 0.5, D0_steps=5)
     cols = [c for c in df.columns if isinstance(c, tuple) and c[0] == "modal_intensities"]
     data = np.nan_to_num(df[cols].to_numpy(dtype=float))
     peak = max(data.max(), 1e-9)

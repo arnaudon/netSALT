@@ -111,9 +111,9 @@ PARAMS = {
     "dielectric_params": {"method": "uniform", "inner_value": 9.0, "outer_value": 1.0, "loss": 0.0},
 }
 D0_MAX = 0.5
-D0_STEPS = 40  # pump points over the full range
+D0_STEPS = 22  # pump points over the full range
 D0_ZOOM = 0.08  # onset window (the four thresholds sit in 0.016--0.026)
-D0_STEPS_ZOOM = 36  # pump points within the zoom (fine, to resolve each turn-on)
+D0_STEPS_ZOOM = 22  # pump points within the zoom (fine, to resolve each turn-on)
 
 
 def build_chaotic_ring():
