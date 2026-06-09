@@ -1454,7 +1454,7 @@ def _salt_block_residual(graph, x, n, D0, pump, fields, seed):
 
 
 def _solve_active_set(
-    graph, modes0, fields0, a0, D0, pump, pump_mask, max_steps, seed, outer=12, damping=0.7
+    graph, modes0, fields0, a0, D0, pump, pump_mask, max_steps, seed, outer=6, damping=0.7
 ):
     """Frozen-field trust-region ``(k, a)`` solve for a *fixed* active set.
 
@@ -1651,7 +1651,7 @@ def compute_modal_intensities_full_salt_newton(
     pump_mask = _get_mask_matrices(work_graph.graph["params"])[1]
     # small, fixed budget for each trust-region sub-solve (a local, warm-started
     # solve converges in tens of evaluations; independent of params["max_steps"])
-    max_steps = 60
+    max_steps = 30
 
     # linear competition matrix only for the amplitude *unit* (diagonal) -- the
     # active set itself is found self-consistently, not borrowed from it
