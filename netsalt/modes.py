@@ -1640,9 +1640,25 @@ def _full_salt_newton_impl(
 
     Amplitudes are reported in the **linear modal-intensity unit**
     (:func:`_newton_onset_unit_scale`), so the curves are directly comparable to
-    the other solvers and reduce to the linear onset slope at threshold, then
-    deviate above threshold (the genuine full-SALT correction: bent curves and
-    competition-shifted secondary modes).
+    the other solvers and reduce to the linear onset slope at threshold.
+
+    **What this solver is validated for: the lasing count and frequency pulling,
+    not the above-threshold magnitudes.** The operator-level solve gives a
+    self-consistent gain-clamping *active set* (which modes lase) and the lasing
+    *frequencies* ``k_μ`` that the competition-matrix solvers cannot -- on
+    ``line_PRA`` it lases the two modes of Ge-Chong-Stone (PRA 82, 063824, Eq. 28)
+    where ``self_consistent`` over-suppresses to one. But the *magnitude* is read
+    off the bare amplitude ``a`` in the saturation denominator ``1 + Γ a |Ê|²``,
+    which is **not** the SALT modal intensity: Ge/Stone obtain intensities from the
+    single-pole-approximation matrix equation ``D0/D0_thr - 1 = Σ_ν Γ_ν χ_μν I_ν``
+    (exactly netSALT's competition-matrix solvers). The bare ``a`` reduces to the
+    linear intensity at threshold but **grows super-linearly above it on
+    multi-loop graphs** (verified: ~1--2× above linear on chord/ring networks,
+    where ``self_consistent``/``full_salt`` correctly saturate *below* linear),
+    because the local-saturation clamp with a non-uniform standing-wave profile is
+    not the projected SPA intensity. **For quantitative L--I magnitudes use
+    ``linear`` / ``self_consistent`` / ``full_salt`` (Ge's SPA method);** treat
+    ``full_salt_newton`` as the gain-clamping count + frequency-pulling diagnostic.
 
     **Within-edge hole burning must be resolved.** The saturation samples
     ``|E_ν(x)|^2`` per edge; with one sample per edge the per-edge *mean*

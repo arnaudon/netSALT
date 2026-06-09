@@ -284,17 +284,31 @@ The solvers treat this clamping at different levels of fidelity:
   crossed and never re-tests it. It captures the near-threshold competition exactly
   (that is what :math:`T` is) but freezes the mode profiles, so above threshold it
   misses how the deepening holes reshape the competition.
-* ``full_salt`` and ``full_salt_newton`` re-solve the saturated problem at the
-  operating pump, so the L–I curves **bend over** and the secondary modes'
-  intensities/onsets shift. ``full_salt_newton`` imposes the exact operator
-  condition (the saturated operator singular at real :math:`k` with :math:`a\ge 0`).
+* ``self_consistent`` and ``full_salt`` re-solve the saturated competition matrix
+  at the operating pump, so the L–I curves **bend over** (``full_salt``) and the
+  secondary modes' intensities/onsets shift. These are the single-pole-approximation
+  (SPA) intensities ``D0/D0_thr - 1 = Σ_ν Γ_ν χ_μν I_ν`` — **the way Ge–Chong–Stone
+  obtain modal intensities** — and are the methods to trust for quantitative L–I.
+* ``full_salt_newton`` imposes the exact operator condition (the saturated operator
+  singular at real :math:`k` with :math:`a\ge 0`). It contributes a self-consistent
+  gain-clamping **active set** and the lasing **frequencies** :math:`k_\mu` that the
+  competition-matrix solvers cannot: on ``line_PRA`` it lases the **two** modes of
+  Ge–Chong–Stone (PRA 82, 063824, Eq. 28) where ``self_consistent`` over-suppresses
+  to one. It **reduces to** ``linear`` at threshold.
 
-Done faithfully, ``full_salt_newton`` **reduces to** ``linear`` near threshold and
-**agrees with it on the lasing count**; the differences are the genuine
-above-threshold full-SALT corrections, not a different number of modes. This was
-validated against Ge–Chong–Stone (PRA 82, 063824, Eq. 28) on the 1D ``line_PRA``
-cavity: both lase **two** modes, with intensities matching to a few percent near
-threshold.
+.. warning::
+
+   **Trust ``full_salt_newton`` for the lasing count and frequency pulling, not for
+   the above-threshold intensity magnitudes.** Its magnitude is read off the bare
+   amplitude :math:`a` in the saturation denominator :math:`1 + \Gamma a |\hat E|^2`,
+   which is *not* the SALT modal intensity (Ge/Stone get intensities from the SPA
+   matrix equation above, i.e. netSALT's competition-matrix solvers). The bare
+   :math:`a` matches ``linear`` at threshold but **grows super-linearly above it on
+   multi-loop graphs** — verified ~1–2× *above* ``linear`` on chord/ring networks,
+   whereas ``self_consistent``/``full_salt`` correctly saturate *below* ``linear`` —
+   because the local-saturation clamp with a non-uniform standing-wave profile is
+   not the projected SPA intensity. Use ``linear`` / ``self_consistent`` /
+   ``full_salt`` for quantitative magnitudes.
 
 .. warning::
 
@@ -386,11 +400,15 @@ key (default ``"linear"``), dispatched by
     Its amplitude is reported in the **linear modal-intensity unit** (each mode
     rescaled to match the linear ``1/(T_μμ·D0_thr)`` onset slope), so it is directly
     comparable to the other solvers and **reduces to linear near threshold**,
-    agreeing on the lasing count; above threshold it adds the genuine full-SALT
-    correction (bent curves, competition-shifted secondary modes). Validated against
-    Ge–Chong–Stone (PRA 82, 063824, Eq. 28) on ``line_PRA`` (both lase two modes).
-    It is deterministic, path-independent, never raises, and *expensive* (a nested
-    per-pump solve on the oversampled graph), so use a modest ``salt_D0_steps``.
+    agreeing on the lasing count -- validated against Ge–Chong–Stone (PRA 82, 063824,
+    Eq. 28) on ``line_PRA`` (both lase two modes, where ``self_consistent``
+    over-suppresses to one). **Trust it for the count and frequency pulling, not for
+    the above-threshold magnitudes:** the bare amplitude is not the SALT modal
+    intensity (Ge/Stone use the SPA matrix equation) and grows super-linearly above
+    threshold on multi-loop graphs -- use the competition-matrix solvers for
+    quantitative L–I (see the warning above). It is deterministic, path-independent,
+    never raises, and *expensive* (a nested per-pump solve on the oversampled graph),
+    so use a modest ``salt_D0_steps``.
 
 ``benchmark/bench_salt.py`` compares the solvers on speed and accuracy: it runs
 the shared pipeline once, swaps only the intensity step, writes overlaid L–I
