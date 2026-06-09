@@ -22,11 +22,15 @@ from .utils import to_complex
 L = logging.getLogger(__name__)
 
 # Quantum-graph laplacians at or below this dimension use a direct dense
-# eigensolve instead of ARPACK shift-invert: ``eigs(sigma=0)`` carries a large
-# per-call overhead (a sparse LU factorisation + Arnoldi restart) that dominates
-# for small graphs, where ``np.linalg.eig`` on the dense matrix is several times
-# faster and returns the same nearest-zero eigenpair. Above it, ARPACK wins.
-DENSE_EIG_MAX = 256
+# eigensolve instead of ARPACK shift-invert: ``eigs(sigma=0)`` carries a fixed
+# per-call overhead (a sparse LU factorisation + Arnoldi restart, ~2.5 ms) that
+# only dominates for small graphs, where ``np.linalg.eig`` on the dense matrix is
+# faster and returns the same nearest-zero eigenpair. Above the crossover (~50
+# nodes, measured) ARPACK wins decisively: it is ~flat in N on the banded
+# quantum-graph laplacian (~2.5 ms at N=60, ~6 ms at N=1000), whereas dense is
+# O(N^3) (~24 ms at N=120, ~160 ms at N=250). Keeping this low is what lets the
+# oversampled full_salt_newton solves (and medium-graph mode finding) scale.
+DENSE_EIG_MAX = 50
 
 
 def create_quantum_graph(

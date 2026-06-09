@@ -1541,7 +1541,7 @@ def _newton_onset_unit_scale(
     return s_linear / s_newton
 
 
-def _auto_oversample_size(graph, modes_df, resolution=6, node_cap=1200):
+def _auto_oversample_size(graph, modes_df, resolution=6, node_cap=3000):
     """Sub-edge length that resolves the lasing standing wave (for hole burning).
 
     The operator-level hole burning samples ``|E_ν(x)|^2`` per edge; with the bare
