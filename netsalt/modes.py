@@ -1492,9 +1492,9 @@ def _solve_active_set(
                 lambda x, _f=fields: _salt_block_residual(graph, x, n, D0, pump, _f, seed),
                 x0,
                 bounds=(lo, hi),
-                xtol=1e-10,
-                ftol=1e-10,
-                gtol=1e-10,
+                xtol=1e-6,
+                ftol=1e-6,
+                gtol=1e-6,
                 max_nfev=int(max_steps),
             )
             ks, a = result.x[:n], np.clip(result.x[n:], 0.0, None)
