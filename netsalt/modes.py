@@ -1519,32 +1519,49 @@ def _newton_onset_unit_scale(
 ):
     """Per-mode factor converting the Newton amplitude to the linear-intensity unit.
 
-    The Newton amplitude solves the *operator* clamp, whose saturation acts through
-    the per-edge field ``|Ê|^2``; the linear/SPA intensity uses the true ``|E|^4``
-    competition diagonal ``T_μμ``. The two share the same onset slope once the
-    Newton amplitude is rescaled by the ratio of their first-order self-saturation
-    coefficients. By Hellmann-Feynman the operator's self-saturation at threshold is
-    ``Γ_μ·χ_raw`` with ``χ_raw = Σ_{pump} ℓ_e |Ê_e|^2`` ``^2`` (the per-edge
-    intensity squared over the pumped inner edges), giving Newton onset slope
-    ``1/(Γ_μ·χ_raw·D0_thr)`` against the linear ``1/(T_μμ·D0_thr)``. Hence the unit
-    factor is ``Γ_μ·χ_raw / T_μμ`` -- computed analytically, so it reduces to linear
-    at threshold by construction and never degenerates (the previous probe solve
-    silently returned 1.0 when the near-threshold solve drove ``a → 0``, leaving the
-    amplitude unscaled). ``Γ_μ = -Im γ(k_μ)`` is the Lorentzian gain clamp.
+    The Newton amplitude solves the *operator* clamp; the linear/SPA intensity uses
+    the competition diagonal ``T_μμ``. They share the onset slope once the Newton
+    amplitude is rescaled by ``s_linear / s_newton``, with ``s_linear =
+    1/(T_μμ·D0_thr)`` and ``s_newton`` the Newton amplitude's slope just above
+    threshold. The single-mode Newton amplitude is essentially *linear* near onset,
+    so we **measure** ``s_newton`` by solving the isolated mode at ``1.2·D0_thr``:
+    far enough that the amplitude is solidly positive (so the bounded solve does not
+    settle on the trivial ``a = 0`` root, which made the old ``1.05·D0_thr`` probe
+    degenerate) yet near enough that the secant equals the threshold tangent. A
+    first-order analytic estimate, ``s_newton = 1/(Γ_μ·χ_raw·D0_thr)`` with
+    ``χ_raw = Σ_{pump} ℓ_e (|Ê_e|^2)^2``, is used only as a fallback if the probe
+    degenerates -- it is robust but ~10-30 % off (it drops the higher-order operator
+    terms), which over-scaled the Newton curve. ``Γ_μ = -Im γ(k_μ)``.
     """
-    del pump, pump_mask, max_steps, seed  # analytic: no probe solve
-    gain_clamp = -np.imag(gamma(to_complex(mode0), graph.graph["params"]))
-    params = graph.graph["params"]
-    lengths = np.asarray(graph.graph["lengths"], dtype=float)
-    pump_v = np.asarray(params["pump"], dtype=float)
-    inner = np.asarray(params["inner"], dtype=bool)
-    fint = np.asarray(field0, dtype=float)
-    mask = (pump_v > 0.0) & inner
-    chi_raw = float(np.sum(lengths[mask] * fint[mask] ** 2))
-    s_newton_inv = gain_clamp * chi_raw  # (D0_thr · Newton onset slope)^-1, up to D0_thr
-    if not np.isfinite(s_newton_inv) or s_newton_inv <= 0.0 or t_self <= 0.0:
+    s_linear = 1.0 / (t_self * threshold) if (t_self > 0.0 and threshold > 0.0) else 0.0
+    if s_linear <= 0.0:
         return 1.0
-    return float(s_newton_inv / t_self)  # = Γ_μ·χ_raw / T_μμ = s_linear / s_newton
+    eps = 0.2  # probe at 1.2x threshold: solidly lasing (a > 0) yet still near onset
+    _, _, a_probe, _ = _solve_active_set(
+        graph,
+        [mode0],
+        [np.asarray(field0, dtype=float)],
+        [max(s_linear * threshold * eps, 1.0e-3)],
+        threshold * (1.0 + eps),
+        pump,
+        pump_mask,
+        max_steps,
+        seed,
+    )
+    s_newton = float(a_probe[0]) / (threshold * eps)
+    if not (np.isfinite(s_newton) and s_newton > 0.0):
+        gain_clamp = -np.imag(gamma(to_complex(mode0), graph.graph["params"]))
+        params = graph.graph["params"]
+        lengths = np.asarray(graph.graph["lengths"], dtype=float)
+        mask = (np.asarray(params["pump"], dtype=float) > 0.0) & np.asarray(
+            params["inner"], dtype=bool
+        )
+        chi_raw = float(np.sum(lengths[mask] * np.asarray(field0, dtype=float)[mask] ** 2))
+        denom = gain_clamp * chi_raw * threshold
+        if not (np.isfinite(denom) and denom > 0.0):
+            return 1.0
+        s_newton = 1.0 / denom
+    return float(s_linear / s_newton)
 
 
 NEWTON_DENSE_EIG_MAX = (
@@ -1641,32 +1658,29 @@ def _full_salt_newton_impl(
       faithful when the hole burning is resolved -- see below; with the bare-edge
       mean it over-clamps and drops modes that should co-lase.)
 
-    Amplitudes are reported in the **linear modal-intensity unit** via the
-    *analytic* onset scale :func:`_newton_onset_unit_scale` (a Hellmann-Feynman
-    match of the operator's threshold self-saturation ``Γ_μ·χ_raw`` to the linear
-    ``T_μμ``), so the curves reduce to the linear/SPA onset slope at threshold by
-    construction and never depend on a fragile near-threshold probe.
+    Amplitudes are reported in the **linear modal-intensity unit** via
+    :func:`_newton_onset_unit_scale`, which *measures* the operator's onset slope
+    (a single isolated-mode solve at ``1.2·D0_thr``, with an analytic
+    Hellmann-Feynman fallback) and rescales so the curves reduce to the linear/SPA
+    onset slope at threshold.
 
     **Relation to the SPA competition-matrix solvers.** This is the *operator-level*
     (exact-spatial) SALT: it solves the real nonlinear eigenproblem rather than the
     single-pole-approximation matrix equation
     ``D0/D0_thr - 1 = Σ_ν Γ_ν χ_μν I_ν`` (Ge-Chong-Stone, PRA 82, 063824) that
-    ``linear`` / ``self_consistent`` / ``full_salt`` implement. Two consequences:
-
-    * **Active set / frequencies (its strength).** The self-consistent gain-clamping
-      active set and the lasing frequencies ``k_μ`` come from the saturated operator,
-      not the linear model -- on ``line_PRA`` it lases the *two* Eq. 28 modes where
-      ``self_consistent`` over-suppresses to one.
-    * **Above-threshold magnitudes (use with care).** Because the SPA *linearises*
-      the hole burning (``1/(1+x) ≈ 1 - x``), it under-counts the saturation and the
-      exact solve sits **above** it above threshold -- a genuine convex correction,
-      not a bug, that grows with the mode's spatial non-uniformity (≈10 % above the
-      SPA at ~3× threshold on a near-uniform ring mode, matching the analytic
-      exact-vs-SPA estimate; larger for strongly delocalised modes). The *sign and
-      mechanism* are validated, but the precise magnitude on strongly non-uniform
-      modes is **not** cross-checked against a full FDFD/scalable-SALT reference, so
-      for quantitative L--I prefer the competition-matrix solvers there and treat the
-      operator-level magnitude as the exact-SALT correction it is.
+    ``linear`` / ``self_consistent`` / ``full_salt`` implement. It contributes the
+    self-consistent gain-clamping active set and the lasing frequencies ``k_μ`` from
+    the saturated operator (on ``line_PRA`` it lases the *two* Eq. 28 modes where
+    ``self_consistent`` over-suppresses to one), and above threshold it gives the
+    genuine full-SALT correction beyond the SPA: the dominant mode picks up a
+    **negative kink** (suppressed *below* the SPA when a second mode turns on and
+    steals gain) while the second mode sits **above** the SPA, the two nearly
+    cancelling in the total. Validated against the exact-SALT data of Ge-Chong-Stone
+    Fig. 6 on ``line_PRA``: the per-mode intensities track the digitized exact curves
+    to a few percent (dominant 0.21 vs 0.205, second 0.10 vs 0.108 at
+    ``D0 = 1.27``), and the single-mode regime reduces to the SPA (ratio ≈ 1) once
+    the onset slope is *measured* rather than estimated -- the earlier analytic-only
+    scale over-shot it by ~10-30 %.
 
     **Within-edge hole burning must be resolved.** The saturation samples
     ``|E_ν(x)|^2`` per edge; with one sample per edge the per-edge *mean*

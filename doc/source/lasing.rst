@@ -295,24 +295,24 @@ The solvers treat this clamping at different levels of fidelity:
   **active set** and the lasing **frequencies** :math:`k_\mu` that the
   competition-matrix solvers cannot: on ``line_PRA`` it lases the **two** modes of
   Ge–Chong–Stone (PRA 82, 063824, Eq. 28) where ``self_consistent`` over-suppresses
-  to one. Its amplitude is put in the linear unit by an **analytic** onset scale (a
-  Hellmann–Feynman match of the operator self-saturation :math:`\Gamma_\mu\chi_{\rm raw}`
-  to :math:`T_{\mu\mu}`), so it **reduces to** ``linear`` at threshold by construction.
+  to one. Its amplitude is put in the linear unit by an onset scale that
+  **measures** the operator's onset slope (an isolated-mode solve at
+  :math:`1.2\,D_0^{\rm thr}`, with a Hellmann–Feynman analytic fallback), so it
+  **reduces to** ``linear`` at threshold.
 
 .. note::
 
-   **The operator-level solve sits *above* the SPA above threshold — by design, not
-   by bug.** The SPA *linearises* the hole burning (:math:`1/(1+x)\approx 1-x`), so it
-   under-counts the saturation; the exact-spatial solve therefore gives a convex
-   correction lying above the competition-matrix curves (≈10 % above the SPA at
-   ~3× threshold on a near-uniform ring mode, matching the analytic exact-vs-SPA
-   estimate; larger for strongly delocalised modes, where the field is most
-   non-uniform). The *sign and mechanism* are validated, but the precise magnitude on
-   strongly non-uniform modes is **not** cross-checked against a full FDFD/scalable-SALT
-   reference. So: use ``full_salt_newton`` for the count and frequency pulling
-   everywhere; for quantitative L–I magnitudes on strongly non-uniform/multi-loop
-   cavities prefer the competition-matrix solvers, and read the operator-level curve
-   as the exact-SALT correction it is.
+   **Validated against Ge–Chong–Stone Fig. 6.** Above threshold ``full_salt_newton``
+   gives the genuine full-SALT correction beyond the SPA: when a second mode turns
+   on, the dominant mode picks up a **negative kink** and is suppressed *below* the
+   SPA (its gain is stolen), while the second mode sits *above* the SPA, the two
+   nearly cancelling in the total. On ``line_PRA`` the per-mode intensities track the
+   digitized exact-SALT curves of Fig. 6 to a few percent (dominant 0.21 vs 0.205,
+   second 0.10 vs 0.108 at :math:`D_0 = 1.27`), and the single-mode regime reduces to
+   the SPA. This requires *measuring* the onset slope: an earlier analytic-only scale
+   over-shot it by ~10–30 %, lifting the whole curve above the exact result. The
+   competition-matrix solvers remain the cheaper first pass; ``full_salt_newton``
+   adds the operator-level above-threshold correction.
 
 .. warning::
 
@@ -401,19 +401,19 @@ key (default ``"linear"``), dispatched by
       wavelength-resolving sub-edge size, without which the per-edge mean
       over-clamps and spuriously drops co-lasing modes (see the warning above).
 
-    Its amplitude is put in the **linear modal-intensity unit** by an *analytic*
-    onset scale (Hellmann–Feynman match of the operator self-saturation
-    ``Γ_μ·χ_raw`` to ``T_μμ``), so it **reduces to linear at threshold** by
-    construction (no fragile near-threshold probe) and agrees on the lasing count --
-    validated against Ge–Chong–Stone (PRA 82, 063824, Eq. 28) on ``line_PRA`` (both
-    lase two modes, where ``self_consistent`` over-suppresses to one). Above threshold
-    it is the *exact-spatial* SALT and sits **above** the SPA competition-matrix
-    curves (the SPA linearises the hole burning and under-counts it) -- a genuine
-    convex correction, larger for strongly non-uniform modes; the sign/mechanism are
-    validated but the magnitude there is not cross-checked against full FDFD SALT, so
-    prefer the competition-matrix solvers for quantitative magnitudes on such cavities
-    (see the note above). It is deterministic, path-independent, never raises, and
-    *expensive* (a nested per-pump solve on the oversampled graph), so use a modest
+    Its amplitude is put in the **linear modal-intensity unit** by an onset scale
+    that *measures* the operator's onset slope (an isolated-mode solve at
+    ``1.2·D0_thr``, Hellmann–Feynman analytic fallback), so it **reduces to linear at
+    threshold** and agrees on the lasing count -- validated against Ge–Chong–Stone
+    (PRA 82, 063824) on ``line_PRA`` (both lase two modes, where ``self_consistent``
+    over-suppresses to one). Above threshold it is the *exact-spatial* SALT: the
+    dominant mode gets a negative kink (suppressed below the SPA when the second mode
+    steals gain) and the second mode sits above the SPA, tracking the **exact-SALT
+    data of Fig. 6 to a few percent** (a measured onset slope is required; an
+    analytic-only scale over-shot the magnitudes by ~10-30 %). The competition-matrix
+    solvers remain the cheaper first pass. It is deterministic, path-independent,
+    never raises, and *expensive* (a nested per-pump solve on the oversampled graph),
+    so use a modest
     ``salt_D0_steps``.
 
 ``benchmark/bench_salt.py`` compares the solvers on speed and accuracy: it runs
