@@ -1541,7 +1541,7 @@ def _newton_onset_unit_scale(
     return s_linear / s_newton
 
 
-def _auto_oversample_size(graph, modes_df, resolution=6, node_cap=3000):
+def _auto_oversample_size(graph, modes_df, resolution=12, node_cap=3000):
     """Sub-edge length that resolves the lasing standing wave (for hole burning).
 
     The operator-level hole burning samples ``|E_ν(x)|^2`` per edge; with the bare
@@ -1552,7 +1552,11 @@ def _auto_oversample_size(graph, modes_df, resolution=6, node_cap=3000):
     the Ge-Chong-Stone single-pole SALT, PRA 82, 063824) correctly lases. Sampling
     a few points per wavelength fixes it. The local wavelength is
     ``λ = 2π / (n·Re k)`` with ``n = sqrt(ε)``; target ``λ_min / resolution``,
-    capped so the oversampled graph stays bounded.
+    capped so the oversampled graph stays bounded. ``resolution`` defaults to 12
+    (~λ/12): a convergence study on ``line_PRA`` shows the modal *intensities*
+    converge to ~1% there, while the cheaper λ/6 (used before the ARPACK
+    eigensolve scaling) got the lasing count right but was ~15% under-resolved.
+    ARPACK makes λ/12 essentially free.
     """
     cand = np.where(np.asarray(modes_df["lasing_thresholds"]).ravel() < np.inf)[0]
     tms = modes_df["threshold_lasing_modes"].to_numpy()
