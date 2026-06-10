@@ -1845,6 +1845,63 @@ class TestFullSaltNewton:
         newton_slope = a[-1] / (cols[-1] - thr0)
         assert 0.8 < newton_slope / linear_slope < 1.2
 
+    def test_two_mode_competition_negative_kink(self):
+        """Ge-Chong-Stone two-mode regression (PRA 82, 063824, Fig. 6): when the
+        second mode crosses its *interacting* threshold the operator solve must
+        (a) lase it -- the active set is found self-consistently, with the
+        within-edge hole burning resolved so the clamped background does not
+        freeze candidates below threshold -- and (b) suppress the dominant mode
+        below its un-kinked single-mode line (the negative competition kink).
+        Guards the active-set regression where a simultaneous multi-mode add
+        collapsed to single-mode lasing and the dominant rode its un-kinked line
+        (the full suite stayed green through that regression -- this test is the
+        pin)."""
+        from netsalt.modes import (
+            compute_modal_intensities,
+            compute_modal_intensities_full_salt_newton,
+            compute_mode_competition_matrix,
+        )
+
+        g, tdf = _independent_lasing_fixture()
+        thresholds = np.asarray(tdf["lasing_thresholds"]).ravel()
+        t0 = int(np.argmin(thresholds))
+        thr0 = float(thresholds[t0])
+
+        # locate the second mode's interacting threshold from the linear/SPA sweep
+        T = compute_mode_competition_matrix(g, tdf)
+        d0_second = None
+        for d0 in np.linspace(thr0, 4.0 * thr0, 40):
+            lin = compute_modal_intensities(tdf.copy(), float(d0), T)
+            cols = [c for c in lin.columns if isinstance(c, tuple) and c[0] == "modal_intensities"]
+            last = np.nan_to_num(lin[max(cols, key=lambda c: c[1])].to_numpy(float))
+            if np.sum(last > 1e-12) >= 2:
+                d0_second = float(d0)
+                break
+        assert d0_second is not None, "fixture must lase >=2 modes in the linear model"
+
+        d0_max = 1.25 * d0_second
+        df = compute_modal_intensities_full_salt_newton(g, tdf.copy(), d0_max, D0_steps=8)
+        cols = sorted(
+            c[1] for c in df.columns if isinstance(c, tuple) and c[0] == "modal_intensities"
+        )
+        curves = np.nan_to_num(df[[("modal_intensities", c) for c in cols]].to_numpy(float))
+        # (a) the second mode lases
+        assert np.sum(curves[:, -1] > 1e-3 * curves[:, -1].max()) >= 2, (
+            "operator solve must lase the second mode past its interacting threshold"
+        )
+        # (b) negative kink: the dominant ends below its un-kinked single-mode
+        # extrapolation (onset slope from the first above-threshold points)
+        dom = curves[t0]
+        on = np.where(dom > 0)[0]
+        assert len(on) >= 3
+        i0, i1 = on[0], on[1]
+        onset_slope = (dom[i1] - dom[i0]) / (cols[i1] - cols[i0])
+        unkinked = dom[i0] + onset_slope * (cols[-1] - cols[i0])
+        assert dom[-1] < 0.98 * unkinked, (
+            "dominant mode must be suppressed below its un-kinked line "
+            f"(got {dom[-1]:.4g} vs un-kinked {unkinked:.4g})"
+        )
+
     def test_self_consistent_does_not_flip_mode_ordering(self):
         """Mode-following in compute_mode_competition_matrix_at_pump keeps the
         lowest-threshold (dominant) mode dominant far above threshold: without it

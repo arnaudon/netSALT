@@ -1652,11 +1652,18 @@ def _full_salt_newton_impl(
       whose residual re-ran an inner fixed point and chattered.
     * **Self-consistent active set.** The pump is stepped up; at each step the
       confirmed lasing set is solved, modes whose amplitude vanishes are dropped,
-      and a non-lasing candidate is added when it has net gain (``α < 0``) on the
-      *current saturated background*. The active set is thus found self-consistently
-      from the saturated operator, not borrowed from the linear model. (This is only
-      faithful when the hole burning is resolved -- see below; with the bare-edge
-      mean it over-clamps and drops modes that should co-lase.)
+      and non-lasing candidates are probed on the *current saturated background*:
+      one is added when it has net gain there (``α < 0`` -- the crossing of its
+      *interacting* threshold), **one per sweep, most above-threshold first**
+      (simultaneous adds hand the coupled solve a multistable warm start that can
+      converge to the wrong basin and zero the true winner). An empty set is
+      bootstrapped from the lowest noninteracting threshold directly, which is
+      exact on the unsaturated background (the gain probe alone would reject a
+      mode sitting *at* its threshold, where ``α = 0``). The active set is thus
+      found self-consistently from the saturated operator, not borrowed from the
+      linear model. (This is only faithful when the hole burning is resolved --
+      see below; with the bare-edge mean it over-clamps and drops modes that
+      should co-lase.)
 
     Amplitudes are reported in the **linear modal-intensity unit** via
     :func:`_newton_onset_unit_scale`, which *measures* the operator's onset slope
@@ -1779,7 +1786,8 @@ def _full_salt_newton_impl(
     active: list[int] = []  # confirmed lasing ids, carried along the continuation
     first = float(np.min(lasing_thresholds[candidates]))
     for D0 in np.linspace(first, max_pump_intensity, D0_steps):
-        for _ in range(len(candidates) + 1):  # active-set sweeps until stable
+        bootstrapped_off: set[int] = set()  # bootstrapped then vanished at this D0
+        for _ in range(2 * len(candidates) + 2):  # active-set sweeps until stable
             if active:
                 modes_out, fields_out, a_out, converged = _solve_active_set(
                     work_graph,
@@ -1803,7 +1811,29 @@ def _full_salt_newton_impl(
                         fields_out[j],
                         float(a_out[j]),
                     )
+                dropped = [i for i in active if a_state[i] <= 1e-4]
+                bootstrapped_off.update(dropped)
                 active = [i for i in active if a_state[i] > 1e-4]  # drop vanished
+            if not active:
+                # Bootstrap an empty set: on the unsaturated background the
+                # noninteracting threshold is exact, and the gain-crossing probe
+                # below would wrongly reject a mode sitting *at* its threshold
+                # (alpha = 0 there, not < 0 -- so the first mode would otherwise
+                # turn on a full pump step late). Activate the lowest-threshold
+                # eligible candidate directly.
+                eligible = [
+                    c
+                    for c in candidates
+                    if lasing_thresholds[c] <= D0 and c not in bootstrapped_off
+                ]
+                if not eligible:
+                    break
+                c = min(eligible, key=lambda i: lasing_thresholds[i])
+                if c not in mode_state:
+                    _init(c)
+                a_state[c] = 1e-3
+                active.append(c)
+                continue  # solve the bootstrapped set before probing others
             # gain the not-yet-lasing candidates see on the current saturated background
             background = _saturated_graph_multi(
                 work_graph,
@@ -1813,28 +1843,38 @@ def _full_salt_newton_impl(
                 pump,
                 [field_state[i] for i in active],
             )
-            added = False
+            active_ks = [float(mode_state[i][0]) for i in active]
+            best, best_alpha, best_k = None, -1e-6, 0.0
             for c in candidates:
                 if c in active or lasing_thresholds[c] > D0:
                     continue
                 if c not in mode_state:
                     _init(c)
-                kc = _refine_local(mode_state[c], background, 1e-9, max_steps, seed, k_window=0.3)
-                # alpha = mode[1] < 0 => net gain => the mode lases. Use a *tight*
-                # margin: gain clamping pins an above-threshold mode's alpha at ~0^-
-                # (the lasing modes hold it right at threshold), often only ~1e-4
-                # negative. A looser cutoff (e.g. -1e-4, the same magnitude) then adds
-                # the mode many pump steps late and snaps it to its already-large
-                # amplitude -- a spurious jump in its L--I curve and a matching dip in
-                # the others. Adding right at the crossing makes it ramp continuously;
-                # the a < 1e-4 drop rule above is the safety net against false adds.
-                if kc[1] < -1e-6:
-                    mode_state[c] = np.array([float(kc[0]), 0.0])
-                    a_state[c] = 1e-3
-                    active.append(c)
-                    added = True
-            if not added:
+                # probe window consistent with the solve's spacing-tracking
+                # k-window (a fixed wide window lets the probe wander to a
+                # different branch than the solve will then confine it to)
+                gap = min(abs(float(mode_state[c][0]) - k) for k in active_ks)
+                window = float(np.clip(0.2 * gap, 1e-6, 0.3))
+                kc = _refine_local(
+                    mode_state[c], background, 1e-9, max_steps, seed, k_window=window
+                )
+                # alpha = mode[1] < 0 => net gain => the mode crossed its
+                # *interacting* threshold. Tight margin (-1e-6): gain clamping
+                # pins an above-threshold mode's alpha at ~0^-, so a looser
+                # cutoff adds the mode pump-steps late and snaps its L--I curve;
+                # the a < 1e-4 drop rule above is the safety net against false
+                # adds. Add only the *most* above-threshold candidate per sweep:
+                # several at once hand the coupled solve a multistable warm
+                # start, which can converge to the wrong basin and zero the true
+                # winner (observed on line_PRA, where a simultaneous three-mode
+                # add transiently deleted the dominant mode).
+                if kc[1] < best_alpha:
+                    best, best_alpha, best_k = c, float(kc[1]), float(kc[0])
+            if best is None:
                 break
+            mode_state[best] = np.array([best_k, 0.0])
+            a_state[best] = 1e-3
+            active.append(best)
         for i in candidates:
             value = max(a_state.get(i, 0.0) * unit_scale.get(i, 1.0), 0.0) if i in active else 0.0
             modal_intensities.loc[i, D0] = value
