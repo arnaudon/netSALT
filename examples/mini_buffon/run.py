@@ -33,6 +33,18 @@ Throughout, ``full_salt_newton`` stays comfortable (~25-40 s per sweep on the
 competition physics, not solver cost, is the constraint. For many co-lasing
 modes by *design* see ``../ring_chain``.
 
+**Known artifact -- the per-mode kink at high pump.** The dominant mode's
+newton curve shows a sharp drop near ``D0 ~ 0.3-0.5``. It is *not* physics
+(the summed intensity through it is continuous; a falling total with rising
+pump would be unphysical): modes 5 and 6 are a near-degenerate pair
+(``k = 3.5351 / 3.5390``, ``dk = 0.004``) and at an active-set event the
+coupled solve hands the amplitude from one label to the other -- a
+mode-identity swap. This is the documented near-degeneracy limit of
+``full_salt_newton`` showing up in data: per-mode curves are unreliable
+*across active-set events* for modes closer than the solve can keep apart;
+the cluster (pair-sum) intensity and the total are the trustworthy
+quantities there.
+
 Run from this directory (writes ``li_curves.png`` + ``mode_profiles.png``)::
 
     OMP_NUM_THREADS=1 python run.py     # ~2 minutes, mostly the mode pipeline

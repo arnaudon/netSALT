@@ -26,6 +26,14 @@ Three measured stages (all encoded in `run.py`):
 - **Solver cost is not the constraint at this scale**: `full_salt_newton`
   takes ~25–40 s per sweep on the ~700-node oversampled work graph (vs ~0.1 s
   for `linear`) and tracks `linear`'s sets.
+- **Known artifact**: the dominant mode's newton curve has a sharp kink near
+  D0 ≈ 0.3–0.5. Not physics — modes 5/6 are a near-degenerate pair
+  (Δk = 0.004) and the coupled solve swaps their identities at an active-set
+  event (the pair-sum is continuous through it; a genuinely falling total
+  with rising pump would be unphysical). Per-mode curves are unreliable
+  across active-set events for modes this close — read the pair-sum/total
+  there. This is the documented near-degeneracy limit of `full_salt_newton`,
+  here demonstrated with data.
 
 For many co-lasing modes by *design* (localisation, not pump), see
 `../ring_chain`; for why raw spectral density does not help, `../chord_sweep`.
