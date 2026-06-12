@@ -1154,7 +1154,18 @@ def _salt_block_residual(graph, x, n, D0, pump, fields, seed):
 
 
 def _solve_active_set(
-    graph, modes0, fields0, a0, D0, pump, pump_mask, max_steps, seed, outer=6, damping=0.7
+    graph,
+    modes0,
+    fields0,
+    a0,
+    D0,
+    pump,
+    pump_mask,
+    max_steps,
+    seed,
+    outer=6,
+    damping=0.7,
+    k_window_cap=None,
 ):
     """Frozen-field trust-region ``(k, a)`` solve for a *fixed* active set.
 
@@ -1183,6 +1194,13 @@ def _solve_active_set(
         window = float(np.clip(0.2 * gaps.min(), 1e-6, 0.1))
     else:
         window = 0.1
+    if k_window_cap is not None:
+        # on a dense spectrum a single active mode's fixed 0.1 window spans many
+        # roots; cap every window by the spacing of the *full* candidate set so
+        # a solve cannot drift a mode onto a neighbour's root (observed on the
+        # mini-buffon near-degenerate pair: the bootstrap solve captured the
+        # trivial a = 0 branch while k slid onto the twin)
+        window = min(window, float(k_window_cap))
     a_max = max(1.0e3 * max(float(np.max(a)), 1.0e-3), 1.0e3)
     lo = np.concatenate([k0 - window, np.zeros(n)])
     hi = np.concatenate([k0 + window, np.full(n, a_max)])
@@ -1374,7 +1392,18 @@ def _full_salt_newton_impl(
       one is added when it has net gain there (``α < 0`` -- the crossing of its
       *interacting* threshold), **one per sweep, most above-threshold first**
       (simultaneous adds hand the coupled solve a multistable warm start that can
-      converge to the wrong basin and zero the true winner). An empty set is
+      converge to the wrong basin and zero the true winner). Each add is vetted
+      by a **continuity guard** against identity theft: for near-degenerate
+      pairs (``dk`` below the gain linewidth) the amplitude split is
+      ill-conditioned and a *weaker* newcomer can silently steal a *stronger*
+      veteran's amplitude, which reads as a spurious kink in the L--I curve.
+      The guard fires when a higher-threshold newcomer kills (``a <= 1e-3``) a
+      lower-threshold veteran outright -- a genuine takeover leaves the veteran
+      alive at reduced amplitude, or is led by the lower-threshold mode -- and
+      then reverts the veterans, rejects the newcomer at this pump step
+      (retried at the next), and re-probes. Pump-step transitions get the same
+      continuity treatment with bisected sub-stepping
+      (``_advance_active_set``). An empty set is
       bootstrapped from the lowest noninteracting threshold directly, which is
       exact on the unsaturated background (the gain probe alone would reject a
       mode sitting *at* its threshold, where ``α = 0``). The active set is thus
@@ -1482,6 +1511,25 @@ def _full_salt_newton_impl(
     a_state: dict[int, float] = {}
     unit_scale: dict[int, float] = {}
 
+    # cap every (k, a) solve's k-window by the spacing of the *full* candidate
+    # set: a sparse active set on a dense spectrum must not wander across
+    # neighbouring roots (the per-set spacing alone cannot see them)
+    cand_ks = np.sort([float(from_complex(threshold_modes[c])[0]) for c in candidates])
+    k_cap = float(np.clip(0.2 * np.diff(cand_ks).min(), 1e-6, 0.1)) if len(cand_ks) > 1 else None
+
+    def _onset_amplitude(c, d0):
+        """Linear-slope amplitude estimate ``(D0 - thr)/(T_cc thr)`` for warm starts.
+
+        Bootstraps and adds used to start at the 1e-3 floor, which sits in the
+        basin of the trivial ``a = 0`` root of the bounded solve (the same trap
+        the old measured onset probe dodged by probing at 1.2x threshold);
+        starting at the physical near-threshold estimate keeps the solve on the
+        lasing branch.
+        """
+        thr_c = float(lasing_thresholds[c])
+        slope = 1.0 / (t_diag[c] * thr_c) if (t_diag[c] > 0.0 and thr_c > 0.0) else 0.0
+        return max(1e-3, slope * max(float(d0) - thr_c, 0.0))
+
     def _init(i):
         mode = np.asarray(from_complex(threshold_modes[i]), dtype=float)
         field = _single_mode_field_intensity(
@@ -1492,22 +1540,96 @@ def _full_salt_newton_impl(
             work_graph, mode, field, float(lasing_thresholds[i]), t_diag[i]
         )
 
+    def _solve_into(active_ids, d0):
+        modes_out, fields_out, a_out, converged = _solve_active_set(
+            work_graph,
+            [mode_state[i] for i in active_ids],
+            [field_state[i] for i in active_ids],
+            [a_state[i] if a_state[i] > 1e-3 else _onset_amplitude(i, d0) for i in active_ids],
+            d0,
+            pump,
+            pump_mask,
+            max_steps,
+            seed,
+            k_window_cap=k_cap,
+        )
+        for j, i in enumerate(active_ids):
+            mode_state[i], field_state[i], a_state[i] = (
+                modes_out[j],
+                fields_out[j],
+                float(a_out[j]),
+            )
+        return converged
+
+    def _advance_active_set(active_ids, d0_from, d0_to):
+        """Continue the active set ``d0_from -> d0_to``, staying in-basin.
+
+        SALT solutions are continuous in the pump, so a veteran amplitude
+        collapsing (> 60 % in one step) means the warm-started solve left its
+        basin (observed on dense spectra; reads as a spurious kink). On
+        collapse, retry from the previous state with 2/4/8 bisected sub-steps
+        -- a closer warm start stays in-basin. If every refinement still
+        collapses, keep the direct result and warn.
+        """
+        snapshot = {
+            i: (mode_state[i].copy(), np.asarray(field_state[i]).copy(), a_state[i])
+            for i in active_ids
+        }
+
+        def restore():
+            for i, (m_prev, f_prev, a_prev) in snapshot.items():
+                mode_state[i], field_state[i], a_state[i] = m_prev.copy(), f_prev.copy(), a_prev
+
+        def collapsed(base):
+            return [i for i in active_ids if base[i] > 1e-2 and a_state[i] < 0.4 * base[i]]
+
+        _solve_into(active_ids, d0_to)
+        if not collapsed({i: snapshot[i][2] for i in active_ids}):
+            return
+        for n_sub in (2, 4, 8):
+            restore()
+            ok = True
+            for d0 in np.linspace(d0_from, d0_to, n_sub + 1)[1:]:
+                base = {i: a_state[i] for i in active_ids}
+                _solve_into(active_ids, float(d0))
+                if collapsed(base):
+                    ok = False
+                    break
+            if ok:
+                return
+        restore()
+        _solve_into(active_ids, d0_to)
+        warnings.warn(
+            f"full_salt_newton: amplitude collapse at D0={d0_to:.4g} persisted under "
+            "sub-stepping; keeping the direct solve (possible basin change).",
+            stacklevel=2,
+        )
+
     active: list[int] = []  # confirmed lasing ids, carried along the continuation
     first = float(np.min(lasing_thresholds[candidates]))
+    d0_prev = None
     for D0 in np.linspace(first, max_pump_intensity, D0_steps):
+        if active and d0_prev is not None:
+            # pump-step continuity: advance the carried-over set in-basin
+            _advance_active_set(list(active), d0_prev, float(D0))
+        d0_prev = float(D0)
         bootstrapped_off: set[int] = set()  # bootstrapped then vanished at this D0
-        for _ in range(2 * len(candidates) + 2):  # active-set sweeps until stable
+        rejected_adds: set[int] = set()  # adds reverted by the continuity guard at this D0
+        pending_add = None  # candidate added on the previous sweep, not yet vetted
+        veteran_snapshot: dict[int, tuple] = {}
+        for _ in range(3 * len(candidates) + 2):  # active-set sweeps until stable
             if active:
                 modes_out, fields_out, a_out, converged = _solve_active_set(
                     work_graph,
                     [mode_state[i] for i in active],
                     [field_state[i] for i in active],
-                    [max(a_state[i], 1e-3) for i in active],
+                    [a_state[i] if a_state[i] > 1e-3 else _onset_amplitude(i, D0) for i in active],
                     D0,
                     pump,
                     pump_mask,
                     max_steps,
                     seed,
+                    k_window_cap=k_cap,
                 )
                 if not converged:
                     warnings.warn(
@@ -1520,6 +1642,37 @@ def _full_salt_newton_impl(
                         fields_out[j],
                         float(a_out[j]),
                     )
+                if pending_add is not None:
+                    # Continuity guard: SALT solutions are continuous in the pump,
+                    # so an *add* that collapses a veteran mode's amplitude within
+                    # a single solve is a wrong-basin solution, not physics. For
+                    # near-degenerate pairs (dk below the gain linewidth) the
+                    # amplitude split between the twins is ill-conditioned and the
+                    # coupled solve can hand one mode's amplitude to the other --
+                    # an identity swap that reads as a spurious kink in the L--I
+                    # curve (observed on the mini-buffon example, dk = 0.004).
+                    # Revert the veterans, reject the newcomer at this pump step
+                    # (it is retried at the next one), and re-probe.
+                    collapsed = [
+                        i
+                        for i, (_m, _f, a_prev) in veteran_snapshot.items()
+                        if a_prev > 1e-2
+                        and a_state[i] <= 1e-3  # veteran killed outright, not just reduced
+                        and lasing_thresholds[i] < lasing_thresholds[pending_add]
+                    ]
+                    if collapsed:
+                        for i, (m_prev, f_prev, a_prev) in veteran_snapshot.items():
+                            mode_state[i], field_state[i], a_state[i] = m_prev, f_prev, a_prev
+                        active.remove(pending_add)
+                        a_state[pending_add] = 0.0
+                        rejected_adds.add(pending_add)
+                        pending_add = None
+                        veteran_snapshot = {}
+                        continue
+                    if a_state[pending_add] <= 1e-4:
+                        rejected_adds.add(pending_add)  # stillborn add: do not retry at this D0
+                    pending_add = None
+                    veteran_snapshot = {}
                 dropped = [i for i in active if a_state[i] <= 1e-4]
                 bootstrapped_off.update(dropped)
                 active = [i for i in active if a_state[i] > 1e-4]  # drop vanished
@@ -1540,7 +1693,7 @@ def _full_salt_newton_impl(
                 c = min(eligible, key=lambda i: lasing_thresholds[i])
                 if c not in mode_state:
                     _init(c)
-                a_state[c] = 1e-3
+                a_state[c] = _onset_amplitude(c, D0)
                 active.append(c)
                 continue  # solve the bootstrapped set before probing others
             # gain the not-yet-lasing candidates see on the current saturated background
@@ -1555,7 +1708,7 @@ def _full_salt_newton_impl(
             active_ks = [float(mode_state[i][0]) for i in active]
             best, best_alpha, best_k = None, -1e-6, 0.0
             for c in candidates:
-                if c in active or lasing_thresholds[c] > D0:
+                if c in active or c in rejected_adds or lasing_thresholds[c] > D0:
                     continue
                 if c not in mode_state:
                     _init(c)
@@ -1581,8 +1734,13 @@ def _full_salt_newton_impl(
                     best, best_alpha, best_k = c, float(kc[1]), float(kc[0])
             if best is None:
                 break
+            veteran_snapshot = {
+                i: (mode_state[i].copy(), np.asarray(field_state[i]).copy(), a_state[i])
+                for i in active
+            }
+            pending_add = best
             mode_state[best] = np.array([best_k, 0.0])
-            a_state[best] = 1e-3
+            a_state[best] = _onset_amplitude(best, D0)
             active.append(best)
         for i in candidates:
             value = max(a_state.get(i, 0.0) * unit_scale.get(i, 1.0), 0.0) if i in active else 0.0

@@ -26,14 +26,16 @@ Three measured stages (all encoded in `run.py`):
 - **Solver cost is not the constraint at this scale**: `full_salt_newton`
   takes ~25–40 s per sweep on the ~700-node oversampled work graph (vs ~0.1 s
   for `linear`) and tracks `linear`'s sets.
-- **Known artifact**: the dominant mode's newton curve has a sharp kink near
-  D0 ≈ 0.3–0.5. Not physics — modes 5/6 are a near-degenerate pair
-  (Δk = 0.004) and the coupled solve swaps their identities at an active-set
-  event (the pair-sum is continuous through it; a genuinely falling total
-  with rising pump would be unphysical). Per-mode curves are unreliable
-  across active-set events for modes this close — read the pair-sum/total
-  there. This is the documented near-degeneracy limit of `full_salt_newton`,
-  here demonstrated with data.
+- **This graph hardened the solver**: early runs showed spurious per-mode
+  kinks (the Δk = 0.004 pair swapping identities at active-set events, the
+  bootstrap capturing the trivial a = 0 root, coarse/fine pump grids landing
+  on different branches). Fixed in `full_salt_newton` by linear-slope warm
+  starts, a candidate-spacing cap on the k-window, and continuity guards
+  with bisected sub-stepping; coarse and fine grids now agree everywhere. A
+  reproducible, resolution-stable branch exchange remains near D0 ≈ 0.6
+  (dominance passes from mode 6 to mode 8) and is flagged by a solver
+  warning — possibly genuine bistable switching, but the falling total at
+  the exchange means curves beyond a collapse warning deserve care.
 
 For many co-lasing modes by *design* (localisation, not pump), see
 `../ring_chain`; for why raw spectral density does not help, `../chord_sweep`.
