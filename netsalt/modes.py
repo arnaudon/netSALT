@@ -1214,53 +1214,71 @@ def _solve_active_set(
     return modes, fields, a, converged
 
 
-def _newton_onset_unit_scale(
-    graph, mode0, field0, threshold, t_self, pump, pump_mask, max_steps, seed
-):
+def _newton_onset_unit_scale(graph, mode0, field0, threshold, t_self):
     """Per-mode factor converting the Newton amplitude to the linear-intensity unit.
 
     The Newton amplitude solves the *operator* clamp; the linear/SPA intensity uses
     the competition diagonal ``T_μμ``. They share the onset slope once the Newton
     amplitude is rescaled by ``s_linear / s_newton``, with ``s_linear =
-    1/(T_μμ·D0_thr)`` and ``s_newton`` the Newton amplitude's slope just above
-    threshold. The single-mode Newton amplitude is essentially *linear* near onset,
-    so we **measure** ``s_newton`` by solving the isolated mode at ``1.2·D0_thr``:
-    far enough that the amplitude is solidly positive (so the bounded solve does not
-    settle on the trivial ``a = 0`` root, which made the old ``1.05·D0_thr`` probe
-    degenerate) yet near enough that the secant equals the threshold tangent. A
-    first-order analytic estimate, ``s_newton = 1/(Γ_μ·χ_raw·D0_thr)`` with
-    ``χ_raw = Σ_{pump} ℓ_e (|Ê_e|^2)^2``, is used only as a fallback if the probe
-    degenerates -- it is robust but ~10-30 % off (it drops the higher-order operator
-    terms), which over-scaled the Newton curve. ``Γ_μ = -Im γ(k_μ)``.
+    1/(T_μμ·D0_thr)`` and ``s_newton = da/dD0`` the Newton amplitude's slope *at*
+    threshold. ``s_newton`` is **analytic** -- first-order perturbation of the
+    lasing condition. The saturated operator perturbs the effective gain
+    ``g = γ·(D0·P - D0·Γ·a·H)`` with the coherent overlap factors
+
+    .. math:: P = \\frac{\\int_{pump} E^2}{\\int_{inner} ε E^2}, \\qquad
+              H = \\frac{\\int_{pump} f\\,E^2}{\\int_{inner} ε E^2},
+
+    where ``f`` is the per-edge hole-burning intensity ``field0`` (per-edge
+    *constant* on the oversampled work graph -- exactly the profile the operator
+    itself clamps with, so the first order is exact, not a within-edge
+    approximation). The mode frequency responds as ``δω ∝ -δg/(1+g)``
+    (:func:`pump_linear`); holding ``Im ω = 0`` (the lasing condition) gives
+
+    .. math:: s_{newton} = \\frac{{\\rm Im}[γP/Q]}{D_0^{thr}\\,Γ\\,{\\rm Im}[γH/Q]},
+              \\qquad Q = 1 + γ D_0^{thr} P .
+
+    With the shared ``∫_pump |E|^2 = 1`` normalization this comes out ≈ 1 --
+    the Newton amplitude *is* the linear modal intensity to first order -- so the
+    rescale is a small consistency correction, and the near-threshold agreement
+    between the two solvers is a genuine prediction rather than a calibration
+    (the earlier *measured* probe at ``1.2·D0_thr`` carried a secant bias of up
+    to a few % on modes whose curve already bends there).
     """
     s_linear = 1.0 / (t_self * threshold) if (t_self > 0.0 and threshold > 0.0) else 0.0
     if s_linear <= 0.0:
         return 1.0
-    eps = 0.2  # probe at 1.2x threshold: solidly lasing (a > 0) yet still near onset
-    _, _, a_probe, _ = _solve_active_set(
-        graph,
-        [mode0],
-        [np.asarray(field0, dtype=float)],
-        [max(s_linear * threshold * eps, 1.0e-3)],
-        threshold * (1.0 + eps),
-        pump,
-        pump_mask,
-        max_steps,
-        seed,
-    )
-    s_newton = float(a_probe[0]) / (threshold * eps)
-    if not (np.isfinite(s_newton) and s_newton > 0.0):
-        gain_clamp = -np.imag(gamma(to_complex(mode0), graph.graph["params"]))
-        params = graph.graph["params"]
-        lengths = np.asarray(graph.graph["lengths"], dtype=float)
-        mask = (np.asarray(params["pump"], dtype=float) > 0.0) & np.asarray(
-            params["inner"], dtype=bool
+    g = graph_with_pump(graph, threshold)
+    params = g.graph["params"]
+    node_solution = mode_on_nodes(mode0, g, check_quality=False)
+    z_matrix = compute_z_matrix(g)
+    BT, Bout = construct_incidence_matrix(g)
+    Winv = construct_weight_matrix(g, with_k=False)
+    inner = np.asarray(params["inner"], dtype=float)
+    eps_mask = _get_dielectric_constant_matrix(params).dot(sc.sparse.diags(_convert_edges(inner)))
+    pump_profile = np.asarray(params["pump"], dtype=float) * inner
+    hole_profile = pump_profile * np.asarray(field0, dtype=float)
+    inner_norm = _graph_norm(BT, Bout, Winv, z_matrix, node_solution, eps_mask)
+    p_overlap = (
+        _graph_norm(
+            BT, Bout, Winv, z_matrix, node_solution, sc.sparse.diags(_convert_edges(pump_profile))
         )
-        chi_raw = float(np.sum(lengths[mask] * np.asarray(field0, dtype=float)[mask] ** 2))
-        denom = gain_clamp * chi_raw * threshold
-        if not (np.isfinite(denom) and denom > 0.0):
-            return 1.0
-        s_newton = 1.0 / denom
+        / inner_norm
+    )
+    h_overlap = (
+        _graph_norm(
+            BT, Bout, Winv, z_matrix, node_solution, sc.sparse.diags(_convert_edges(hole_profile))
+        )
+        / inner_norm
+    )
+    gam = gamma(to_complex(mode0), params)
+    gain_clamp = -np.imag(gam)
+    q_factor = 1.0 + gam * threshold * p_overlap
+    denom = threshold * gain_clamp * np.imag(gam * h_overlap / q_factor)
+    if not (np.isfinite(denom) and abs(denom) > 0.0):
+        return 1.0
+    s_newton = float(np.imag(gam * p_overlap / q_factor) / denom)
+    if not (np.isfinite(s_newton) and s_newton > 0.0):
+        return 1.0
     return float(s_linear / s_newton)
 
 
@@ -1366,10 +1384,11 @@ def _full_salt_newton_impl(
       should co-lase.)
 
     Amplitudes are reported in the **linear modal-intensity unit** via
-    :func:`_newton_onset_unit_scale`, which *measures* the operator's onset slope
-    (a single isolated-mode solve at ``1.2·D0_thr``, with an analytic
-    Hellmann-Feynman fallback) and rescales so the curves reduce to the linear/SPA
-    onset slope at threshold.
+    :func:`_newton_onset_unit_scale`, the *analytic* (first-order perturbation)
+    onset slope of the saturated operator. The scale comes out ≈ 1 -- the Newton
+    amplitude is the linear modal intensity to first order -- so the
+    near-threshold agreement with ``linear`` is a genuine prediction, not a
+    calibration.
 
     **Relation to the SPA competition-matrix solver.** This is the *operator-level*
     (exact-spatial) SALT: it solves the real nonlinear eigenproblem rather than the
@@ -1384,9 +1403,8 @@ def _full_salt_newton_impl(
     cancelling in the total. Validated against the exact-SALT data of Ge-Chong-Stone
     Fig. 6 on ``line_PRA``: the per-mode intensities track the digitized exact curves
     to a few percent (dominant 0.21 vs 0.205, second 0.10 vs 0.108 at
-    ``D0 = 1.27``), and the single-mode regime reduces to the SPA (ratio ≈ 1) once
-    the onset slope is *measured* rather than estimated -- the earlier analytic-only
-    scale over-shot it by ~10-30 %.
+    ``D0 = 1.27``), and the single-mode regime reduces to the SPA (slope ratio ≈ 1;
+    see ``examples/line_PRA/compare_to_pra_fig6.py``).
 
     **Within-edge hole burning must be resolved.** The saturation samples
     ``|E_ν(x)|^2`` per edge; with one sample per edge the per-edge *mean*
@@ -1471,15 +1489,7 @@ def _full_salt_newton_impl(
         )
         mode_state[i], field_state[i], a_state[i] = mode, field, 0.0
         unit_scale[i] = _newton_onset_unit_scale(
-            work_graph,
-            mode,
-            field,
-            float(lasing_thresholds[i]),
-            t_diag[i],
-            pump,
-            pump_mask,
-            max_steps,
-            seed,
+            work_graph, mode, field, float(lasing_thresholds[i]), t_diag[i]
         )
 
     active: list[int] = []  # confirmed lasing ids, carried along the continuation

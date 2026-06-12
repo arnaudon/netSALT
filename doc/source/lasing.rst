@@ -291,10 +291,11 @@ The solvers treat this clamping at different levels of fidelity:
   **active set** and the lasing **frequencies** :math:`k_\mu` that the
   competition-matrix solver cannot: on ``line_PRA`` it lases the **two** modes of
   Ge–Chong–Stone (PRA 82, 063824, Eq. 28). Its amplitude is put in the linear unit
-  by an onset scale that
-  **measures** the operator's onset slope (an isolated-mode solve at
-  :math:`1.2\,D_0^{\rm thr}`, with a Hellmann–Feynman analytic fallback), so it
-  **reduces to** ``linear`` at threshold.
+  by an *analytic* onset scale
+  (first-order perturbation of the saturated operator's lasing condition, built
+  from the same coherent overlap integrals as ``pump_linear``), so it
+  **reduces to** ``linear`` at threshold -- the scale comes out ≈ 1, making the
+  near-threshold agreement a genuine prediction rather than a calibration.
 
 .. note::
 
@@ -386,16 +387,15 @@ graphs they only track ``linear``.)
       wavelength-resolving sub-edge size, without which the per-edge mean
       over-clamps and spuriously drops co-lasing modes (see the warning above).
 
-    Its amplitude is put in the **linear modal-intensity unit** by an onset scale
-    that *measures* the operator's onset slope (an isolated-mode solve at
-    ``1.2·D0_thr``, Hellmann–Feynman analytic fallback), so it **reduces to linear at
+    Its amplitude is put in the **linear modal-intensity unit** by an *analytic*
+    onset scale (first-order perturbation of the saturated operator's lasing
+    condition; it comes out ≈ 1), so it **reduces to linear at
     threshold** and agrees on the lasing count -- validated against Ge–Chong–Stone
     (PRA 82, 063824) on ``line_PRA`` (both lase two modes). Above threshold it is
     the *exact-spatial* SALT: the
     dominant mode gets a negative kink (suppressed below the SPA when the second mode
     steals gain) and the second mode sits above the SPA, tracking the **exact-SALT
-    data of Fig. 6 to a few percent** (a measured onset slope is required; an
-    analytic-only scale over-shot the magnitudes by ~10-30 %). The linear
+    data of Fig. 6 to a few percent**. The linear
     solver remains the cheaper first pass. It is deterministic, path-independent,
     never raises, and *expensive* (a nested per-pump solve on the oversampled graph),
     so use a modest
