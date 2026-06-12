@@ -145,7 +145,7 @@ def draw_geometry(ax, graph, name):
     ax.set_title(f"{name}  ({len(graph)} nodes)")
 
 
-def compare_and_plot(graph, name, outdir, d0_max=D0_MAX, d0_steps=26):
+def compare_and_plot(graph, name, outdir, d0_max=D0_MAX, d0_steps=26, passive_method="grid"):
     """Run linear + newton on ``graph`` and write the standard 3-panel figure.
 
     Panels: geometry | per-mode L--I (linear dashed, newton solid, colours keyed
@@ -154,17 +154,24 @@ def compare_and_plot(graph, name, outdir, d0_max=D0_MAX, d0_steps=26):
     unit (the newton amplitude reduces to it analytically at threshold), so the
     curves overlay directly.
     """
+    import time
+
     outdir = Path(outdir)
-    tdf = threshold_modes(graph)
+    tdf = threshold_modes(graph, method=passive_method)
     n_modes = len(tdf)
     competition = compute_mode_competition_matrix(graph, tdf)
     thr = np.asarray(tdf["lasing_thresholds"]).ravel()
     first = float(thr[thr < np.inf].min())
     grid = np.linspace(first, d0_max, d0_steps)
+    t0 = time.perf_counter()
     linear = linear_on_grid(tdf, competition, grid, n_modes)
+    t_linear = time.perf_counter() - t0
+    t0 = time.perf_counter()
     n_cols, newton = curves(
         compute_modal_intensities_full_salt_newton(graph, tdf.copy(), d0_max, D0_steps=d0_steps)
     )
+    t_newton = time.perf_counter() - t0
+    print(f"{name}: linear sweep {t_linear:.1f}s, newton sweep {t_newton:.1f}s")
 
     peak = max(linear.max(), newton.max(), 1e-9)
     active = [m for m in range(n_modes) if max(linear[m].max(), newton[m].max()) > 1e-2 * peak]
