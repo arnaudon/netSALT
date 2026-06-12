@@ -37,9 +37,16 @@ This runs the pipeline (cached in `out/`, so re-runs are fast), overlays both
 solvers on the digitized Fig. 6 data, writes
 `figures/pra_fig6_compare.pdf`, and prints a checkpoint table. Expected
 agreement (D0 = 1.258, the figure edge): `linear` vs paper SPA dominant to
-< 1 %; `newton` vs paper exact dominant to ~1 %; second mode within ~10 %
-(dominated by a +0.02–0.03 offset of its interacting threshold — paper exact
-0.892 — inherited from the shared threshold pipeline, not the newton solve).
+< 1 %; `newton` vs paper exact dominant to ~1 %; second mode within ~10 %,
+dominated by a +0.03 offset of its interacting threshold (paper exact 0.892,
+SPA 0.899; netsalt ~0.92–0.93). That offset traces to the second mode's
+*noninteracting* threshold being ~0.3 % above the paper's Fig. 3(b) value
+(0.6641 vs 0.662) — netsalt matches the four modes at and below the gain
+centre to < 0.1 % but sits +0.3–0.4 % high on the two above it — amplified
+~6x by gain-clamping proximity in the interacting-threshold formula. It is
+converged in netsalt (identical at 2–4x finer pump stepping), so it is a
+sub-half-percent model difference (netsalt's quantum-graph dispersion vs the
+paper's 20-state TCF basis), not a numerics artifact of either solver.
 
 `data/ge_fig6_digitized.csv` is the digitized reference data. Regenerate it
 from the paper itself with
