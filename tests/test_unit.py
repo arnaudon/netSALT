@@ -1622,30 +1622,6 @@ class TestIntensitySolveHelpers:
         assert pumps == sorted(pumps)
         assert np.allclose(out["interacting_lasing_thresholds"].to_numpy(), [0.5, np.inf])
 
-    def test_nonneg_active_set_keeps_all_when_positive(self):
-        from netsalt.modes import _nonneg_active_set
-
-        # diagonal (decoupled) competition matrix: every mode lases above thresh
-        T = np.diag([1.0, 1.0, 1.0])
-        thresholds = np.array([1.0, 1.0, 1.0])
-        kept = _nonneg_active_set(T, thresholds, [0, 1, 2], pump_intensity=2.0)
-        assert kept == [0, 1, 2]
-
-    def test_nonneg_active_set_prunes_negative_mode(self):
-        from netsalt.modes import _intensity_slopes_shifts, _nonneg_active_set
-
-        # strong cross-competition makes the raw linear solve drive one mode
-        # negative; the pruned active set must give only non-negative intensities
-        T = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 2.5, 1.0]])
-        thresholds = np.array([1.0, 1.0, 5.0])
-        ids = [0, 1, 2]
-        slopes, shifts = _intensity_slopes_shifts(T, thresholds, ids)
-        assert (slopes * 2.0 - shifts).min() < 0  # raw solve is unphysical
-        kept = _nonneg_active_set(T, thresholds, ids, pump_intensity=2.0)
-        assert kept != ids and len(kept) >= 1
-        s, sh = _intensity_slopes_shifts(T, thresholds, kept)
-        assert (s * 2.0 - sh).min() >= -1e-12  # survivors are non-negative
-
 
 class TestIntensityMethodDispatch:
     """``step_compute_modal_intensities`` routes on ``intensity_method``."""
@@ -1674,10 +1650,6 @@ class TestIntensityMethodDispatch:
 
         monkeypatch.setattr(pipeline, "compute_modal_intensities", make("linear"))
         monkeypatch.setattr(
-            pipeline, "compute_modal_intensities_self_consistent", make("self_consistent")
-        )
-        monkeypatch.setattr(pipeline, "compute_modal_intensities_full_salt", make("full_salt"))
-        monkeypatch.setattr(
             pipeline, "compute_modal_intensities_full_salt_newton", make("full_salt_newton")
         )
         monkeypatch.setattr(pipeline, "_attach_pump_to_graph", lambda p, qg, pump: qg)
@@ -1693,7 +1665,7 @@ class TestIntensityMethodDispatch:
         assert self._run(tmp_path, monkeypatch, None) == ["linear"]
 
     def test_dispatches_each_method(self, tmp_path, monkeypatch):
-        for method in ("linear", "self_consistent", "full_salt", "full_salt_newton"):
+        for method in ("linear", "full_salt_newton"):
             assert self._run(tmp_path, monkeypatch, method) == [method]
 
 
@@ -1902,28 +1874,19 @@ class TestFullSaltNewton:
             f"(got {dom[-1]:.4g} vs un-kinked {unkinked:.4g})"
         )
 
-    def test_self_consistent_does_not_flip_mode_ordering(self):
-        """Mode-following in compute_mode_competition_matrix_at_pump keeps the
-        lowest-threshold (dominant) mode dominant far above threshold: without it
-        the frozen threshold field degrades and spuriously inflates that mode's
-        self-saturation, letting a weaker mode overtake it."""
-        from netsalt.modes import (
-            compute_modal_intensities,
-            compute_modal_intensities_self_consistent,
-            compute_mode_competition_matrix,
-        )
+    def test_linear_keeps_mode_ordering(self):
+        """The lowest-threshold (dominant) mode stays dominant far above
+        threshold in the linear model."""
+        from netsalt.modes import compute_modal_intensities, compute_mode_competition_matrix
 
         g, tdf = _independent_lasing_fixture()
         thresholds = np.asarray(tdf["lasing_thresholds"]).ravel()
         assert np.sum(thresholds < np.inf) >= 2, "need >=2 lasing modes to test ordering"
         t0 = int(np.argmin(thresholds))
-        d0_max = 2.5 * float(thresholds[t0])  # well above threshold (where it used to flip)
+        d0_max = 2.5 * float(thresholds[t0])
 
-        # linear keeps the lowest-threshold mode dominant; self_consistent must too
         T = compute_mode_competition_matrix(g, tdf)
         lin = compute_modal_intensities(tdf.copy(), d0_max, T)
-        sc = compute_modal_intensities_self_consistent(g, tdf.copy(), d0_max, D0_steps=6)
-        for df in (lin, sc):
-            cols = [c for c in df.columns if isinstance(c, tuple) and c[0] == "modal_intensities"]
-            last = np.nan_to_num(df[max(cols, key=lambda c: c[1])].to_numpy(float))
-            assert int(np.argmax(last)) == t0
+        cols = [c for c in lin.columns if isinstance(c, tuple) and c[0] == "modal_intensities"]
+        last = np.nan_to_num(lin[max(cols, key=lambda c: c[1])].to_numpy(float))
+        assert int(np.argmax(last)) == t0

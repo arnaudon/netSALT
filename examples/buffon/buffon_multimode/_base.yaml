@@ -4,8 +4,9 @@ n_workers: 10
 D0_max: 0.02
 intensities_D0_max: 0.02
 
-# Modal-intensity solver: "linear" (default), "self_consistent" or "full_salt".
-# See doc/source/lasing.rst. full_salt is experimental on large multimode graphs.
+# Modal-intensity solver: "linear" (default, fast) or "full_salt_newton"
+# (operator-level SALT; expensive on large multimode graphs).
+# See doc/source/lasing.rst.
 intensity_method: linear
 
 pump_mode: optimized

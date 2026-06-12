@@ -284,18 +284,14 @@ The solvers treat this clamping at different levels of fidelity:
   crossed and never re-tests it. It captures the near-threshold competition exactly
   (that is what :math:`T` is) but freezes the mode profiles, so above threshold it
   misses how the deepening holes reshape the competition.
-* ``self_consistent`` and ``full_salt`` re-solve the saturated competition matrix
-  at the operating pump, so the L–I curves **bend over** (``full_salt``) and the
-  secondary modes' intensities/onsets shift. These are the single-pole-approximation
-  (SPA) intensities ``D0/D0_thr - 1 = Σ_ν Γ_ν χ_μν I_ν`` — **the way Ge–Chong–Stone
-  obtain modal intensities** — and are the methods to trust for quantitative L–I.
 * ``full_salt_newton`` imposes the exact operator condition (the saturated operator
   singular at real :math:`k` with :math:`a\ge 0`) — the *operator-level* SALT, rather
-  than the SPA matrix equation. It contributes a self-consistent gain-clamping
+  than the SPA matrix equation ``D0/D0_thr - 1 = Σ_ν Γ_ν χ_μν I_ν`` of
+  Ge–Chong–Stone. It contributes a self-consistent gain-clamping
   **active set** and the lasing **frequencies** :math:`k_\mu` that the
-  competition-matrix solvers cannot: on ``line_PRA`` it lases the **two** modes of
-  Ge–Chong–Stone (PRA 82, 063824, Eq. 28) where ``self_consistent`` over-suppresses
-  to one. Its amplitude is put in the linear unit by an onset scale that
+  competition-matrix solver cannot: on ``line_PRA`` it lases the **two** modes of
+  Ge–Chong–Stone (PRA 82, 063824, Eq. 28). Its amplitude is put in the linear unit
+  by an onset scale that
   **measures** the operator's onset slope (an isolated-mode solve at
   :math:`1.2\,D_0^{\rm thr}`, with a Hellmann–Feynman analytic fallback), so it
   **reduces to** ``linear`` at threshold.
@@ -328,7 +324,7 @@ The solvers treat this clamping at different levels of fidelity:
    is larger, but the eigensolve stays cheap because it runs through ARPACK
    shift-invert (which is ~flat in the node count on the banded quantum-graph
    laplacian; see ``DENSE_EIG_MAX``), so the solver scales to large graphs. It is
-   still the heaviest of the four, so the competition-matrix methods remain the
+   still far heavier than ``linear``, which remains the
    cheaper first pass for the lasing count.
 
 .. note::
@@ -352,31 +348,20 @@ The solvers treat this clamping at different levels of fidelity:
 Selecting a solver
 ^^^^^^^^^^^^^^^^^^
 
-Four solvers are available and chosen with the ``intensity_method`` config
+Two solvers are available and chosen with the ``intensity_method`` config
 key (default ``"linear"``), dispatched by
-:func:`~netsalt.pipeline.step_compute_modal_intensities`:
+:func:`~netsalt.pipeline.step_compute_modal_intensities`. (Two intermediate
+solvers, ``self_consistent`` and ``full_salt``, which rebuilt or saturated the
+competition matrix at the operating pump, were removed: their per-pump matrix
+rebuild was ill-conditioned in exactly the strongly-multimode regime where they
+would have added value over ``linear`` — non-deterministic run-to-run, modes
+locking to equal intensities or collapsing to zero — and on weakly-competing
+graphs they only track ``linear``.)
 
 ``"linear"``
-    :func:`~netsalt.modes.compute_modal_intensities` — the original
-    near-threshold model described above. Unchanged; this is the default and the
-    other two reduce to it at threshold.
-``"self_consistent"``
-    :func:`~netsalt.modes.compute_modal_intensities_self_consistent` — rebuilds
-    the competition matrix at the operating pump
-    (:func:`~netsalt.modes.compute_mode_competition_matrix_at_pump`) while reusing
-    the same event-driven activation / vanishing sweep
-    (``_modal_intensity_sweep``). Relaxes the frozen-profile approximation; keeps
-    the linear saturation.
-``"full_salt"``
-    :func:`~netsalt.modes.compute_modal_intensities_full_salt` —
-    *experimental, opt-in.* Folds the per-edge hole-burning denominator in via
-    :func:`~netsalt.physics.dispersion_relation_pump_saturated` and a damped
-    fixed point in the modal intensities at each pump, on top of the same sweep,
-    so the gain clamps and the L–I curves bend over. Validated on the small
-    ``line_PRA`` example; on large graphs treat it as exploratory.
-    ``intensity_oversample_size`` (forwarded to
-    :func:`~netsalt.quantum_graph.oversample_graph`) refines the
-    per-edge-constant saturation toward the true within-edge field.
+    :func:`~netsalt.modes.compute_modal_intensities` — the
+    near-threshold model described above. This is the default; the newton
+    solver reduces to it at threshold. Fast.
 ``"full_salt_newton"``
     :func:`~netsalt.modes.compute_modal_intensities_full_salt_newton` —
     *experimental, operator-level.* Rather than saturating the competition
@@ -405,27 +390,26 @@ key (default ``"linear"``), dispatched by
     that *measures* the operator's onset slope (an isolated-mode solve at
     ``1.2·D0_thr``, Hellmann–Feynman analytic fallback), so it **reduces to linear at
     threshold** and agrees on the lasing count -- validated against Ge–Chong–Stone
-    (PRA 82, 063824) on ``line_PRA`` (both lase two modes, where ``self_consistent``
-    over-suppresses to one). Above threshold it is the *exact-spatial* SALT: the
+    (PRA 82, 063824) on ``line_PRA`` (both lase two modes). Above threshold it is
+    the *exact-spatial* SALT: the
     dominant mode gets a negative kink (suppressed below the SPA when the second mode
     steals gain) and the second mode sits above the SPA, tracking the **exact-SALT
     data of Fig. 6 to a few percent** (a measured onset slope is required; an
-    analytic-only scale over-shot the magnitudes by ~10-30 %). The competition-matrix
-    solvers remain the cheaper first pass. It is deterministic, path-independent,
+    analytic-only scale over-shot the magnitudes by ~10-30 %). The linear
+    solver remains the cheaper first pass. It is deterministic, path-independent,
     never raises, and *expensive* (a nested per-pump solve on the oversampled graph),
     so use a modest
     ``salt_D0_steps``.
 
-``benchmark/bench_salt.py`` compares the solvers on speed and accuracy: it runs
-the shared pipeline once, swaps only the intensity step, writes overlaid L–I
-curves and a within-edge (oversample) convergence study, and contrasts the
-operator-level Newton solver with the linear model (onset slope + which modes
-lase). All relaxations are exact at threshold, so the linear model remains the
-threshold-limit check.
+``benchmark/bench_salt.py`` compares the two solvers on speed and accuracy: it
+runs the shared pipeline once, swaps only the intensity step, writes overlaid
+L–I curves, and contrasts the operator-level Newton solver with the linear model
+(onset slope + which modes lase). The newton solver is exact at threshold, so
+the linear model remains the threshold-limit check.
 
 ``examples/intensity_methods/compare_intensity_methods.py`` is a self-contained
 worked example (with a physics walkthrough in its ``README``): it builds several
 small open graphs -- a Fabry–Pérot line, a ring resonator, a tree splitter -- and
-overlays the four methods' L–I curves, with a per-mode breakdown that makes the
+overlays the two methods' L–I curves, with a per-mode breakdown that makes the
 above-threshold bend-over explicit.
 

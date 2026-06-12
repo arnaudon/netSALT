@@ -21,11 +21,9 @@ mapping.
     `find_threshold_lasing_modes`, `pump_trajectories`,
     `compute_mode_competition_matrix`, `compute_modal_intensities`). Runs
     `multiprocessing.Pool` over the scan grid. The lasing L–I curves can be
-    computed by four `intensity_method`s (issue #42, see `doc/source/lasing.rst`):
-    `linear` (default, the near-threshold competition-matrix model),
-    `self_consistent` (rebuild the matrix at the operating pump via
-    `compute_mode_competition_matrix_at_pump`, reusing `_modal_intensity_sweep`),
-    `full_salt` (per-edge hole-burning surrogate), and `full_salt_newton`
+    computed by two `intensity_method`s (issue #42, see `doc/source/lasing.rst`):
+    `linear` (default, the fast near-threshold competition-matrix model) and
+    `full_salt_newton`
     (operator-level nonlinear SALT — solves `(k_μ,a_μ)` so `L_sat` is singular at
     real `k_μ`; reduces to `linear` near threshold and bends the curves above it.
     Auto-oversamples the within-edge hole burning — the per-edge mean over-clamps;
@@ -219,9 +217,8 @@ they are what an "old code" most needs before further work lands on top.
   ``compute_mode_competition_matrix`` and ``find_threshold_lasing_modes``
   on a tiny analytic graph would give more regression coverage.
 - ~~**Full SALT beyond the linearised competition matrix (issue #42).**~~
-  **Landed.** Three solvers were added next to the original ``linear`` model:
-  ``self_consistent`` and ``full_salt`` (both reuse the event-driven
-  ``_modal_intensity_sweep``), and the operator-level ``full_salt_newton`` which
+  **Landed.** The operator-level ``full_salt_newton`` solver was added next to
+  the original ``linear`` model: it
   solves the real nonlinear SALT eigenproblem (saturated dispersion
   ``dispersion_relation_pump_saturated`` + a frozen-field trust-region ``(k,a)``
   solve with a self-consistent active set). All reduce to ``linear`` near

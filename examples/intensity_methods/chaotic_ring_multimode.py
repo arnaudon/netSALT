@@ -30,22 +30,16 @@ clustered thresholds) is exactly where the cheap solvers part ways:
   has net gain once the others saturate it), so its count can err either way --
   here it lases *one fewer* than newton, because its frozen-threshold competition
   matrix over-estimates how strongly the cluster suppresses the fourth mode.
-* ``self_consistent`` / ``full_salt`` -- the event-driven sweep with a
-  per-pump-rebuilt competition matrix becomes **numerically erratic** with this
-  many strongly-competing modes (intensities go non-monotone, modes flick on and
-  off). They are reliable near threshold / on weakly-multimode graphs (see
-  ``compare_intensity_methods.py``), not here.
 * ``full_salt_newton`` -- the operator-level solve stays smooth and physical and
   imposes the exact self-consistent gain clamping.
 
-So this script plots only the two solvers that are sensible in this regime --
-``linear`` (dashed) and ``full_salt_newton`` (solid) -- in three panels: the graph
-geometry, the full-range L--I, and a **zoom on the onset** (the four thresholds
-sit in ``0.016--0.026``, marked by dotted lines). The zoom shows the modes
-switching on in turn, and in particular that newton turns the fourth mode on *well
-above* its bare threshold -- gain clamping delays it until enough pump is present,
-which is exactly what ``linear`` (no clamping) misses. It still *runs* the
-surrogate solvers and prints their endpoint counts so you can see them disagree.
+So this script plots ``linear`` (dashed) and ``full_salt_newton`` (solid) in
+three panels: the graph geometry, the full-range L--I, and a **zoom on the
+onset** (the four thresholds sit in ``0.016--0.026``, marked by dotted lines).
+The zoom shows the modes switching on in turn, and in particular that newton
+turns the fourth mode on *well above* its bare threshold -- gain clamping delays
+it until enough pump is present, which is exactly what ``linear`` (no clamping)
+misses.
 
 Run::
 
@@ -69,9 +63,7 @@ from matplotlib.lines import Line2D
 import netsalt
 from netsalt.modes import (
     compute_modal_intensities,
-    compute_modal_intensities_full_salt,
     compute_modal_intensities_full_salt_newton,
-    compute_modal_intensities_self_consistent,
     compute_mode_competition_matrix,
     find_passive_modes,
     find_threshold_lasing_modes,
@@ -261,12 +253,6 @@ def main():
         )
     )
 
-    # Also run the surrogate sweeps once, only to report their (unreliable) counts.
-    sc = _endpoint(
-        compute_modal_intensities_self_consistent(graph, tdf.copy(), D0_MAX, D0_steps=12)
-    )
-    fs = _endpoint(compute_modal_intensities_full_salt(graph, tdf.copy(), D0_MAX, D0_steps=12))
-
     cmap = plt.get_cmap("tab10")
     fig, axes = plt.subplots(1, 3, figsize=(16, 4.7))
     _draw_geometry(axes[0], graph)
@@ -286,10 +272,6 @@ def main():
 
     print(f"linear: {_count(linear[:, -1])} lasing @max")
     print(f"full_salt_newton: {_count(newton[:, -1])} lasing @max")
-    print(
-        f"self_consistent: {_count(sc)} / full_salt: {_count(fs)} @max "
-        "(event-sweep surrogates -- erratic in this deep-multimode regime, not plotted)"
-    )
     print(f"wrote {out}")
 
 

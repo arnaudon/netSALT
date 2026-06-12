@@ -1,6 +1,6 @@
 # Modal-intensity approximations
 
-A self-contained, runnable comparison of the four `intensity_method` solvers that
+A self-contained, runnable comparison of the two `intensity_method` solvers that
 turn threshold modes into lasing L–I (intensity-vs-pump) curves, with a worked
 explanation of the underlying physics and of what each algorithm approximates.
 See [`doc/source/lasing.rst`](../../doc/source/lasing.rst) and issue #42 for more.
@@ -22,35 +22,34 @@ where its intensity `|E(x)|²` is large (the saturation term
   (different regions / distinct standing-wave patterns) → it finds untouched gain
   → *multimode* lasing. The overlap integrals are the **competition matrix** `T`.
 
-## The four solvers (what each approximates)
+## The two solvers (what each approximates)
 
 | method | gain saturation | mode profiles | how intensities are found |
 |---|---|---|---|
 | `linear` | linearised (fixed `T`) | frozen at each mode's own threshold | one linear solve `T·I = …`, event sweep for activation |
-| `self_consistent` | linearised (fixed `T` at each pump) | **followed** to the operating pump | same event sweep, `T` rebuilt per pump |
-| `full_salt` | spatial hole burning, **per-edge-mean** surrogate | followed to the operating pump | saturate `T`'s rows in a fixed point, same sweep |
 | `full_salt_newton` | spatial hole burning, **operator-level** | re-solved at every pump (mode-following) | solve the real nonlinear SALT eigenproblem `(kμ, aμ)` |
 
-- **`linear`** — the original near-threshold SALT model. The competition matrix is
+- **`linear`** — the near-threshold SALT model. The competition matrix is
   built once with each mode at its own threshold and the intensities grow
   piecewise-linearly. It has **no gain clamping**: it never re-checks whether a
-  lasing mode still has net gain once others saturate it.
-- **`self_consistent`** — rebuilds `T` at the operating pump with every mode
-  *followed* there (refined to the actual mode of the pumped operator). This
-  relaxes the frozen-profile approximation but keeps the linear gain saturation.
-- **`full_salt`** — additionally folds in spatial hole burning, but as a
-  **per-edge-constant** factor (the mean `|E|²` on each edge) that inflates a
-  mode's row of `T`; the curves then bend over. `intensity_oversample_size`
-  subdivides edges to refine this toward the true within-edge field.
+  lasing mode still has net gain once others saturate it. It is fast (one
+  matrix build + a linear solve).
 - **`full_salt_newton`** — abandons the competition matrix for the intensities and
   solves the **actual nonlinear SALT eigenproblem**: find `(kμ real, aμ ≥ 0)` so
   the shared *saturated operator* is singular at each real `kμ` simultaneously.
   The `aμ ≥ 0` bound enforces a sharp on/off: a mode that cannot satisfy its
   lasing condition with positive amplitude is driven to `aμ = 0` (suppressed).
 
-All four are constructed to reduce to the same `1/(T_μμ·D0_thr)` onset slope at
+Both are constructed to reduce to the same `1/(T_μμ·D0_thr)` onset slope at
 threshold, so their curves share units and overlay directly (`full_salt_newton`
 rescales its amplitude onto this unit internally).
+
+Two intermediate solvers (`self_consistent` and `full_salt`, which rebuilt /
+saturated the competition matrix at the operating pump) were removed: in the
+strongly-multimode regime where they would have added value over `linear` their
+per-pump matrix rebuild is ill-conditioned (non-deterministic run-to-run, modes
+locking to equal intensities or collapsing to zero), and on weakly-competing
+graphs they just track `linear`.
 
 ## How `full_salt_newton` relates to `linear` (and a validation against Ge)
 
@@ -109,11 +108,6 @@ the solvers part ways — and where the cheap ones stop being reliable:
   so its count can be off either way (here it lases **3**, one fewer than newton,
   because its frozen-profile competition matrix over-estimates suppression of the
   fourth mode).
-- `self_consistent` / `full_salt` — the event-driven sweep with a per-pump-rebuilt
-  competition matrix becomes **numerically erratic** with this many competing
-  modes (intensities go non-monotone; modes flick on/off). They are reliable near
-  threshold and on weakly-multimode graphs, not here, so the script runs them
-  (printing their unreliable endpoint counts) but does **not** plot them.
 - `full_salt_newton` stays smooth and physical and imposes the exact
   self-consistent gain clamping → **4 modes**.
 
@@ -165,7 +159,7 @@ pipeline once per graph, then computes the L–I curves with every method.
 
 ## Output
 
-- `intensity_methods_comparison.pdf` — one panel per graph, the four total-L–I
+- `intensity_methods_comparison.pdf` — one panel per graph, the two total-L–I
   curves overlaid (the **graphs × approximations** view).
 - `intensity_methods_per_mode.pdf` — per-mode L–I on the line. Dashed curves are
   the `linear` reference (colour-keyed by mode); the solid `full_salt_newton`

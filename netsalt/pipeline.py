@@ -42,9 +42,7 @@ from .io import (
 )
 from .modes import (
     compute_modal_intensities,
-    compute_modal_intensities_full_salt,
     compute_modal_intensities_full_salt_newton,
-    compute_modal_intensities_self_consistent,
     compute_mode_competition_matrix,
     find_passive_modes,
     find_threshold_lasing_modes,
@@ -362,8 +360,8 @@ def step_compute_modal_intensities(
     """Compute modal intensities over the pump-strength sweep.
 
     Dispatches on ``params["intensity_method"]`` (default ``"linear"``). The
-    ``self_consistent`` and ``full_salt`` solvers need the pumped graph, so it
-    is reattached here; the ``linear`` path is unchanged and ignores it.
+    ``full_salt_newton`` solver needs the pumped graph, so it is reattached
+    here; the ``linear`` path is unchanged and ignores it.
     """
     out = _outdir(p) / _apply_lasing_ids("modal_intensities.h5", lasing_modes_id)
     if out.exists() and not _force(p):
@@ -380,27 +378,6 @@ def step_compute_modal_intensities(
         qg = _attach_pump_to_graph(p, qg, pump)
     if method == "linear":
         modes_df = compute_modal_intensities(threshold_modes_df, D0_max, competition_matrix)
-    elif method == "self_consistent":
-        modes_df = compute_modal_intensities_self_consistent(
-            qg,
-            threshold_modes_df,
-            D0_max,
-            D0_steps=p.get("salt_D0_steps", 30),
-            max_iter=p.get("intensity_max_iter", 20),
-            tol=p.get("intensity_tol", 1e-6),
-            damping=p.get("intensity_damping", 0.5),
-        )
-    elif method == "full_salt":
-        modes_df = compute_modal_intensities_full_salt(
-            qg,
-            threshold_modes_df,
-            D0_max,
-            D0_steps=p.get("salt_D0_steps", 30),
-            max_iter=p.get("intensity_max_iter", 30),
-            tol=p.get("intensity_tol", 1e-7),
-            damping=p.get("intensity_damping", 0.7),
-            oversample_size=p.get("intensity_oversample_size"),
-        )
     elif method == "full_salt_newton":
         modes_df = compute_modal_intensities_full_salt_newton(
             qg,
@@ -414,8 +391,7 @@ def step_compute_modal_intensities(
         )
     else:  # pragma: no cover - guarded by the NetSaltParams Literal
         raise ValueError(
-            f"Unknown intensity_method {method!r}; expected 'linear', "
-            "'self_consistent', 'full_salt' or 'full_salt_newton'."
+            f"Unknown intensity_method {method!r}; expected 'linear' or 'full_salt_newton'."
         )
     save_modes(modes_df, filename=str(out))
     return modes_df

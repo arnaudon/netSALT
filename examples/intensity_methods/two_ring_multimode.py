@@ -3,7 +3,7 @@
 The single-graph examples in ``compare_intensity_methods.py`` are all
 *single-mode* under faithful SALT: their modes overlap strongly, so the dominant
 mode clamps the gain and holds the others below threshold (``full_salt_newton``
-correctly reports one mode, where ``linear`` / ``full_salt`` over-count). To get
+correctly reports one mode). To get
 genuine *multimode* lasing you need modes that occupy **different regions** of the
 graph, so each burns its own spatial hole and leaves gain for the others.
 
@@ -43,9 +43,7 @@ import numpy as np
 import netsalt
 from netsalt.modes import (
     compute_modal_intensities,
-    compute_modal_intensities_full_salt,
     compute_modal_intensities_full_salt_newton,
-    compute_modal_intensities_self_consistent,
     compute_mode_competition_matrix,
     find_passive_modes,
     find_threshold_lasing_modes,
@@ -138,16 +136,12 @@ def main():
     competition = compute_mode_competition_matrix(graph, tdf)
     solvers = {
         "linear": compute_modal_intensities(tdf.copy(), D0_MAX, competition),
-        "self_consistent": compute_modal_intensities_self_consistent(
-            graph, tdf.copy(), D0_MAX, D0_steps=12
-        ),
-        "full_salt": compute_modal_intensities_full_salt(graph, tdf.copy(), D0_MAX, D0_steps=12),
         "full_salt_newton": compute_modal_intensities_full_salt_newton(
             graph, tdf.copy(), D0_MAX, D0_steps=18
         ),
     }
     cmap = plt.get_cmap("tab10")
-    fig, axes = plt.subplots(2, 2, figsize=(10, 7), sharex=True)
+    fig, axes = plt.subplots(1, 2, figsize=(10, 4), sharex=True)
     for ax, (name, df) in zip(axes.ravel(), solvers.items(), strict=True):
         cols = np.array(
             sorted(c[1] for c in df.columns if isinstance(c, tuple) and c[0] == "modal_intensities")
@@ -171,7 +165,7 @@ def main():
             f"{name}: {len(active)} lasing @max "
             + str({int(m): round(float(data[m, -1]), 3) for m in active})
         )
-    for ax in axes[1]:
+    for ax in axes.ravel():
         ax.set_xlabel("pump $D_0$")
     fig.suptitle("Detuned two-ring photonic molecule: genuine multimode lasing", y=1.0)
     fig.tight_layout()

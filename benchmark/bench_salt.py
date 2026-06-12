@@ -1,28 +1,26 @@
-"""Modal-intensity solver benchmark: linear / self_consistent / full_salt.
+"""Modal-intensity solver benchmark: linear vs full_salt_newton.
 
-Compares the three L--I (intensity-vs-pump) solvers added for issue #42 on
-**speed** and **accuracy**:
+Compares the two L--I (intensity-vs-pump) solvers (issue #42) on **speed** and
+**accuracy**:
 
-* ``linear`` — the original near-threshold SALT model (one pump-independent
+* ``linear`` — the near-threshold SALT model (one pump-independent
   competition matrix, a linear solve, piecewise-linear curves).
-* ``self_consistent`` — competition matrix rebuilt from the mode profiles at
-  the *operating* pump (relaxes the frozen-threshold-profile approximation).
-* ``full_salt`` — experimental nonlinear SALT with the per-edge spatial
-  hole-burning denominator (relaxes gain clamping too); bends the L--I over.
+* ``full_salt_newton`` — the operator-level nonlinear SALT (solves the
+  saturated eigenproblem per pump; reduces to ``linear`` at threshold).
 
 The expensive, shared pipeline steps (passive modes, pump, trajectories,
 thresholds, competition matrix) are run once through the normal cached pipeline;
 only the modal-intensity step is swapped between solvers, so the table isolates
-the cost and the drift of the three intensity models.
+the cost and the drift of the two intensity models.
 
 Usage::
 
     python benchmark/bench_salt.py                       # default: line_PRA
     python benchmark/bench_salt.py examples/line_PRA/config.yaml
 
-Writes ``benchmark/bench_salt_ll.pdf`` (overlaid L--I curves) and, for
-``full_salt``, ``benchmark/bench_salt_oversample.pdf`` (within-edge
-convergence). Requires the example to be runnable from its own directory.
+Writes ``benchmark/bench_salt_ll.pdf`` (overlaid L--I curves) and
+``benchmark/bench_salt_newton.pdf`` (the newton study). Requires the example to
+be runnable from its own directory.
 """
 
 from __future__ import annotations
@@ -41,9 +39,7 @@ import numpy as np
 from netsalt.config_loader import load_config
 from netsalt.modes import (
     compute_modal_intensities,
-    compute_modal_intensities_full_salt,
     compute_modal_intensities_full_salt_newton,
-    compute_modal_intensities_self_consistent,
     compute_mode_competition_matrix,
 )
 from netsalt.pipeline import (
@@ -107,15 +103,10 @@ def _solvers(p):
     def run_linear(qg, tdf, comp):
         return compute_modal_intensities(tdf.copy(), d0_max, comp)
 
-    def run_self(qg, tdf, comp):
-        return compute_modal_intensities_self_consistent(qg, tdf.copy(), d0_max, D0_steps=steps)
+    def run_newton(qg, tdf, comp):
+        return compute_modal_intensities_full_salt_newton(qg, tdf.copy(), d0_max, D0_steps=steps)
 
-    def run_full(qg, tdf, comp, oversample_size=None):
-        return compute_modal_intensities_full_salt(
-            qg, tdf.copy(), d0_max, D0_steps=steps, oversample_size=oversample_size
-        )
-
-    return {"linear": run_linear, "self_consistent": run_self, "full_salt": run_full}
+    return {"linear": run_linear, "full_salt_newton": run_newton}
 
 
 def benchmark(config_path: Path):
@@ -141,7 +132,7 @@ def benchmark(config_path: Path):
         print("-" * 64)
 
         linear_total_max = None
-        for name in ("linear", "self_consistent", "full_salt"):
+        for name in ("linear", "full_salt_newton"):
             with time_block() as t:
                 df = solvers[name](qg, tdf, comp)
             pumps, per_mode, total = _ll_curve(df)
@@ -158,7 +149,6 @@ def benchmark(config_path: Path):
         _plot_ll(results, HERE / "bench_salt_ll.pdf")
         print(f"\nwrote {(HERE / 'bench_salt_ll.pdf').relative_to(REPO)}")
 
-        _oversample_study(qg, tdf, p, HERE / "bench_salt_oversample.pdf")
         _newton_study(qg, tdf, p, HERE / "bench_salt_newton.pdf")
     finally:
         os.chdir(cwd)
@@ -228,40 +218,10 @@ def _plot_ll(results, out):
     plt.xlabel("pump $D_0$")
     plt.ylabel("total modal intensity")
     plt.legend()
-    plt.title("L--I curves: linear vs self_consistent vs full_salt")
+    plt.title("L--I curves: linear vs full_salt_newton")
     plt.tight_layout()
     plt.savefig(out)
     plt.close()
-
-
-def _oversample_study(qg, tdf, p, out):
-    """full_salt L--I at several oversample sizes -> within-edge convergence."""
-    d0_max = p.get("intensities_D0_max") or p.get("D0_max", 0.1)
-    steps = p.get("salt_D0_steps", 30)
-    # sizes below the native edge length so oversample_graph actually subdivides
-    sizes = [None, 0.05, 0.02]
-    plt.figure(figsize=(6, 4))
-    print("\nfull_salt within-edge (oversample) convergence:")
-    for size in sizes:
-        try:
-            df = compute_modal_intensities_full_salt(
-                qg, tdf.copy(), d0_max, D0_steps=steps, oversample_size=size
-            )
-        except Exception as exc:  # best-effort: oversampling may fail on some graphs
-            print(f"  oversample_size={size}: skipped ({exc})")
-            continue
-        pumps, _per_mode, total = _ll_curve(df)
-        label = "edge_size (native)" if size is None else f"oversample={size}"
-        plt.plot(pumps, total, marker=".", label=label)
-        print(f"  oversample_size={size}: tot@max = {total[-1]:.4e}")
-    plt.xlabel("pump $D_0$")
-    plt.ylabel("total modal intensity")
-    plt.legend()
-    plt.title("full_salt: within-edge saturation convergence")
-    plt.tight_layout()
-    plt.savefig(out)
-    plt.close()
-    print(f"wrote {out.relative_to(REPO)}")
 
 
 def main(argv=None):

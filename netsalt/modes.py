@@ -801,9 +801,7 @@ def compute_mode_competition_matrix(graph, modes_df, with_gamma=True):
     """Compute the mode competition matrix, or T matrix.
 
     Each mode's profile is evaluated at its own lasing threshold pump (the
-    linearised, near-threshold model). See
-    :func:`compute_mode_competition_matrix_at_pump` for the self-consistent
-    variant that evaluates all modes at a common operating pump.
+    linearised, near-threshold model).
     """
     threshold_modes_all = modes_df["threshold_lasing_modes"].to_numpy()
     lasing_thresholds_all = modes_df["lasing_thresholds"].to_numpy()
@@ -816,77 +814,6 @@ def compute_mode_competition_matrix(graph, modes_df, with_gamma=True):
         graph, threshold_modes, lasing_thresholds, with_gamma=with_gamma
     )
     return _scatter_competition_block(block, lasing_mask, len(threshold_modes_all))
-
-
-def compute_mode_competition_matrix_at_pump(
-    graph, modes_df, pump_intensity, with_gamma=True, follow_modes=True
-):
-    """Competition matrix with every mode profile evaluated at ``pump_intensity``.
-
-    Relaxes the frozen-threshold-profile approximation (#2): rather than each
-    mode sitting at its own threshold, all modes are evaluated at the common
-    operating pump ``pump_intensity``. Used by
-    :func:`compute_modal_intensities_self_consistent`. Reduces to
-    :func:`compute_mode_competition_matrix` when ``pump_intensity`` equals every
-    mode's threshold.
-
-    With ``follow_modes`` (default) each mode is first **refined to the actual
-    mode of the operating-pump operator** (:func:`_refine_local`, warm-started
-    from its threshold position) before its profile is taken. This matters far
-    above threshold: the frozen threshold-frequency field is no longer an
-    eigenmode of the strongly-pumped operator (its ``|λ₁|`` grows large), and the
-    distortion -- worst for the lowest-threshold / highest-gain mode -- inflates
-    that mode's self-saturation and can spuriously flip the mode ordering.
-    Following the mode keeps every profile physical. Refining at a mode's own
-    threshold is a no-op, so the reduction to the linear matrix is preserved.
-    """
-    threshold_modes_all = modes_df["threshold_lasing_modes"].to_numpy()
-    lasing_thresholds_all = modes_df["lasing_thresholds"].to_numpy()
-    lasing_mask = lasing_thresholds_all < np.inf
-
-    threshold_modes = threshold_modes_all[lasing_mask]
-    pumps = np.full(len(threshold_modes), float(pump_intensity))
-
-    if follow_modes and len(threshold_modes):
-        threshold_modes = _follow_modes_to_pump(
-            graph, threshold_modes, lasing_thresholds_all[lasing_mask], float(pump_intensity)
-        )
-
-    block = _mode_competition_matrix_block(
-        graph, threshold_modes, pumps, with_gamma=with_gamma, check_quality=False
-    )
-    return _scatter_competition_block(block, lasing_mask, len(threshold_modes_all))
-
-
-def _follow_modes_to_pump(graph, modes_complex, thresholds, pump_intensity, n_steps=5, seed=42):
-    """Refine each (complex) mode to the operating-pump operator's nearby mode.
-
-    Returns the refined modes in the same complex ``k - i·alpha`` storage format.
-    A mode pumped well above its threshold sits deep in the gain half-plane, too
-    far for a single refine to reach from the threshold position, so it is tracked
-    by **continuation** -- a few warm-started refines through intermediate pumps
-    from its own threshold up to ``pump_intensity``. The real-``k`` excursion of
-    each refine is capped below the inter-mode spacing so a mode cannot hop onto a
-    neighbour (only the imaginary part moves much, as the mode goes into gain).
-    """
-    ks = np.array([np.real(z) for z in modes_complex])
-    if len(ks) > 1:
-        gaps = np.abs(ks[:, None] - ks[None, :])
-        gaps[np.diag_indices(len(ks))] = np.inf
-        k_window = float(np.clip(0.4 * gaps.min(), 0.05, 1.0))
-    else:
-        k_window = 1.0
-
-    refined = []
-    for z, threshold in zip(modes_complex, thresholds, strict=True):
-        mode = from_complex(z)
-        # ramp from the mode's own threshold to the operating pump (a single step
-        # if the operating pump is at or below threshold)
-        start = min(float(threshold), pump_intensity)
-        for d0 in np.linspace(start, pump_intensity, n_steps):
-            mode = _refine_local(mode, graph_with_pump(graph, float(d0)), 1e-9, 100, seed, k_window)
-        refined.append(to_complex(mode))
-    return np.array(refined)
 
 
 def _find_next_lasing_mode(
@@ -928,9 +855,7 @@ def _intensity_slopes_shifts(mode_competition_matrix, lasing_thresholds, lasing_
     """Linear modal-intensity solve for the active set.
 
     Returns ``(slopes, shifts)`` such that the modal intensities at pump ``D0``
-    are ``slopes * D0 - shifts``. Shared by the ``linear`` and
-    ``self_consistent`` solvers (they differ only in which competition matrix
-    they feed in).
+    are ``slopes * D0 - shifts``.
     """
     mode_competition_matrix_inv = np.linalg.pinv(
         mode_competition_matrix[np.ix_(lasing_mode_ids, lasing_mode_ids)]
@@ -940,53 +865,12 @@ def _intensity_slopes_shifts(mode_competition_matrix, lasing_thresholds, lasing_
     return slopes, shifts
 
 
-def _nonneg_active_set(mode_competition_matrix, lasing_thresholds, lasing_mode_ids, pump_intensity):
-    """Prune the active set so every modal intensity at ``pump_intensity`` is >= 0.
-
-    The SALT intensity equations only admit a physical solution with all modal
-    intensities non-negative. For the constant linear competition matrix the
-    event-driven sweep already guarantees this, so this returns the active set
-    unchanged (the linear result is byte-identical). With a *pump-dependent*
-    matrix (``self_consistent`` / ``full_salt``) the raw linear solve can return
-    negative intensities -- a mode that should have switched off, or an
-    ill-conditioned rebuild; drop the most-negative mode and re-solve until the
-    survivors are all non-negative (a small active-set / non-negative-least-
-    squares step). At least the dominant mode is always kept.
-    """
-    ids = list(lasing_mode_ids)
-    while len(ids) > 1:
-        slopes, shifts = _intensity_slopes_shifts(mode_competition_matrix, lasing_thresholds, ids)
-        intensities = slopes * pump_intensity - shifts
-        worst = int(np.argmin(intensities))
-        if intensities[worst] >= -1e-12:
-            break
-        del ids[worst]
-    return ids
-
-
 def compute_modal_intensities(modes_df, max_pump_intensity, mode_competition_matrix):
     """Compute the modal intensities of the modes up to D0, with D0_steps.
 
-    Thin wrapper over :func:`_modal_intensity_sweep` with a *fixed*
-    (pump-independent) competition matrix -- the original near-threshold SALT
-    model. :func:`compute_modal_intensities_self_consistent` reuses the same
-    sweep with a pump-dependent matrix.
-    """
-    return _modal_intensity_sweep(
-        modes_df, max_pump_intensity, lambda _pump, _ids: mode_competition_matrix
-    )
-
-
-def _modal_intensity_sweep(modes_df, max_pump_intensity, get_matrix):
-    """Event-driven modal-intensity sweep over the pump strength.
-
-    ``get_matrix(pump, lasing_mode_ids)`` returns the full mode-competition
-    matrix to use at the given operating pump and active set. For the linear
-    model it ignores both arguments and returns a constant matrix (so the result
-    is byte-identical to the historical implementation); the self-consistent
-    model rebuilds the matrix from the operating-pump mode profiles; the
-    full-SALT model additionally saturates it with the lasing field. The mode
-    activation / vanishing event logic is shared by all three.
+    Event-driven sweep over the pump strength with the fixed (near-threshold)
+    competition matrix: intensities grow piecewise-linearly between mode
+    activation / vanishing events.
     """
     lasing_thresholds = np.asarray(modes_df["lasing_thresholds"]).ravel()
 
@@ -1003,9 +887,7 @@ def _modal_intensity_sweep(modes_df, max_pump_intensity, get_matrix):
 
     pump_intensity = next_lasing_threshold
     L.debug("Max pump intensity %s", max_pump_intensity)
-    # safety cap: the linear model terminates in <~2*n_modes events, but a
-    # pump-dependent matrix (self_consistent / full_salt) could in principle
-    # chatter; bound the loop so it always returns.
+    # safety cap so the event loop always terminates (it needs <~2*n_modes events)
     max_events = 100 * (len(modes_df) + 1)
     event = 0
     while pump_intensity <= max_pump_intensity:
@@ -1017,16 +899,6 @@ def _modal_intensity_sweep(modes_df, max_pump_intensity, get_matrix):
             )
             break
         L.debug("Current pump intensity %s", pump_intensity)
-
-        # competition matrix at the current operating pump (constant for linear)
-        mode_competition_matrix = get_matrix(pump_intensity, lasing_mode_ids)
-
-        # enforce the physical non-negativity constraint: a pump-dependent matrix
-        # can drive the linear solve negative (a no-op for the constant linear
-        # matrix, so its result is unchanged).
-        lasing_mode_ids = _nonneg_active_set(
-            mode_competition_matrix, lasing_thresholds, lasing_mode_ids, pump_intensity
-        )
 
         # 1) compute the current mode intensities
         slopes, shifts = _intensity_slopes_shifts(
@@ -1134,178 +1006,6 @@ def _finalise_modal_intensities(modes_df, modal_intensities, interacting_lasing_
         n_lasing = int(np.sum(last > 0))
     L.info("%s lasing modes out of %s", n_lasing, len(modal_intensities.index))
     return modes_df
-
-
-def compute_modal_intensities_self_consistent(
-    graph,
-    modes_df,
-    max_pump_intensity,
-    D0_steps=30,
-    max_iter=20,
-    tol=1e-6,
-    damping=0.5,
-    quality_method="eigenvalue",
-):
-    r"""Modal intensities with mode profiles re-evaluated at the operating pump.
-
-    Relaxes the frozen-threshold-profile approximation (issue #42, #2): instead
-    of a single competition matrix built once with every mode at its own
-    threshold, the matrix is rebuilt at each operating pump with all modes
-    **followed to that pump** (each refined to the actual mode of the pumped
-    operator, not its frozen threshold field -- see
-    :func:`compute_mode_competition_matrix_at_pump`). It then reuses the exact
-    same event-driven activation / mode-vanishing sweep as
-    :func:`compute_modal_intensities` (via :func:`_modal_intensity_sweep`), so it
-    inherits the linear model's competition bookkeeping and reduces to it as the
-    matrix becomes pump-independent.
-
-    The *linear* gain saturation is kept, so at a fixed operating pump the matrix
-    depends only on the pump (through the profiles) and not on the intensities --
-    there is no inner fixed point. ``D0_steps``/``max_iter``/``tol``/``damping``
-    are accepted only for interface parity with
-    :func:`compute_modal_intensities_full_salt`.
-
-    Args:
-        graph: pumped quantum graph (with ``pump``/``D0_max`` in its params).
-        modes_df: threshold-modes dataframe (``threshold_lasing_modes``,
-            ``lasing_thresholds``).
-        max_pump_intensity (float): top of the pump sweep.
-    """
-    del max_iter, tol, damping, quality_method  # linear saturation: no inner loop
-
-    # Rebuild the (expensive) competition matrix only on a bounded pump grid: the
-    # event sweep runs at fine resolution for the intensities, but snapping the
-    # matrix to ``D0_steps`` points keeps it piecewise-constant and bounds the
-    # number of rebuilds (the event spacing is otherwise unbounded once T varies
-    # with pump). The grid includes the first threshold, so the matrix there
-    # equals the linear one and the reduction-at-threshold check still holds.
-    snap = _pump_snapper(modes_df, max_pump_intensity, D0_steps)
-    cache: dict[float, np.ndarray] = {}
-
-    def get_matrix(pump, _lasing_mode_ids):
-        key = snap(pump)
-        if key not in cache:
-            cache[key] = compute_mode_competition_matrix_at_pump(graph, modes_df, key)
-        return cache[key]
-
-    return _modal_intensity_sweep(modes_df, max_pump_intensity, get_matrix)
-
-
-def _pump_snapper(modes_df, max_pump_intensity, D0_steps):
-    """Return a function snapping a pump to a bounded grid above first threshold."""
-    lasing_thresholds = np.asarray(modes_df["lasing_thresholds"]).ravel()
-    finite = lasing_thresholds[lasing_thresholds < np.inf]
-    first = float(finite.min()) if finite.size else 0.0
-    grid = np.linspace(first, float(max_pump_intensity), max(int(D0_steps), 2))
-
-    def snap(pump):
-        return float(grid[np.argmin(np.abs(grid - float(pump)))])
-
-    return snap
-
-
-def compute_modal_intensities_full_salt(
-    graph,
-    modes_df,
-    max_pump_intensity,
-    D0_steps=30,
-    max_iter=30,
-    tol=1e-7,
-    damping=0.7,
-    oversample_size=None,
-    quality_method="eigenvalue",
-):
-    r"""Best-effort nonlinear-SALT modal intensities with spatial hole burning.
-
-    *Experimental, opt-in.* Relaxes both linearised-SALT approximations
-    (issue #42): mode profiles are taken at the operating pump (as in
-    :func:`compute_modal_intensities_self_consistent`, #2) *and* the gain is
-    saturated by the lasing field through the per-edge hole-burning denominator
-    :math:`1 + \sum_\nu \Gamma_\nu a_\nu |\Psi_\nu(x)|^2` (#1), which clamps the
-    gain and bends the L--I curves over.
-
-    Implementation: the same event-driven sweep as the other two solvers
-    (:func:`_modal_intensity_sweep`) is reused, so the activation / mode-vanishing
-    bookkeeping is identical. At each operating pump a damped fixed point in the
-    active intensities saturates the competition matrix: each lasing mode's
-    effective gain is reduced by its pump-weighted hole-burning factor
-    :math:`g_\mu\in(0,1]`, which *inflates* its row of the competition matrix and
-    so lowers its intensity. As the intensities go to zero ``g`` goes to one and
-    the result reduces to :func:`compute_modal_intensities_self_consistent`
-    (hence to linear) -- asserted in the tests. Non-convergence never raises: the
-    last iterate is kept and a warning emitted.
-
-    ``oversample_size`` (forwarded to :func:`oversample_graph`) refines the
-    per-edge-constant saturation toward the true within-edge field -- smaller is
-    more accurate and slower. This solver is validated on the small ``line_PRA``
-    example; on large graphs it is best treated as exploratory.
-    """
-    del quality_method  # frozen-threshold profiles: no mode re-solve needed
-
-    lasing_thresholds = np.asarray(modes_df["lasing_thresholds"]).ravel()
-    work_graph = graph if oversample_size is None else oversample_graph(graph, oversample_size)
-    threshold_modes = modes_df["threshold_lasing_modes"].to_numpy()
-
-    # snap the (expensive) matrix/profile rebuilds onto a bounded pump grid; see
-    # compute_modal_intensities_self_consistent for the rationale.
-    snap = _pump_snapper(modes_df, max_pump_intensity, D0_steps)
-    matrix_cache: dict[float, np.ndarray] = {}
-    profile_cache: dict[tuple, tuple] = {}
-
-    def _profiles(pump, ids):
-        """(weight, mean_e2_n, gains, denom_norm) for ``ids`` at ``pump``."""
-        key = (snap(pump), tuple(ids))
-        if key not in profile_cache:
-            pumped = graph_with_pump(work_graph, key[0])
-            pump_profile = np.asarray(pumped.graph["params"]["pump"], dtype=float)
-            mean_e2 = np.array(
-                [
-                    np.abs(mean_mode_on_edges(threshold_modes[i], pumped, check_quality=False))
-                    for i in ids
-                ]
-            )
-            gains = np.array(
-                [abs(gamma(to_complex(threshold_modes[i]), pumped.graph["params"])) for i in ids]
-            )
-            weight = mean_e2 * pump_profile[None, :]
-            denom_norm = weight.sum(1)
-            denom_norm[denom_norm == 0] = 1.0
-            profile_cache[key] = (weight, mean_e2 / denom_norm[:, None], gains, denom_norm)
-        return profile_cache[key]
-
-    def get_matrix(pump, lasing_mode_ids):
-        key = snap(pump)
-        if key not in matrix_cache:
-            matrix_cache[key] = compute_mode_competition_matrix_at_pump(work_graph, modes_df, key)
-        base = matrix_cache[key]
-        ids = list(lasing_mode_ids)
-        if not ids:
-            return base
-
-        weight, mean_e2_n, gains, denom_norm = _profiles(pump, ids)
-        idx = np.ix_(ids, ids)
-        a = np.zeros(len(ids))
-        saturated = base
-        for _ in range(max_iter):
-            # per-edge spatial-hole-burning denominator -> per-mode gain clamp
-            sat = 1.0 + (gains[:, None] * a[:, None] * mean_e2_n).sum(0)  # (n_edges,)
-            g = (weight / sat[None, :]).sum(1) / denom_norm  # in (0, 1], -> 1 as a->0
-            saturated = base.copy()
-            saturated[idx] = base[idx] / g[:, None]  # inflate mode-mu rows -> lower intensity
-            slopes, shifts = _intensity_slopes_shifts(saturated, lasing_thresholds, ids)
-            a_new = np.clip(slopes * pump - shifts, 0.0, None)
-            if np.linalg.norm(a_new - a) <= tol * (np.linalg.norm(a) + tol):
-                a = a_new
-                break
-            a = (1.0 - damping) * a + damping * a_new
-        else:
-            warnings.warn(
-                f"full_salt hole-burning did not converge at D0={pump:.4g}; keeping last iterate.",
-                stacklevel=2,
-            )
-        return saturated
-
-    return _modal_intensity_sweep(modes_df, max_pump_intensity, get_matrix)
 
 
 def _single_mode_field_intensity(graph, mode, pump_mask):
@@ -1671,14 +1371,13 @@ def _full_salt_newton_impl(
     Hellmann-Feynman fallback) and rescales so the curves reduce to the linear/SPA
     onset slope at threshold.
 
-    **Relation to the SPA competition-matrix solvers.** This is the *operator-level*
+    **Relation to the SPA competition-matrix solver.** This is the *operator-level*
     (exact-spatial) SALT: it solves the real nonlinear eigenproblem rather than the
     single-pole-approximation matrix equation
     ``D0/D0_thr - 1 = Σ_ν Γ_ν χ_μν I_ν`` (Ge-Chong-Stone, PRA 82, 063824) that
-    ``linear`` / ``self_consistent`` / ``full_salt`` implement. It contributes the
+    ``linear`` implements. It contributes the
     self-consistent gain-clamping active set and the lasing frequencies ``k_μ`` from
-    the saturated operator (on ``line_PRA`` it lases the *two* Eq. 28 modes where
-    ``self_consistent`` over-suppresses to one), and above threshold it gives the
+    the saturated operator, and above threshold it gives the
     genuine full-SALT correction beyond the SPA: the dominant mode picks up a
     **negative kink** (suppressed *below* the SPA when a second mode turns on and
     steals gain) while the second mode sits **above** the SPA, the two nearly
@@ -1712,8 +1411,8 @@ def _full_salt_newton_impl(
     number of co-lasing modes and the graph size (minutes for a few dozen modes on
     a 200-node graph); (ii) **near-degeneracy** -- the spacing is so small that any
     physically broad gain window holds dozens of modes within ~1e-4 of each other,
-    and the per-mode amplitudes become ill-conditioned. The competition-matrix
-    solvers (``linear`` / ``self_consistent`` / ``full_salt``) remain the right
+    and the per-mode amplitudes become ill-conditioned. The ``linear``
+    competition-matrix solver remains the right
     tool at buffon scale; ``full_salt_newton`` is aimed at sparse-spectrum cavities
     (lines, rings, chord networks) and small mode counts.
 

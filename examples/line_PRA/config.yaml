@@ -27,9 +27,8 @@ D0_max: 2.0
 D0_steps: 30
 intensities_D0_max: 4.0
 
-# Modal-intensity solver (issue #42): "linear" (default, near-threshold SALT),
-# "self_consistent" (rebuild the competition matrix at the operating pump), or
-# "full_salt" (experimental: per-edge spatial hole burning, bends the L--I over).
+# Modal-intensity solver (issue #42): "linear" (default, fast near-threshold
+# SALT) or "full_salt_newton" (operator-level SALT, precise above threshold).
 # See doc/source/lasing.rst and benchmark/bench_salt.py.
 intensity_method: linear
 

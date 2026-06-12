@@ -1,13 +1,10 @@
-"""Compare the four modal-intensity solvers on several quantum-graph topologies.
+"""Compare the two modal-intensity solvers on several quantum-graph topologies.
 
 netSALT can turn the threshold modes + competition matrix into lasing L--I curves
-with four ``intensity_method`` solvers, each relaxing more of the spatial-hole-
-burning approximation (see ``doc/source/lasing.rst`` and issue #42):
+with two ``intensity_method`` solvers (see ``doc/source/lasing.rst`` and issue #42):
 
 * ``linear``           -- near-threshold competition matrix, a linear solve
-                          (piecewise-linear curves);
-* ``self_consistent``  -- competition matrix rebuilt at the operating pump;
-* ``full_salt``        -- per-edge hole-burning surrogate (curves bend over);
+                          (piecewise-linear curves); fast;
 * ``full_salt_newton`` -- operator-level nonlinear SALT (reduces to ``linear`` near
                           threshold, agreeing on the count; bends the curves above
                           it). Auto-resolves the within-edge hole burning.
@@ -15,7 +12,7 @@ burning approximation (see ``doc/source/lasing.rst`` and issue #42):
 This script builds a few small **open** graphs (leads at the degree-1 nodes give
 the radiative loss that sets a lasing threshold), runs the shared passive ->
 pump -> trajectories -> threshold -> competition pipeline once per graph, then
-overlays the four L--I curves. It writes one PDF per graph plus a combined panel
+overlays the two L--I curves. It writes one PDF per graph plus a combined panel
 and a per-mode breakdown, and prints a small summary table.
 
 Run from this directory::
@@ -40,9 +37,7 @@ import numpy as np
 import netsalt
 from netsalt.modes import (
     compute_modal_intensities,
-    compute_modal_intensities_full_salt,
     compute_modal_intensities_full_salt_newton,
-    compute_modal_intensities_self_consistent,
     compute_mode_competition_matrix,
 )
 from netsalt.physics import dispersion_relation_pump
@@ -141,11 +136,9 @@ GRAPHS = {
     "binary tree": make_tree,
 }
 
-METHODS = ("linear", "self_consistent", "full_salt", "full_salt_newton")
+METHODS = ("linear", "full_salt_newton")
 COLORS = {
     "linear": "tab:blue",
-    "self_consistent": "tab:orange",
-    "full_salt": "tab:green",
     "full_salt_newton": "tab:red",
 }
 
@@ -166,19 +159,13 @@ def _threshold_modes(graph):
 def _ll_curves(graph, threshold_df):
     """Return ``{method: (pumps, data)}`` with ``data`` shape ``(n_modes, n_pumps)``.
 
-    All four solvers return modal intensities in the same unit (each reduces to the
+    Both solvers return modal intensities in the same unit (each reduces to the
     linear ``1/(T_μμ·D0_thr)`` onset slope at threshold), so the curves can be
     overlaid directly.
     """
     competition = compute_mode_competition_matrix(graph, threshold_df)
     solvers = {
         "linear": lambda: compute_modal_intensities(threshold_df.copy(), D0_MAX, competition),
-        "self_consistent": lambda: compute_modal_intensities_self_consistent(
-            graph, threshold_df.copy(), D0_MAX, D0_steps=PARAMS["salt_D0_steps"]
-        ),
-        "full_salt": lambda: compute_modal_intensities_full_salt(
-            graph, threshold_df.copy(), D0_MAX, D0_steps=PARAMS["salt_D0_steps"]
-        ),
         "full_salt_newton": lambda: compute_modal_intensities_full_salt_newton(
             graph, threshold_df.copy(), D0_MAX, D0_steps=PARAMS["salt_D0_steps"]
         ),
@@ -206,8 +193,8 @@ def _plot_per_mode(name, curves, out):
     """One subplot per method, each showing every lasing mode's L--I curve.
 
     The faint dashed curves in every panel are the *linear* per-mode result, drawn
-    as a fixed reference so the differences are obvious: ``full_salt`` /
-    ``full_salt_newton`` track the linear curves near threshold and **bend over**
+    as a fixed reference so the differences are obvious: ``full_salt_newton``
+    tracks the linear curves near threshold and **bends over**
     above it as the saturated gain clamps. Colours are keyed by mode, so a
     solid/dashed pair is the same mode.
     """
@@ -216,7 +203,7 @@ def _plot_per_mode(name, curves, out):
     peak = max(c[1].max() for c in curves.values())
     lin_active = _active_modes(lin_data, peak)
 
-    fig, axes = plt.subplots(2, 2, figsize=(10, 7), sharex=True)
+    fig, axes = plt.subplots(1, 2, figsize=(10, 4), sharex=True)
     for ax, method in zip(axes.ravel(), METHODS, strict=True):
         pumps, data = curves[method]
         active = _active_modes(data, peak)
@@ -234,7 +221,7 @@ def _plot_per_mode(name, curves, out):
         ax.set_ylabel("modal intensity")
         if active.size:
             ax.legend(fontsize=7, ncol=2)
-    for ax in axes[1]:
+    for ax in axes.ravel():
         ax.set_xlabel("pump $D_0$")
     fig.suptitle(f"Per-mode L--I on the {name} graph  (dashed = linear reference)", y=1.0)
     fig.tight_layout()
