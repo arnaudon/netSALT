@@ -1,23 +1,34 @@
-# Mini-buffon network — the dense-spectrum reality check
+# Mini-buffon network — how to get more modes lasing on a disordered graph
 
 A shrunk Nat. Commun.-style buffon network (10 random lines, giant component:
 39 nodes, 45 edges, 18 radiating lead ends; fixed seed). The spectrum is
-genuinely dense — 10 modes in the scan window, ~25 per unit k, matching the
-Weyl estimate nL/π ≈ 29 — with disorder-spread losses and a near-degenerate
-pair split by Δk = 0.006.
+genuinely dense — 10 modes in the scan window, ~25 per unit k (Weyl estimate
+nL/π ≈ 29) — with disorder-spread losses and a near-degenerate pair at
+Δk = 0.006.
 
-Measured findings (encoded in the script):
+Three measured stages (all encoded in `run.py`):
 
-- **Competition, not solver cost, limits the lasing count.** Even with the
-  gain broadened over all ten modes, only **two** lase under a uniform pump:
-  the extended disorder modes overlap strongly and the winners clamp the gain.
-  Multimode operation on buffon networks comes from **pump optimisation**
-  (`netsalt.pump`), not uniform pumping; for many co-lasing modes by design
-  see `../ring_chain`.
-- **`full_salt_newton` is still comfortable at this scale**: ~25 s for the
-  sweep on the ~700-node oversampled work graph (vs ~0.1 s for `linear`),
-  agreeing with `linear` on the lasing set, with the expected
-  far-above-threshold deviation in the magnitudes (D0_max ≈ 10× threshold).
+| stage | pump | ceiling | linear lases | newton lases |
+|---|---|---|---|---|
+| low uniform | all 27 inner edges | 0.4 | 2 | 2 |
+| high uniform | all 27 inner edges | 1.2 | 5 | 4 |
+| shaped | 20 mode-owned edges | 1.2 | 2 | 3 |
 
-`bash run.sh` writes `li_curves.png` + `mode_profiles.png` here (~2 min).
-Figures are not committed; re-run to reproduce.
+- **Gain clamping suppresses, but not absolutely**: the losers' interacting
+  thresholds are finite, just 10–40× their bare ones — sweeping the same
+  uniform pump 3× further buys back 4–5 co-lasing modes. On this network
+  **pump strength, not pump shaping, is the simplest route to more modes.**
+- **Pump shaping selects rather than multiplies**: every shaped pump probed
+  (greedy low-cross-saturation targets, several target counts/margins) lased
+  *fewer* modes than uniform at the same ceiling — removing pump area raises
+  all thresholds faster than the decoupling pays back. Shaping is the
+  Nat. Commun. lever for choosing *which* mode lases (`netsalt.pump`).
+- **Solver cost is not the constraint at this scale**: `full_salt_newton`
+  takes ~25–40 s per sweep on the ~700-node oversampled work graph (vs ~0.1 s
+  for `linear`) and tracks `linear`'s sets.
+
+For many co-lasing modes by *design* (localisation, not pump), see
+`../ring_chain`; for why raw spectral density does not help, `../chord_sweep`.
+
+`bash run.sh` writes the three `*_li_curves.png` / `*_mode_profiles.png` pairs
+here (~6 min). Figures are not committed; re-run to reproduce.

@@ -81,11 +81,13 @@ def quantum_graph(nx_graph, positions, total_length, **overrides):
     return g
 
 
-def threshold_modes(graph, method="grid"):
+def threshold_modes(graph, method="grid", pump=None):
     """Shared pipeline: passive modes -> pump -> trajectories -> thresholds.
 
     ``method="grid"`` scans the frequency grid first (the simple cavities);
     ``method="contour"`` uses Beyn's contour search (the ring graphs).
+    ``pump`` is the per-edge pump profile (default: uniform on the inner
+    edges); trajectories and thresholds are computed under it.
     """
     if method == "grid":
         qualities = netsalt.scan_frequencies(graph)
@@ -96,8 +98,9 @@ def threshold_modes(graph, method="grid"):
         passive = find_passive_modes(graph, method="contour")
     if len(passive) == 0:
         raise SystemExit("no passive modes found")
-    pump = np.array([1.0 if graph[u][v]["inner"] else 0.0 for u, v in graph.edges()])
-    graph.graph["params"]["pump"] = pump
+    if pump is None:
+        pump = np.array([1.0 if graph[u][v]["inner"] else 0.0 for u, v in graph.edges()])
+    graph.graph["params"]["pump"] = np.asarray(pump, dtype=float)
     trajectories = pump_trajectories(passive, graph, return_approx=True)
     return find_threshold_lasing_modes(trajectories, graph)
 
@@ -145,7 +148,9 @@ def draw_geometry(ax, graph, name):
     ax.set_title(f"{name}  ({len(graph)} nodes)")
 
 
-def compare_and_plot(graph, name, outdir, d0_max=D0_MAX, d0_steps=26, passive_method="grid"):
+def compare_and_plot(
+    graph, name, outdir, d0_max=D0_MAX, d0_steps=26, passive_method="grid", pump=None, prefix=""
+):
     """Run linear + newton on ``graph`` and write the standard 3-panel figure.
 
     Panels: geometry | per-mode L--I (linear dashed, newton solid, colours keyed
@@ -157,7 +162,7 @@ def compare_and_plot(graph, name, outdir, d0_max=D0_MAX, d0_steps=26, passive_me
     import time
 
     outdir = Path(outdir)
-    tdf = threshold_modes(graph, method=passive_method)
+    tdf = threshold_modes(graph, method=passive_method, pump=pump)
     n_modes = len(tdf)
     competition = compute_mode_competition_matrix(graph, tdf)
     thr = np.asarray(tdf["lasing_thresholds"]).ravel()
@@ -177,6 +182,8 @@ def compare_and_plot(graph, name, outdir, d0_max=D0_MAX, d0_steps=26, passive_me
     active = [m for m in range(n_modes) if max(linear[m].max(), newton[m].max()) > 1e-2 * peak]
     n_lin = int(np.sum(linear[:, -1] > 1e-2 * peak))
     n_nwt = int(np.sum(newton[:, -1] > 1e-2 * peak))
+    finite = np.sort(thr[thr < np.inf])[:6]
+    print(f"{name}: lowest thresholds {np.round(finite, 3)}")
     print(f"{name}: linear lases {n_lin}, full_salt_newton lases {n_nwt}")
 
     cmap = plt.get_cmap("tab10")
@@ -199,7 +206,7 @@ def compare_and_plot(graph, name, outdir, d0_max=D0_MAX, d0_steps=26, passive_me
     axes[2].legend(fontsize=8)
     fig.suptitle(f"{name}: full_salt_newton vs linear", y=1.02)
     fig.tight_layout()
-    out = outdir / "li_curves.png"
+    out = outdir / f"{prefix}li_curves.png"
     fig.savefig(out, dpi=120, bbox_inches="tight")
     plt.close(fig)
     print(f"wrote {out}")
@@ -215,7 +222,9 @@ def compare_and_plot(graph, name, outdir, d0_max=D0_MAX, d0_steps=26, passive_me
         name,
         outdir,
         a0={m: newton[m, -1] for m in ids_newton},
+        filename=f"{prefix}mode_profiles.png",
     )
+    return {"tdf": tdf, "linear": linear, "newton": newton, "grid": grid, "n_cols": n_cols}
 
 
 def _draw_profile(ax, work, values, cmap, vmin, vmax):
@@ -234,7 +243,9 @@ def _draw_profile(ax, work, values, cmap, vmin, vmax):
     return lc
 
 
-def mode_profile_figure(graph, tdf, d0_max, ids_linear, ids_newton, name, outdir, a0=None):
+def mode_profile_figure(
+    graph, tdf, d0_max, ids_linear, ids_newton, name, outdir, a0=None, filename="mode_profiles.png"
+):
     """Per-mode profile comparison: linear vs saturated (newton) vs difference.
 
     For every mode lasing under *either* solver this draws three columns:
@@ -286,7 +297,9 @@ def mode_profile_figure(graph, tdf, d0_max, ids_linear, ids_newton, name, outdir
                 )
             )
             modes0.append(mode)
-        start = [max(float(a0[i]), 1e-3) for i in ids] if a0 is not None else [1.0] * len(ids)
+        start = (
+            [max(float(a0.get(i, 1.0)), 1e-3) for i in ids] if a0 is not None else [1.0] * len(ids)
+        )
         modes, fields, amps, _ = _m._solve_active_set(
             work, modes0, fields0, start, float(d0_max), pump, pump_mask, 30, 42
         )
@@ -319,7 +332,7 @@ def mode_profile_figure(graph, tdf, d0_max, ids_linear, ids_newton, name, outdir
             fig.colorbar(lc, ax=ax, fraction=0.045, pad=0.02)
     fig.suptitle(f"{name}: hole burning reshapes the mode profiles", y=1.0)
     fig.tight_layout()
-    out = Path(outdir) / "mode_profiles.png"
+    out = Path(outdir) / filename
     fig.savefig(out, dpi=120, bbox_inches="tight")
     plt.close(fig)
     print(f"wrote {out}")
