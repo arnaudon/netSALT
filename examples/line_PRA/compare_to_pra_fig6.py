@@ -94,18 +94,24 @@ def main():
     lasing = [i for i in np.argsort(thresholds) if dn[i].max() > 0][:2]
     dom, sec = lasing[0], (lasing[1] if len(lasing) > 1 else None)
 
+    # one color per mode; series are told apart by style (thin solid = paper SPA,
+    # open markers = paper exact, dashed = netsalt linear, x = netsalt newton)
+    c_dom, c_sec = "firebrick", "steelblue"
     fig, ax = plt.subplots(figsize=(6, 4.5))
-    ax.plot(*ref["spa_dominant"].T, "-", c="firebrick", lw=1, alpha=0.6, label="paper SPA")
-    ax.plot(*ref["spa_second"].T, "-", c="steelblue", lw=1, alpha=0.6)
-    ax.plot(
-        *ref["exact_dominant"].T, "s", mfc="none", c="firebrick", ms=6, label="paper exact (Eq. 28)"
-    )
-    ax.plot(*ref["exact_second"].T, "o", mfc="none", c="steelblue", ms=6)
-    ax.plot(pl, dl[dom], "--", c="firebrick", lw=2, label=f"netsalt linear (mode {dom})")
-    ax.plot(pn, dn[dom], "x-", c="darkred", lw=1, ms=7, label=f"netsalt newton (mode {dom})")
+    ax.plot(*ref["spa_dominant"].T, "-", c=c_dom, lw=1, alpha=0.6, label="paper SPA")
+    # below its threshold the digitized "line" is the chain of zero-intensity
+    # exact markers; show the SPA line only where the mode is on
+    spa2 = ref["spa_second"][ref["spa_second"][:, 1] > 0.008]
+    slope, icpt = np.polyfit(spa2[:, 0], spa2[:, 1], 1)
+    spa2 = np.vstack([[-icpt / slope, 0.0], spa2])  # extend down to its zero crossing
+    ax.plot(*spa2.T, "-", c=c_sec, lw=1, alpha=0.6)
+    ax.plot(*ref["exact_dominant"].T, "s", mfc="none", c=c_dom, ms=6, label="paper exact (Eq. 28)")
+    ax.plot(*ref["exact_second"].T, "o", mfc="none", c=c_sec, ms=6)
+    ax.plot(pl, dl[dom], "--", c=c_dom, lw=2, label=f"netsalt linear (mode {dom})")
+    ax.plot(pn, dn[dom], "x-", c=c_dom, lw=1, ms=7, label=f"netsalt newton (mode {dom})")
     if sec is not None:
-        ax.plot(pl, dl[sec], "--", c="steelblue", lw=2, label=f"netsalt linear (mode {sec})")
-        ax.plot(pn, dn[sec], "x-", c="navy", lw=1, ms=7, label=f"netsalt newton (mode {sec})")
+        ax.plot(pl, dl[sec], "--", c=c_sec, lw=2, label=f"netsalt linear (mode {sec})")
+        ax.plot(pn, dn[sec], "x-", c=c_sec, lw=1, ms=7, label=f"netsalt newton (mode {sec})")
     ax.set_xlabel(r"pump strength $D_0$")
     ax.set_ylabel(r"modal intensity $I_\mu$")
     ax.set_xlim(0.58, 1.3)

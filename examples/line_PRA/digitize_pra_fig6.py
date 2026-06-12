@@ -112,7 +112,11 @@ def digitize(png):
             ys, xs = np.where(lab == i)
             w, h = np.ptp(xs) + 1, np.ptp(ys) + 1
             if w > 120:  # the SPA line (with any markers riding on it merged in)
-                line_pts.extend((c, np.median(ys[xs == c])) for c in np.unique(xs))
+                # a column crossing a hollow marker outline is ~3x thicker than
+                # the bare line; skip those so the line series stays smooth
+                cols, counts = np.unique(xs, return_counts=True)
+                clean = cols[counts <= 1.5 * np.median(counts)]
+                line_pts.extend((c, np.median(ys[xs == c])) for c in clean)
             elif 12 < w < 90 and 12 < h < 90:  # an isolated open marker
                 markers.append((xs.mean(), ys.mean()))
         return np.array(markers).reshape(-1, 2), np.array(line_pts).reshape(-1, 2)
