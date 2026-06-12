@@ -43,13 +43,14 @@ misses.
 
 Run::
 
-    OMP_NUM_THREADS=1 python chaotic_ring_multimode.py
+    OMP_NUM_THREADS=1 python run.py
 
 Modes are found by Beyn's contour method (robust on this hand-built graph).
 """
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import matplotlib
@@ -59,6 +60,9 @@ import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
 from matplotlib.lines import Line2D
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from _common import mode_profile_figure
 
 import netsalt
 from netsalt.modes import (
@@ -273,6 +277,19 @@ def main():
     print(f"linear: {_count(linear[:, -1])} lasing @max")
     print(f"full_salt_newton: {_count(newton[:, -1])} lasing @max")
     print(f"wrote {out}")
+
+    cut_l = 1e-2 * max(linear[:, -1].max(), 1e-9)
+    cut_n = 1e-2 * max(newton[:, -1].max(), 1e-9)
+    mode_profile_figure(
+        graph,
+        tdf,
+        D0_MAX,
+        [m for m in range(n_modes) if linear[m, -1] > cut_l],
+        [m for m in range(n_modes) if newton[m, -1] > cut_n],
+        "chaotic ring",
+        HERE,
+        a0={m: float(newton[m, -1]) for m in range(n_modes)},
+    )
 
 
 if __name__ == "__main__":

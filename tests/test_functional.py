@@ -202,7 +202,7 @@ def test_full_salt_newton_multimode_chaotic_ring():
     chords close extra loops, so the spectrum is dense and the modes localise on
     different loops. With a narrow gain on a mode cluster, several co-lase on one
     small single-component graph -- guards the multimode example
-    ``examples/intensity_methods/chaotic_ring_multimode.py``.
+    ``examples/chaotic_ring``.
     """
     import networkx as nx
 

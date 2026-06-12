@@ -1,6 +1,6 @@
 """Genuine multimode lasing on a detuned two-ring "photonic molecule".
 
-The single-graph examples in ``compare_intensity_methods.py`` are all
+The simple single-graph examples (``../line_fabry_perot``, ``../ring_leads``, ``../tree``) are all
 *single-mode* under faithful SALT: their modes overlap strongly, so the dominant
 mode clamps the gain and holds the others below threshold (``full_salt_newton``
 correctly reports one mode). To get
@@ -23,7 +23,7 @@ four solvers -- including ``full_salt_newton`` -- lase several modes at once.
 
 Run::
 
-    OMP_NUM_THREADS=1 python two_ring_multimode.py
+    OMP_NUM_THREADS=1 python run.py
 
 Modes are found by Beyn's contour method (robust on this hand-built graph). The
 solve is the operator-level Newton; this is the multimode case it was built for.
@@ -31,6 +31,7 @@ solve is the operator-level Newton; this is the multimode case it was built for.
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import matplotlib
@@ -39,6 +40,9 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from _common import mode_profile_figure
 
 import netsalt
 from netsalt.modes import (
@@ -142,6 +146,8 @@ def main():
     }
     cmap = plt.get_cmap("tab10")
     fig, axes = plt.subplots(1, 2, figsize=(10, 4), sharex=True)
+    lasing_at_max = {}
+    endpoint = {}
     for ax, (name, df) in zip(axes.ravel(), solvers.items(), strict=True):
         cols = np.array(
             sorted(c[1] for c in df.columns if isinstance(c, tuple) and c[0] == "modal_intensities")
@@ -149,6 +155,8 @@ def main():
         data = np.nan_to_num(df[[("modal_intensities", c) for c in cols]].to_numpy(dtype=float))
         peak = max(data.max(), 1e-9)
         active = [m for m in range(data.shape[0]) if data[m].max() > 1e-2 * peak]
+        lasing_at_max[name] = [m for m in active if data[m, -1] > 1e-2 * peak]
+        endpoint[name] = {m: float(data[m, -1]) for m in active}
         for m in active:
             ax.plot(
                 cols,
@@ -173,6 +181,17 @@ def main():
     fig.savefig(out, dpi=120, bbox_inches="tight")
     plt.close(fig)
     print(f"wrote {out}")
+
+    mode_profile_figure(
+        graph,
+        tdf,
+        D0_MAX,
+        lasing_at_max["linear"],
+        lasing_at_max["full_salt_newton"],
+        "two-ring molecule",
+        HERE,
+        a0=endpoint["full_salt_newton"],
+    )
 
 
 if __name__ == "__main__":

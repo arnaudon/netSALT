@@ -1,9 +1,18 @@
-This folder contains examples of netSALT runs found in the accompanying paper.
+This folder contains examples of netSALT runs found in the accompanying paper,
+plus script-based per-graph examples of the modal-intensity solvers.
 
 In each, run
 ```
 ./run.sh
 ```
-to run the workflow, and adjust parameters in `config.yaml` for the simulation
-parameters. Most variants inherit a shared `_base.yaml` via `defaults:` —
-override only the keys that differ.
+For the config-driven examples (buffon, ring, wheel, directed, line_PRA,
+transfer) this runs the pipeline workflow; adjust parameters in `config.yaml`
+(most variants inherit a shared `_base.yaml` via `defaults:` — override only
+the keys that differ).
+
+The script-based examples (`line_fabry_perot`, `ring_leads`, `tree`,
+`two_ring`, `chaotic_ring`, `dense_ring`; shared helpers in `_common.py`)
+build one graph each in memory, compare the `linear` and `full_salt_newton`
+intensity solvers, and write their figures into their own folder. Figures are
+not committed — re-run the script to reproduce them. See
+`doc/source/lasing.rst` for the physics.

@@ -1,6 +1,6 @@
 """Newton vs linear on a *denser* chord ring: consistency of the L--I curves.
 
-A companion to ``chaotic_ring_multimode.py`` that checks the operator-level
+A companion to ``../chaotic_ring/run.py`` that checks the operator-level
 ``full_salt_newton`` solver against the near-threshold ``linear`` model on a
 bigger, more strongly-competing graph: a **16-node ring with 10 random chords**
 (vs 14 nodes / 6 chords). The question this answers is *what should differ between
@@ -30,11 +30,12 @@ reproducible regardless of the NumPy RNG.
 
 Run::
 
-    OMP_NUM_THREADS=1 python dense_ring_compare.py
+    OMP_NUM_THREADS=1 python run.py
 """
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import matplotlib
@@ -43,6 +44,9 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from _common import mode_profile_figure
 
 import netsalt
 from netsalt.modes import (
@@ -195,6 +199,18 @@ def main():
     axes[1].legend(fontsize=8)
     fig.suptitle("Denser chord ring: full_salt_newton vs linear", y=1.0)
     fig.tight_layout()
+    cut = 1e-2 * peak
+    mode_profile_figure(
+        graph,
+        tdf,
+        D0_MAX,
+        [m for m in range(n_modes) if linear[m, -1] > cut],
+        [m for m in range(n_modes) if newton[m, -1] > cut],
+        "dense chord ring",
+        HERE,
+        a0={m: float(newton[m, -1]) for m in range(n_modes)},
+    )
+
     out = HERE / "dense_ring_compare.png"
     fig.savefig(out, dpi=120, bbox_inches="tight")
     plt.close(fig)

@@ -331,12 +331,12 @@ The solvers treat this clamping at different levels of fidelity:
 .. note::
 
    Multimode lasing is demonstrated in
-   ``examples/intensity_methods/two_ring_multimode.py``: two **detuned** rings
+   ``examples/two_ring``: two **detuned** rings
    (different sizes) joined by a bridge. The detuning localises each mode onto
    one ring -- identical rings would give symmetric/antisymmetric modes spread
    over both, with high overlap -- so with a narrow gain the modes barely
    compete and ``full_salt_newton`` lases several at once (spread across the two
-   rings). ``examples/intensity_methods/chaotic_ring_multimode.py`` shows
+   rings). ``examples/chaotic_ring`` shows
    the same effect on a *single* small graph: one 14-node ring with six random
    chords (the buffon mechanism shrunk down). The chords close extra loops, so
    the spectrum is dense and the modes localise on different loops; with a
@@ -407,9 +407,11 @@ L–I curves, and contrasts the operator-level Newton solver with the linear mod
 (onset slope + which modes lase). The newton solver is exact at threshold, so
 the linear model remains the threshold-limit check.
 
-``examples/intensity_methods/compare_intensity_methods.py`` is a self-contained
-worked example (with a physics walkthrough in its ``README``): it builds several
-small open graphs -- a Fabry–Pérot line, a ring resonator, a tree splitter -- and
-overlays the two methods' L–I curves, with a per-mode breakdown that makes the
-above-threshold bend-over explicit.
+The script-based example folders (one per graph) are self-contained worked
+examples: the simple open cavities (``examples/line_fabry_perot``,
+``examples/ring_leads``, ``examples/tree``) overlay the two methods' L–I curves
+with a per-mode breakdown that makes the above-threshold bend-over explicit, and
+the multimode graphs (``examples/two_ring``, ``examples/chaotic_ring``,
+``examples/dense_ring``) probe the operator-level mode competition. Each
+folder's ``run.py`` regenerates its figures (figures are not committed).
 

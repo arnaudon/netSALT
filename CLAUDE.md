@@ -67,8 +67,11 @@ mapping.
   `compute_lasing_modes` on a line graph and diffs `out/` against
   `tests/data/run_simple/out/` with `dir_content_diff`
 - `examples/` — ready-to-run YAML configs (buffon, ring, wheel, directed,
-  line_PRA, transfer). Buffon variants use `defaults:` to inherit shared
-  base configs.
+  line_PRA, transfer; buffon variants use `defaults:` to inherit shared base
+  configs) plus script-based per-graph solver comparisons (line_fabry_perot,
+  ring_leads, tree, two_ring, chaotic_ring, dense_ring; shared helpers in
+  `examples/_common.py`, figures gitignored and reproduced by each folder's
+  `run.sh`).
 - `doc/` — Sphinx sources, published at https://arnaudon.github.io/netSALT/
 
 ## Running things
