@@ -1332,7 +1332,11 @@ def _auto_oversample_size(graph, modes_df, resolution=12, node_cap=3000):
     target = 2.0 * np.pi / (n_max * k_max) / resolution
     lengths = np.array([graph[u][v]["length"] for u, v in graph.edges], dtype=float)
     est_nodes = float(np.sum(np.maximum(lengths / max(target, 1e-12), 1.0)))
-    if est_nodes > node_cap:  # keep the oversampled graph (and its eigensolves) bounded
+    if est_nodes > node_cap:
+        # Keep the oversampled graph (and its eigensolves) bounded. On a large
+        # graph this *reduces* the effective resolution below ``resolution`` --
+        # raise ``node_cap`` (the full_salt_newton ``oversample_node_cap`` knob)
+        # to recover within-edge accuracy at higher cost.
         target *= est_nodes / node_cap
     return float(target)
 
@@ -1369,6 +1373,8 @@ def _full_salt_newton_impl(
     inner_damping=0.8,
     seed=42,
     quality_method="eigenvalue",
+    oversample_resolution=12,
+    oversample_node_cap=3000,
 ):
     r"""Operator-level full-SALT L--I curves with a self-consistent active set.
 
@@ -1446,22 +1452,24 @@ def _full_salt_newton_impl(
     threshold. Pass ``oversample_size=0`` for the old (over-clamping) bare-edge
     behaviour, or a float to set it explicitly.
 
-    **Best for sparse spectra (few, resolved modes).** The coupled ``(k, a)``
-    solve confines each mode's ``k`` to a window ``0.2 * min_spacing`` so a mode
-    cannot drift to a neighbour's root; the window tracks the actual spacing (no
-    fixed floor), so it stays robust as the spectrum tightens -- on a near-degenerate
-    triplet (Δk ~ 1e-4) it lases the cluster instead of collapsing or diverging.
-    Two practical limits remain on a genuinely *dense* spectrum (e.g. a buffon
-    network, ~10^2--10^3 modes per unit ``k``): (i) **cost** -- the active set is
-    re-solved at every pump with a numerical Jacobian over all lasing ``(k, a)``,
-    each residual an operator eigensolve, so the work grows steeply with the
-    number of co-lasing modes and the graph size (minutes for a few dozen modes on
-    a 200-node graph); (ii) **near-degeneracy** -- the spacing is so small that any
-    physically broad gain window holds dozens of modes within ~1e-4 of each other,
-    and the per-mode amplitudes become ill-conditioned. The ``linear``
-    competition-matrix solver remains the right
-    tool at buffon scale; ``full_salt_newton`` is aimed at sparse-spectrum cavities
-    (lines, rings, chord networks) and small mode counts.
+    **Scales to buffon networks.** The cost is the oversampled eigensolve, which
+    ARPACK keeps ~flat in the node count on the banded laplacian, and the
+    oversampling is bounded by ``oversample_node_cap`` -- so the operator stays at
+    a few thousand nodes regardless of the cavity's physical length. The real
+    buffon (96-edge network, ``inner_total_length = 2500``) runs in ~12 s at the
+    default cap and ~6 min uncapped at ``λ/4`` (≈30k nodes), lasing its
+    co-lasing modes. Raising ``oversample_node_cap`` (and/or
+    ``oversample_resolution``) trades speed for within-edge accuracy; on a large
+    graph the default cap reduces the effective resolution below
+    ``oversample_resolution``, so pass a higher cap when the modal magnitudes
+    matter. Two limits to keep in mind on a genuinely *dense* spectrum: (i)
+    **cost** grows with the number of *co-lasing* modes (the coupled ``(k, a)``
+    Jacobian), so it suits narrow gain / pump-targeted few-mode operation rather
+    than hundreds of simultaneous modes; (ii) **near-degeneracy** -- when the
+    spacing is far below the gain linewidth the per-mode amplitudes become
+    ill-conditioned (the total-output ratchet keeps the L--I monotone there). The
+    ``linear`` competition-matrix solver remains the cheap first pass for the
+    lasing count at any scale.
 
     It never raises -- a step that fails to fully converge keeps its iterate and
     warns. (``max_iter``, ``tol``, ``inner_max_iter``, ``inner_damping`` are
@@ -1485,7 +1493,9 @@ def _full_salt_newton_impl(
     # lase). ``oversample_size=None`` now auto-picks a wavelength-resolving size;
     # pass 0 to force the old bare-edge behaviour.
     if oversample_size is None:
-        oversample_size = _auto_oversample_size(graph, modes_df)
+        oversample_size = _auto_oversample_size(
+            graph, modes_df, resolution=oversample_resolution, node_cap=oversample_node_cap
+        )
     work_graph = graph if not oversample_size else oversample_graph(graph, oversample_size)
     pump = np.asarray(work_graph.graph["params"]["pump"], dtype=float)
     pump_mask = _get_mask_matrices(work_graph.graph["params"])[1]

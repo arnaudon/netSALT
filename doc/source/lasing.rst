@@ -324,9 +324,13 @@ The solvers treat this clamping at different levels of fidelity:
    removes the over-clamping and recovers the correct count. The oversampled graph
    is larger, but the eigensolve stays cheap because it runs through ARPACK
    shift-invert (which is ~flat in the node count on the banded quantum-graph
-   laplacian; see ``DENSE_EIG_MAX``), so the solver scales to large graphs. It is
-   still far heavier than ``linear``, which remains the
-   cheaper first pass for the lasing count.
+   laplacian; see ``DENSE_EIG_MAX``), and the oversampling is bounded by
+   ``oversample_node_cap`` (default 3000), so the operator stays a few thousand
+   nodes regardless of the cavity length -- the **real buffon network runs in
+   ~12 s** (default cap) and ~6 min uncapped at ``λ/4``. Raise
+   ``oversample_node_cap`` / ``oversample_resolution`` for within-edge accuracy
+   on large graphs at higher cost. ``linear`` remains the cheaper first pass for
+   the lasing count.
 
 .. note::
 

@@ -1,15 +1,25 @@
 # Constant-flux (CF) state SALT solver — design and validated foundation
 
-Status: **foundation validated, full solver is a multi-PR effort.** This note
-records the formulation, the validated starting point, and the concrete plan,
-so the work is grounded and resumable.
+> **Correction (this PR): `full_salt_newton` already runs on the real buffon.**
+> The premise below — that buffon needs a CF solver because oversampling makes a
+> ~77 000-node operator — was **wrong**. `_auto_oversample_size` bounds the
+> oversampled graph by `node_cap` (default 3000), so newton runs on the real
+> buffon in **~12 s** (default cap) and **~6 min uncapped at λ/4** (≈30k nodes),
+> lasing its co-lasing modes. The node count is `node_cap`, not
+> `inner_length / (λ/12)`. The `oversample_node_cap` / `oversample_resolution`
+> knobs now expose the speed/accuracy trade. So the CF route is **not needed for
+> feasibility**; it is kept below only as a (validated) curiosity and a possible
+> future accuracy/scaling refinement. The rest of this note is retained for the
+> record, but its motivation no longer holds.
 
-## Why CF states (what the existing solvers cannot do)
+Status: **CF foundation validated; not required — buffon works via bounded
+oversampling.**
+
+## Why CF states (the original, now-corrected motivation)
 
 `full_salt_newton` resolves the within-edge hole burning by **oversampling** the
-graph to ~λ/12 sub-edges. On a buffon network (`inner_total_length = 2500`,
-k ≈ 10.7) that is a ~77 000-node operator — infeasible. CLAUDE.md therefore
-scopes newton to small sparse cavities and `linear` to buffon scale.
+graph to ~λ/12 sub-edges — *bounded by `node_cap`*. The reasoning below assumed
+the cap did not exist (an error); it is kept for the record.
 
 Two cheaper routes were tried and **rejected**, each for a concrete measured
 reason:

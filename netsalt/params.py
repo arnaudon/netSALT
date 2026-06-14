@@ -120,6 +120,12 @@ class NetSaltParams(BaseModel):
     # edge_size passed to oversample_graph for the within-edge hole-burning
     # resolution (None auto-picks a wavelength-resolving size).
     intensity_oversample_size: float | None = None
+    # full_salt_newton auto-oversampling knobs: sub-edges per wavelength
+    # (resolution) and the node cap that bounds the oversampled operator. The cap
+    # makes the solver feasible on large graphs (buffon) but reduces accuracy
+    # there; raise it (slower) when the modal magnitudes matter.
+    intensity_oversample_resolution: int | None = None
+    intensity_oversample_node_cap: int | None = None
 
     # --- Infrastructure ----------------------------------------------------
     n_workers: int | None = None

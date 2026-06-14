@@ -27,7 +27,11 @@ mapping.
     (operator-level nonlinear SALT — solves `(k_μ,a_μ)` so `L_sat` is singular at
     real `k_μ`; reduces to `linear` near threshold and bends the curves above it.
     Auto-oversamples the within-edge hole burning — the per-edge mean over-clamps;
-    validated against Ge-Chong-Stone PRA 82, 063824 Eq. 28 on `line_PRA`).
+    validated against Ge-Chong-Stone PRA 82, 063824 Eq. 28 on `line_PRA`). The
+    oversampling is bounded by `oversample_node_cap` (default 3000), so newton
+    **also runs on the real buffon** (~12 s capped, ~6 min uncapped at λ/4 ≈30k
+    nodes, lasing its co-lasing modes) — raise the cap / `oversample_resolution`
+    for accuracy at higher cost. `linear` is still the cheap first pass for counts.
   - `algorithm.py` — rough mode detection (skimage `peak_local_max`) and
     two refinement algorithms: `refine_mode_root` (MINPACK ``hybr``,
     default) and `refine_mode_brownian_ratchet` (legacy random-walk
