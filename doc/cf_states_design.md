@@ -72,14 +72,34 @@ computable on the original 11-node graph, no oversampling.
 
 ## Plan (the multi-PR work ahead)
 
-1. **CF basis finder — Beyn in the η-plane.** `find_cf_states(graph, k,
-   eta_bounds)`: run the `contour.py` Beyn extraction (Cauchy moments → SVD →
-   reduced eigenproblem) on `L(η) = construct_laplacian(k, dielectric =
-   ε + η·pump)` instead of `L(k)`. The extraction is variable-agnostic; only the
-   matrix-builder changes. Returns the CF eigenvalues `ηₙ(k)` and the null
-   vectors (CF states `uₙ`). A coarse grid scan does **not** suffice (the roots
-   are isolated; a 61×61 box found only the threshold one) — a proper root
-   finder is required.
+1. **CF basis finder — the hard step.** Two approaches were tried and **both
+   fail**, which is the central open problem:
+
+   * *Beyn in the η-plane* — run the `contour.py` Cauchy-moment extraction on
+     `L(η) = construct_laplacian(k, dielectric = ε + η·pump)` instead of `L(k)`.
+     Tested on line_PRA: it returns a wrong root (Im η > 0, absorbing) and
+     **misses the validated threshold root even with a tight contour around
+     it** (found 0). Diagnosis: on a graph the secular matrix depends on η
+     through `√(ε + η·pump)` in the per-edge wavenumber, so `L(η)` is **not
+     analytic** in η (branch points at `η = −ε_e/pump_e`) and the
+     near-null behaviour around a CF eigenvalue is *soft*, not a clean simple
+     pole — Beyn's contour integral, which assumes a meromorphic `L(η)⁻¹`,
+     does not extract it. (This is the key difference from the *continuous* CF
+     operator of Eq. 17, which is **linear** in η.)
+   * *Coarse grid scan of `|λ₁(η)|`* — the η-roots are isolated points; a 61×61
+     box found only the threshold one (which was centred), none of the basis.
+
+   So the basis finder is genuine research, not plumbing. Candidate routes:
+   (a) **nonlinear root-finding in η** (Newton / secant on `λ₁(η)` or
+   `det L(η)`) seeded from physical guesses (passive modes near k, UCF
+   estimates `ηₙ = c(Kₙ²/k² − 1)` from Eq. 21) — handles non-analyticity since
+   it never integrates around the root; (b) a **linear-in-η reformulation** —
+   the edge ODE `u'' + k²(ε+η pump)u = 0` *is* linear in η, so a spatial
+   discretisation gives a standard generalised eigenproblem
+   `(K − k²M_ε)u = k²η M_pump u` solving all CF states at once, but that
+   reintroduces a mesh (the cost we are trying to avoid); (c) a **hybrid** —
+   coarse mesh only to seed guesses for the exact nonlinear η-solve.
+   Route (a) is the most promising and is the next concrete experiment.
 2. **Self-orthogonality + overlaps.** CF states obey the paper's self-orthogonality
    relation (Eq. 20); the hole-burning overlaps `∫ uₙ uₘ* / (1 + Σ |Ψ|²)` over
    each edge are products of plane waves → closed-form exponential integrals
