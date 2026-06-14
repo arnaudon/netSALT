@@ -34,19 +34,26 @@ competition physics, not solver cost, is the constraint. For many co-lasing
 modes by *design* see ``../ring_chain``.
 
 **History -- this graph hardened the solver.** Early runs showed spurious
-per-mode kinks: the near-degenerate pair (modes 5/6, ``dk = 0.004``) swapped
-identities at active-set events, the bootstrap solve could capture the
-trivial ``a = 0`` root while its ``k`` drifted onto the twin, and coarse and
-fine pump grids landed on different branches. Those artifact classes are
-fixed in the solver (linear-slope warm starts, a candidate-spacing cap on
-the ``k``-window, and continuity guards with bisected sub-stepping at adds
-and pump steps); both grids now agree everywhere. One reproducible,
-resolution-stable **branch exchange** remains near ``D0 ~ 0.6`` (the
-dominant role passes from mode 6 to mode 8, with mode 9 joining) and is
-flagged by an explicit solver warning when it happens -- possibly genuine
-bistable switching, but the accompanying drop in total intensity means the
-frozen-field iteration's branch selection far above threshold should be
-treated with care beyond a collapse warning.
+per-mode kinks. Several artifact classes were traced here and fixed in the
+solver: the near-degenerate pair (modes 5/6, ``dk = 0.004``) swapping
+identities at active-set events; the bootstrap capturing the trivial
+``a = 0`` root while its ``k`` drifted onto the twin; an *add* whose
+re-solve flipped a stronger veteran's amplitude into a weaker newcomer. The
+fixes -- linear-slope warm starts, a candidate-spacing cap on the
+``k``-window, and continuity guards keyed on the physical invariants
+(lower-threshold-veteran-killed, and total-output monotonicity) -- make the
+coarse and fine pump grids agree everywhere up to a genuine **mode
+crossing** near ``D0 ~ 0.6`` (~20x threshold), where mode 8 overtakes mode
+6. There the frozen-field single-pole iteration cannot resolve the per-mode
+split (it converges to a spurious lower-total branch, robustly across
+relaxation and step size -- a limit of the method, not a tuning bug). A
+**total-output ratchet** enforces the one hard physical law there -- the
+total cannot fall as the pump rises -- by holding any collapsing mode at its
+last value (the dominant curve plateaus, flagged by a warning) while letting
+the others grow. The total L--I is therefore monotone and physical; the
+per-mode magnitudes across the crossing are at the method's resolution
+limit, and the plateau marks it honestly. Fully resolving the crossing would
+need a constant-flux-state SALT solver.
 
 Run from this directory (writes ``li_curves.png`` + ``mode_profiles.png``)::
 

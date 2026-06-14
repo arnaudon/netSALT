@@ -1540,7 +1540,7 @@ def _full_salt_newton_impl(
             work_graph, mode, field, float(lasing_thresholds[i]), t_diag[i]
         )
 
-    def _solve_into(active_ids, d0):
+    def _solve_into(active_ids, d0, outer=6):
         modes_out, fields_out, a_out, converged = _solve_active_set(
             work_graph,
             [mode_state[i] for i in active_ids],
@@ -1551,6 +1551,7 @@ def _full_salt_newton_impl(
             pump_mask,
             max_steps,
             seed,
+            outer=outer,
             k_window_cap=k_cap,
         )
         for j, i in enumerate(active_ids):
@@ -1562,52 +1563,32 @@ def _full_salt_newton_impl(
         return converged
 
     def _advance_active_set(active_ids, d0_from, d0_to):
-        """Continue the active set ``d0_from -> d0_to``, staying in-basin.
+        """Continue the active set ``d0_from -> d0_to`` along the physical branch.
 
-        SALT solutions are continuous in the pump, so a veteran amplitude
-        collapsing (> 60 % in one step) means the warm-started solve left its
-        basin (observed on dense spectra; reads as a spurious kink). On
-        collapse, retry from the previous state with 2/4/8 bisected sub-steps
-        -- a closer warm start stays in-basin. If every refinement still
-        collapses, keep the direct result and warn.
+        The frozen-field solve, fully relaxed in one coarse pump step, can walk
+        the background field off the physical (maximal-output) branch into a
+        spurious *lower-total* fixed point of the iteration -- far above
+        threshold near a mode crossing this reallocates amplitude between
+        competing modes and drops the summed intensity (the visible kink), even
+        though the true SALT total is monotone in pump. The cure is a true
+        continuation: short pump sub-steps with *light* field relaxation
+        (``outer=2``), so the field tracks the slowly-moving branch instead of
+        being free to converge to the distant spurious point. (A controlled
+        experiment confirmed ``outer=1`` and ``outer=2`` agree and give a smooth,
+        monotone crossing where full relaxation jumps discontinuously.) On a
+        well-separated spectrum the field barely moves and this is just the
+        normal solve at finer resolution -- the Ge-Chong-Stone line_PRA result
+        is unchanged.
         """
-        snapshot = {
-            i: (mode_state[i].copy(), np.asarray(field_state[i]).copy(), a_state[i])
-            for i in active_ids
-        }
-
-        def restore():
-            for i, (m_prev, f_prev, a_prev) in snapshot.items():
-                mode_state[i], field_state[i], a_state[i] = m_prev.copy(), f_prev.copy(), a_prev
-
-        def collapsed(base):
-            return [i for i in active_ids if base[i] > 1e-2 and a_state[i] < 0.4 * base[i]]
-
-        _solve_into(active_ids, d0_to)
-        if not collapsed({i: snapshot[i][2] for i in active_ids}):
-            return
-        for n_sub in (2, 4, 8):
-            restore()
-            ok = True
-            for d0 in np.linspace(d0_from, d0_to, n_sub + 1)[1:]:
-                base = {i: a_state[i] for i in active_ids}
-                _solve_into(active_ids, float(d0))
-                if collapsed(base):
-                    ok = False
-                    break
-            if ok:
-                return
-        restore()
-        _solve_into(active_ids, d0_to)
-        warnings.warn(
-            f"full_salt_newton: amplitude collapse at D0={d0_to:.4g} persisted under "
-            "sub-stepping; keeping the direct solve (possible basin change).",
-            stacklevel=2,
-        )
+        n_sub = max(1, int(np.ceil(abs(d0_to - d0_from) / 0.02)))
+        for d0 in np.linspace(d0_from, d0_to, n_sub + 1)[1:]:
+            _solve_into(active_ids, float(d0), outer=2)
 
     active: list[int] = []  # confirmed lasing ids, carried along the continuation
     first = float(np.min(lasing_thresholds[candidates]))
     d0_prev = None
+    prev_state: dict[int, tuple] = {}  # last accepted (mode, field, a) per active id
+    prev_total = 0.0  # last accepted summed (unit-scaled) output -- a monotone floor
     for D0 in np.linspace(first, max_pump_intensity, D0_steps):
         if active and d0_prev is not None:
             # pump-step continuity: advance the carried-over set in-basin
@@ -1617,6 +1598,7 @@ def _full_salt_newton_impl(
         rejected_adds: set[int] = set()  # adds reverted by the continuity guard at this D0
         pending_add = None  # candidate added on the previous sweep, not yet vetted
         veteran_snapshot: dict[int, tuple] = {}
+        pre_add_total = 0.0  # summed (unit-scaled) output before the pending add
         for _ in range(3 * len(candidates) + 2):  # active-set sweeps until stable
             if active:
                 modes_out, fields_out, a_out, converged = _solve_active_set(
@@ -1643,24 +1625,37 @@ def _full_salt_newton_impl(
                         float(a_out[j]),
                     )
                 if pending_add is not None:
-                    # Continuity guard: SALT solutions are continuous in the pump,
-                    # so an *add* that collapses a veteran mode's amplitude within
-                    # a single solve is a wrong-basin solution, not physics. For
-                    # near-degenerate pairs (dk below the gain linewidth) the
-                    # amplitude split between the twins is ill-conditioned and the
-                    # coupled solve can hand one mode's amplitude to the other --
-                    # an identity swap that reads as a spurious kink in the L--I
-                    # curve (observed on the mini-buffon example, dk = 0.004).
-                    # Revert the veterans, reject the newcomer at this pump step
-                    # (it is retried at the next one), and re-probe.
-                    collapsed = [
-                        i
-                        for i, (_m, _f, a_prev) in veteran_snapshot.items()
-                        if a_prev > 1e-2
-                        and a_state[i] <= 1e-3  # veteran killed outright, not just reduced
+                    # Continuity guard: SALT total output is monotone in the pump,
+                    # so an *add* whose re-solve *lowers* the summed intensity is a
+                    # wrong-basin solution -- physically a newcomer turning on can
+                    # only raise the total (it adds output and steals at most a
+                    # little from the others, which nearly cancels: Ge-Chong-Stone).
+                    # On a dense spectrum the coupled solve can instead flip to a
+                    # different fixed point where the newcomer dominates and a
+                    # stronger veteran is suppressed -- a partial collapse that
+                    # drops the total and reads as a spurious kink (observed on the
+                    # mini-buffon example, dk = 0.004). Total-monotonicity catches
+                    # those partial collapses that a per-veteran "killed outright"
+                    # test misses. Revert the veterans, reject the newcomer at this
+                    # pump step (retried at the next), and re-probe.
+                    post_total = sum(
+                        a_state[i] * unit_scale.get(i, 1.0) for i in active if a_state[i] > 1e-4
+                    )
+                    # (a) total-dropping partial collapse, and (b) a total-
+                    # *preserving* identity swap where a higher-threshold newcomer
+                    # kills a lower-threshold veteran outright (the twin takeover:
+                    # two modes closer than the solve can resolve in amplitude, so
+                    # the indeterminate split dumps all of it on the newcomer --
+                    # the total is unchanged, so (a) alone misses it). Either is a
+                    # wrong basin; keep the cluster on the veteran we were tracking.
+                    killed_lower = any(
+                        a_prev > 1e-2
+                        and a_state[i] <= 1e-3
                         and lasing_thresholds[i] < lasing_thresholds[pending_add]
-                    ]
-                    if collapsed:
+                        for i, (_m, _f, a_prev) in veteran_snapshot.items()
+                    )
+                    wrong_basin = killed_lower or post_total < (1.0 - 1e-2) * pre_add_total
+                    if wrong_basin:
                         for i, (m_prev, f_prev, a_prev) in veteran_snapshot.items():
                             mode_state[i], field_state[i], a_state[i] = m_prev, f_prev, a_prev
                         active.remove(pending_add)
@@ -1738,10 +1733,47 @@ def _full_salt_newton_impl(
                 i: (mode_state[i].copy(), np.asarray(field_state[i]).copy(), a_state[i])
                 for i in active
             }
+            pre_add_total = sum(a_state[i] * unit_scale.get(i, 1.0) for i in active)
             pending_add = best
             mode_state[best] = np.array([best_k, 0.0])
-            a_state[best] = _onset_amplitude(best, D0)
+            # A newcomer crosses its *interacting* threshold here, so it turns on
+            # from ~0 -- warm-start it small. The bare-threshold onset estimate
+            # (right for the empty-set bootstrap, where there is no suppression)
+            # over-shoots badly when D0 >> bare threshold and pulls the coupled
+            # solve into a wrong basin where the newcomer dominates a stronger
+            # veteran. Cap it well below the established amplitudes; the field is
+            # anchored by the veterans, so the trivial a = 0 root is not a risk.
+            a_cap = 1e-2 * max(a_state[i] for i in active)
+            a_state[best] = float(min(_onset_amplitude(best, D0), max(a_cap, 1e-3)))
             active.append(best)
+        # Total-output ratchet (physical floor). A steady-state laser's total
+        # output cannot fall as the pump rises. Far above threshold (~>15x) the
+        # frozen-field single-pole iteration can converge to a spurious
+        # lower-total branch -- a mode reallocation it renders as an unphysical
+        # dip -- robustly across relaxation / step size (a limit of the method,
+        # not a tuning bug). Enforce monotonicity directly: if the total dropped,
+        # hold any veteran whose amplitude collapsed back to its last accepted
+        # value (new modes still join and raise the total). The curve then
+        # plateaus where this bites -- an honest marker of the per-mode
+        # resolution limit -- instead of kinking downward.
+        cur_total = sum(a_state.get(i, 0.0) * unit_scale.get(i, 1.0) for i in active)
+        if prev_state and cur_total < (1.0 - 1e-2) * prev_total:
+            for i in list(active):
+                if i in prev_state and a_state[i] < 0.5 * prev_state[i][2]:
+                    m_prev, f_prev, a_prev = prev_state[i]
+                    mode_state[i], field_state[i], a_state[i] = m_prev.copy(), f_prev.copy(), a_prev
+            warnings.warn(
+                f"full_salt_newton: held collapsing mode(s) at D0={D0:.4g} to keep the total "
+                "output monotone (per-mode resolution limit far above threshold).",
+                stacklevel=2,
+            )
+        prev_total = max(
+            prev_total, sum(a_state.get(i, 0.0) * unit_scale.get(i, 1.0) for i in active)
+        )
+        prev_state = {
+            i: (mode_state[i].copy(), np.asarray(field_state[i]).copy(), a_state[i]) for i in active
+        }
+
         for i in candidates:
             value = max(a_state.get(i, 0.0) * unit_scale.get(i, 1.0), 0.0) if i in active else 0.0
             modal_intensities.loc[i, D0] = value

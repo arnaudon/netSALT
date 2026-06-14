@@ -28,14 +28,20 @@ Three measured stages (all encoded in `run.py`):
   for `linear`) and tracks `linear`'s sets.
 - **This graph hardened the solver**: early runs showed spurious per-mode
   kinks (the Δk = 0.004 pair swapping identities at active-set events, the
-  bootstrap capturing the trivial a = 0 root, coarse/fine pump grids landing
-  on different branches). Fixed in `full_salt_newton` by linear-slope warm
-  starts, a candidate-spacing cap on the k-window, and continuity guards
-  with bisected sub-stepping; coarse and fine grids now agree everywhere. A
-  reproducible, resolution-stable branch exchange remains near D0 ≈ 0.6
-  (dominance passes from mode 6 to mode 8) and is flagged by a solver
-  warning — possibly genuine bistable switching, but the falling total at
-  the exchange means curves beyond a collapse warning deserve care.
+  bootstrap capturing the trivial a = 0 root, an add flipping a stronger
+  veteran into a weaker newcomer). Fixed in `full_salt_newton` by
+  linear-slope warm starts, a candidate-spacing cap on the k-window, and
+  continuity guards keyed on physical invariants (lower-threshold veteran
+  killed, total-output monotonicity). The coarse and fine grids now agree up
+  to a genuine **mode crossing** at D0 ≈ 0.6 (~20× threshold) where mode 8
+  overtakes mode 6 — there the frozen-field single-pole iteration cannot
+  resolve the per-mode split (it falls to a spurious lower-total branch,
+  robustly across relaxation/step size: a method limit). A **total-output
+  ratchet** enforces the hard physical law (total cannot fall as pump rises)
+  by holding the collapsing mode — the dominant curve plateaus (flagged) and
+  the **total L–I stays monotone and physical**. The per-mode magnitudes
+  across the crossing are at the method's resolution limit; fully resolving
+  it would need a constant-flux-state SALT solver.
 
 For many co-lasing modes by *design* (localisation, not pump), see
 `../ring_chain`; for why raw spectral density does not help, `../chord_sweep`.
