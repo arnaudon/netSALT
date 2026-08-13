@@ -200,12 +200,43 @@ Two of those guards are disqualifying for research use as written:
   than predicted independently. Agreement with `linear` near threshold is then
   a weaker piece of evidence than the PR presents it as.
 
-Measured on the chaotic-ring probe, at ~3x threshold, PR #43 gives a total
-intensity of 17.48 versus `linear`'s 13.77 — about 23% *above* the linear
-model, while the PR documents the newton curves as bending *below* linear. That
-may be genuine (23% at 3x threshold is a real nonlinear regime) but it is not
-what the docs claim, and non-convergence warnings fire on every run of this
-case.
+### 5.1 It gets roughly the right answer while reporting non-convergence
+
+The PR ships a real validation asset: `examples/line_PRA` is the
+Ge–Chong–Stone 1D slab (PRA 82, 063824, Figs. 3/5/6) with the paper's Fig. 6
+digitized, and `compare_to_pra_fig6.py` overlays both solvers on it. Running
+it (D0 = 1.258, the figure edge):
+
+```
+             paper exact   newton   |   paper SPA   linear
+dominant        0.210      0.208    |     0.223      0.224
+second          0.110      0.096    |     0.087      0.080
+first threshold: netsalt 0.6107 (paper ~0.61)
+```
+
+This is genuinely good, and it is the strongest evidence in the PR:
+
+* `linear` reproduces the paper's **single-pole approximation** to 0.4% on the
+  dominant mode — confirming §2.2 independently.
+* `full_salt_newton` reproduces the paper's **exact SALT** to ~1% on the
+  dominant mode, and reproduces the qualitative full-SALT correction (dominant
+  *below* the SPA, second mode *above* it) with the right sign.
+* The second mode is ~13% off, traceable in the PR's own README to a +0.3%
+  offset in its noninteracting threshold, amplified by gain-clamping proximity.
+
+But `full_salt_newton field loop did not fully converge` fires at **every**
+pump step from D0 ≈ 0.83 to 1.27 — i.e. across the entire two-mode regime that
+the validation is about. The headline result is obtained while the solver is
+telling you it did not converge. That is the concrete sense in which the PR
+"does not completely work": not that the physics is wrong, but that there is
+no working convergence criterion, so a correct-looking answer and a wrong one
+are indistinguishable from the output.
+
+On the chaotic-ring probe at ~3x threshold the total intensity is 17.48 versus
+`linear`'s 13.77 — about 23% *above* the linear model, while the PR documents
+the newton curves as bending *below* linear. That may be genuine (3x threshold
+is a real nonlinear regime) but it is not what the docs say, and the same
+non-convergence warnings fire.
 
 **What is worth keeping and merging now, independently of the solver:**
 
@@ -218,8 +249,13 @@ case.
 * `_mode_competition_matrix_block` / `_scatter_competition_block` — a clean
   refactor of the competition matrix that makes it reusable at an arbitrary
   operating pump.
+* **`examples/line_PRA` and its digitized Fig. 6 data.** This is the most
+  valuable artefact in the PR and is independent of the solver — it validates
+  the *linear* path against a published reference. It should be merged on its
+  own.
 
-That is roughly 150 lines of the 4981. The rest is the solver and its examples.
+That is roughly 150 lines of code plus the validation example, out of 4981
+changed lines. The rest is the solver and its demos.
 
 ---
 
