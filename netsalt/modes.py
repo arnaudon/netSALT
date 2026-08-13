@@ -1521,6 +1521,12 @@ def _auto_oversample_size(graph, modes_df, resolution=12, node_cap=3000):
     return float(target)
 
 
+#: Median ``|1 - salt_unit_scale|`` above which the within-edge hole burning is
+#: reported as under-resolved. 5% is loose enough not to fire at the default
+#: lambda/12 (which measures 2-3%) and tight enough to catch lambda/6 and below,
+#: where it is 8-17% and the intensities are visibly off.
+SALT_RESOLUTION_WARN = 0.05
+
 #: Residual the fixed-set solve drives towards before declaring convergence.
 #: This is the method's own target, not the bar a result is judged against --
 #: see the ``accept_tol`` / ``solve_tol`` split in
@@ -2041,6 +2047,28 @@ def _full_salt_newton_impl(
     # what was asked for (issue #52).
     modes_df.attrs["salt_work_nodes"] = len(work_graph)
     modes_df.attrs["salt_oversample_size"] = float(oversample_size) if oversample_size else 0.0
+
+    # The unit scale doubles as a free error estimate for the within-edge
+    # resolution. It is the ratio of two evaluations of the *same* physical
+    # overlap: the competition matrix integrates the within-edge field
+    # analytically, while _newton_onset_unit_scale evaluates it from the
+    # piecewise-constant per-edge mean the operator actually saturates with. The
+    # derivation says the two agree, so the shortfall is discretisation error and
+    # nothing else -- measured, it falls from 0.33 at lambda/4 to 0.0014 at
+    # lambda/48 on the Fabry-Perot line. Reporting it costs nothing and it is a
+    # far cheaper answer than a two-resolution convergence run (issue #52).
+    if unit_scale:
+        resolution_error = float(np.median([abs(1.0 - v) for v in unit_scale.values()]))
+        modes_df.attrs["salt_resolution_error"] = resolution_error
+        if resolution_error > SALT_RESOLUTION_WARN:
+            warnings.warn(
+                f"full_salt_newton: the within-edge hole burning is resolved to about "
+                f"{100 * resolution_error:.0f}% (median |1 - salt_unit_scale|). Raise "
+                "oversample_resolution, or oversample_node_cap if the cap is what binds "
+                f"(work graph is {len(work_graph)} nodes). Intensities carry roughly this "
+                "relative error.",
+                stacklevel=2,
+            )
     return modes_df
 
 

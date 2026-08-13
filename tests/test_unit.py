@@ -2838,3 +2838,90 @@ class TestNextLasingModeSkipsNonLasing:
         matrix = np.eye(3) + 0.1 * np.ones((3, 3))
         next_id, next_thr = _find_next_lasing_mode(0.15, modes_df, thresholds, [0], matrix)
         assert next_id == 1 and np.isfinite(next_thr)
+
+
+class TestSaltResolutionError:
+    """``salt_unit_scale`` doubles as a free error estimate for the within-edge
+    hole-burning resolution: it is the ratio of two evaluations of the *same*
+    overlap, one analytic (the competition matrix) and one from the
+    piecewise-constant per-edge mean the operator saturates with. The
+    derivation says they agree, so the shortfall is discretisation error."""
+
+    def _cavity(self):
+        import networkx as nx
+
+        import netsalt
+        from netsalt.modes import find_passive_modes, find_threshold_lasing_modes, pump_trajectories
+        from netsalt.physics import dispersion_relation_pump
+        from netsalt.quantum_graph import create_quantum_graph, set_total_length
+
+        graph = nx.path_graph(11)
+        positions = np.array([[i, 0.0] for i in range(11)], dtype=float)
+        params = {
+            "open_model": "open",
+            "c": 1.0,
+            "k_a": 15.0,
+            "gamma_perp": 3.0,
+            "k_min": 12.0,
+            "k_max": 18.0,
+            "alpha_min": 0.0,
+            "alpha_max": 1.0,
+            "n_workers": 1,
+            "quality_threshold": 1e-4,
+            "search_stepsize": 0.01,
+            "max_steps": 1000,
+            "D0_max": 1.4,
+            "D0_steps": 10,
+            "dielectric_params": {
+                "method": "uniform",
+                "inner_value": 9.0,
+                "outer_value": 1.0,
+                "loss": 0.0,
+            },
+        }
+        with pytest.warns(UserWarning, match="share a length"):
+            create_quantum_graph(graph, params, positions=positions)
+        set_total_length(graph, 0.5)
+        netsalt.set_dielectric_constant(graph, graph.graph["params"])
+        netsalt.set_dispersion_relation(graph, dispersion_relation_pump)
+        passive = find_passive_modes(graph, method="contour")
+        graph.graph["params"]["pump"] = np.array(
+            [1.0 if graph[u][v]["inner"] else 0.0 for u, v in graph.edges()]
+        )
+        traj = pump_trajectories(passive, graph, return_approx=True)
+        return graph, find_threshold_lasing_modes(traj, graph)
+
+    def _run(self, graph, tdf, resolution):
+        import warnings as _warnings
+
+        from netsalt.modes import compute_modal_intensities_full_salt_newton
+
+        thresholds = np.asarray(tdf["lasing_thresholds"]).ravel()
+        first = float(thresholds[np.isfinite(thresholds)].min())
+        with _warnings.catch_warnings(record=True) as caught:
+            _warnings.simplefilter("always")
+            out = compute_modal_intensities_full_salt_newton(
+                graph,
+                tdf.copy(),
+                1.5 * first,
+                D0_steps=3,
+                oversample_resolution=resolution,
+                oversample_node_cap=100000,
+            )
+            warned = any("resolved to about" in str(c.message) for c in caught)
+        return out.attrs["salt_resolution_error"], warned
+
+    def test_error_falls_as_the_resolution_rises(self):
+        graph, tdf = self._cavity()
+        coarse, _ = self._run(graph, tdf, 6)
+        medium, _ = self._run(graph, tdf, 12)
+        fine, _ = self._run(graph, tdf, 24)
+        assert coarse > medium > fine, f"not converging: {coarse}, {medium}, {fine}"
+        assert fine < 0.02, f"lambda/24 should be well resolved, got {fine}"
+
+    def test_under_resolution_warns_and_adequate_resolution_does_not(self):
+        graph, tdf = self._cavity()
+        _, warned_coarse = self._run(graph, tdf, 6)
+        _, warned_fine = self._run(graph, tdf, 24)
+        assert warned_coarse, "lambda/6 is visibly under-resolved and must warn"
+        assert not warned_fine, "lambda/24 is well resolved and must not warn"
