@@ -413,10 +413,18 @@ def compute_overlapping_factor(passive_mode, graph):
     return pump_norm / inner_norm
 
 
-def pump_linear(mode_0, graph, D0_0, D0_1):
-    """Find the linear approximation of the new wavenumber."""
+def pump_linear(mode_0, graph, D0_0, D0_1, overlapping_factor=None):
+    """Find the linear approximation of the new wavenumber.
+
+    ``overlapping_factor`` is the mode's overlap with the pump evaluated at
+    ``D0_0``. It is an optional argument only so callers that already have it
+    can avoid recomputing it — :func:`compute_overlapping_factor` costs an
+    eigensolve plus several sparse products, and :func:`_get_new_D0` used to
+    pay for it twice with identical arguments.
+    """
     graph = graph_with_pump(graph, D0_0)
-    overlapping_factor = compute_overlapping_factor(mode_0, graph)
+    if overlapping_factor is None:
+        overlapping_factor = compute_overlapping_factor(mode_0, graph)
     freq = to_complex(mode_0)
     gamma_overlap = gamma(freq, graph.graph["params"]) * overlapping_factor
     return from_complex(freq * np.sqrt((1.0 + gamma_overlap * D0_0) / (1.0 + gamma_overlap * D0_1)))
@@ -1110,37 +1118,48 @@ def pump_trajectories(modes_df, graph, return_approx=False, quality_method="eige
     pumped_modes_approx = pumped_modes.copy()
     # D0 at which each mode stopped being trackable; NaN while still tracked.
     lost_at = np.full(n_modes, np.nan)
-    for d in range(len(D0s) - 1):
-        L.info(
-            "Step %s / %s, computing for D0= %s",
-            str(d + 1),
-            str(len(D0s) - 1),
-            str(D0s[d + 1]),
-        )
-        tracked = [m for m in range(n_modes) if np.isnan(lost_at[m])]
-        pumped_modes_approx.append(pumped_modes[-1].copy())
-        for m in tracked:
-            pumped_modes_approx[-1][m] = pump_linear(pumped_modes[-1][m], graph, D0s[d], D0s[d + 1])
+    # One pool for the whole sweep. Creating it per D0 step cost a fork +
+    # teardown each time (~15 ms + ~8 ms at 4 workers, ~690 ms at 80), which
+    # dominates the tail of the sweep where only a handful of modes are left.
+    # Pickling the graph to the workers is cheap by comparison (<1 ms even at
+    # buffon size), so nothing else has to change.
+    with (
+        _scoped_warning_filters(),
+        multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool,
+    ):
+        for d in range(len(D0s) - 1):
+            L.info(
+                "Step %s / %s, computing for D0= %s",
+                str(d + 1),
+                str(len(D0s) - 1),
+                str(D0s[d + 1]),
+            )
+            tracked = [m for m in range(n_modes) if np.isnan(lost_at[m])]
+            pumped_modes_approx.append(pumped_modes[-1].copy())
+            # The linear pump step is one eigensolve per mode and was run
+            # serially in the parent while the pool sat idle (30% of this step).
+            approx = pool.imap(
+                partial(pump_linear, graph=graph, D0_0=D0s[d], D0_1=D0s[d + 1]),
+                [pumped_modes[-1][m] for m in tracked],
+            )
+            for m, mode_approx in zip(tracked, approx, strict=True):
+                pumped_modes_approx[-1][m] = mode_approx
 
-        worker_modes = WorkerModes(
-            pumped_modes_approx[-1],
-            graph,
-            D0s=n_modes * [D0s[d + 1]],
-            quality_method=quality_method,
-        )
-        with (
-            _scoped_warning_filters(),
-            multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool,
-        ):
+            worker_modes = WorkerModes(
+                pumped_modes_approx[-1],
+                graph,
+                D0s=n_modes * [D0s[d + 1]],
+                quality_method=quality_method,
+            )
             refined = list(tqdm(pool.imap(worker_modes, tracked), total=len(tracked)))
 
-        # Frozen modes keep their last position; newly-lost ones join them.
-        pumped_modes.append(pumped_modes[-1].copy())
-        for m, mode in zip(tracked, refined, strict=True):
-            if mode is None:
-                lost_at[m] = D0s[d + 1]
-            else:
-                pumped_modes[-1][m] = mode
+            # Frozen modes keep their last position; newly-lost ones join them.
+            pumped_modes.append(pumped_modes[-1].copy())
+            for m, mode in zip(tracked, refined, strict=True):
+                if mode is None:
+                    lost_at[m] = D0s[d + 1]
+                else:
+                    pumped_modes[-1][m] = mode
 
     n_lost = int(np.count_nonzero(~np.isnan(lost_at)))
     if n_lost:
@@ -1171,7 +1190,12 @@ def pump_trajectories(modes_df, graph, return_approx=False, quality_method="eige
 def _get_new_D0(arg, graph=None, D0_steps=0.1):
     """Internal function for multiprocessing."""
     mode_id, new_mode, D0 = arg
-    increment = lasing_threshold_linear(new_mode, graph, D0)
+    # Both helpers below need the mode's overlap with the pump at this same D0.
+    # Computing it here and passing it in halves the work: it was previously
+    # evaluated twice per call with byte-identical arguments (52% of this
+    # function's cost).
+    overlapping_factor = compute_overlapping_factor(new_mode, graph_with_pump(graph, D0))
+    increment = lasing_threshold_linear(new_mode, graph, D0, overlapping_factor=overlapping_factor)
     if increment > -D0_steps:
         new_D0 = abs(D0 + increment)
         new_D0 = min(new_D0, D0_steps + D0)
@@ -1180,7 +1204,9 @@ def _get_new_D0(arg, graph=None, D0_steps=0.1):
         new_D0 = D0 + 0.5 * D0_steps
 
     L.debug("Mode %s at intensity %s", mode_id, new_D0)
-    new_modes_approx = pump_linear(new_mode, graph, D0, new_D0)
+    new_modes_approx = pump_linear(
+        new_mode, graph, D0, new_D0, overlapping_factor=overlapping_factor
+    )
     return mode_id, new_D0, new_modes_approx
 
 
@@ -1204,74 +1230,76 @@ def find_threshold_lasing_modes(modes_df, graph, quality_method="eigenvalue"):
     stuck_modes_count = 0
     max_modes = len(current_modes)
     prev_n_modes = 0
-    while len(current_modes) > 0:
-        if len(current_modes) == prev_n_modes:
-            stuck_modes_count += 1
-        prev_n_modes = len(current_modes)
-        if max_modes > stuck_modes_count > 100:
-            warnings.warn("We stop here, some modes got stuck.", stacklevel=2)
-            current_modes = []
-            continue
-        L.info("%s modes left to find", len(current_modes))
+    # One pool for the whole search. It used to create *two* per while-loop
+    # iteration, and the tail iterations carry one or two modes each yet still
+    # paid a full fork + teardown twice -- over half the iteration at that point.
+    with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
+        while len(current_modes) > 0:
+            if len(current_modes) == prev_n_modes:
+                stuck_modes_count += 1
+            prev_n_modes = len(current_modes)
+            if max_modes > stuck_modes_count > 100:
+                warnings.warn("We stop here, some modes got stuck.", stacklevel=2)
+                current_modes = []
+                continue
+            L.info("%s modes left to find", len(current_modes))
 
-        new_D0s = np.zeros(len(modes_df))
-        new_modes_approx = np.empty([len(new_modes), 2])
-        args = ((mode_id, new_modes[mode_id], D0s[mode_id]) for mode_id in current_modes)
-        with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
+            new_D0s = np.zeros(len(modes_df))
+            new_modes_approx = np.empty([len(new_modes), 2])
+            args = ((mode_id, new_modes[mode_id], D0s[mode_id]) for mode_id in current_modes)
             for mode_id, new_D0, new_mode_approx in pool.imap(
                 partial(_get_new_D0, graph=graph, D0_steps=D0_steps), args
             ):
                 new_D0s[mode_id] = new_D0
                 new_modes_approx[mode_id] = new_mode_approx
 
-        # this is a trick to reduce the stepsizes as we are near the solution.
-        # Passed explicitly to WorkerModes (applied to its per-call params copy)
-        # rather than stashed on the shared graph.graph["params"].
-        search_stepsize = (
-            stepsize * np.mean(abs(new_D0s[new_D0s > 0] - D0s[new_D0s > 0])) / D0_steps
-        )
+            # this is a trick to reduce the stepsizes as we are near the solution.
+            # Passed explicitly to WorkerModes (applied to its per-call params copy)
+            # rather than stashed on the shared graph.graph["params"].
+            search_stepsize = (
+                stepsize * np.mean(abs(new_D0s[new_D0s > 0] - D0s[new_D0s > 0])) / D0_steps
+            )
 
-        L.debug("Current search_stepsize: %s", search_stepsize)
-        worker_modes = WorkerModes(
-            new_modes_approx,
-            graph,
-            D0s=new_D0s,
-            search_stepsize=search_stepsize,
-            quality_method=quality_method,
-        )
-        new_modes_tmp = np.zeros([len(modes_df), 2])
+            L.debug("Current search_stepsize: %s", search_stepsize)
+            worker_modes = WorkerModes(
+                new_modes_approx,
+                graph,
+                D0s=new_D0s,
+                search_stepsize=search_stepsize,
+                quality_method=quality_method,
+            )
+            new_modes_tmp = np.zeros([len(modes_df), 2])
 
-        with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
             refined = list(tqdm(pool.imap(worker_modes, current_modes), total=len(current_modes)))
 
-        # ``refine_mode`` returns None when it fails to converge. Assigning that
-        # straight into the float array raised an opaque numpy "inhomogeneous
-        # shape" ValueError, and the `is None` check below it could never fire
-        # (a row of a float array is never None), so the intended recovery was
-        # dead code. Keep the last known position for a failed mode and stop
-        # tracking it: its threshold stays inf, which is how the rest of the
-        # pipeline already represents "never reached threshold".
-        to_delete = []
-        for i, (mode_index, mode) in enumerate(zip(current_modes, refined, strict=True)):
-            if mode is None:
-                # ``new_modes`` holds complex passive modes on the first pass and
-                # [k, alpha] pairs afterwards; from_complex normalises both.
-                new_modes_tmp[mode_index] = from_complex(new_modes[mode_index])
-                lost_modes.append(int(mode_index))
-                to_delete.append(i)
-                continue
-            new_modes_tmp[mode_index] = mode
-            if abs(new_modes_tmp[mode_index][1]) < 1e-6:
-                to_delete.append(i)
-                threshold_lasing_modes[mode_index] = new_modes_tmp[mode_index]
-                lasing_thresholds[mode_index] = new_D0s[mode_index]
+            # ``refine_mode`` returns None when it fails to converge. Assigning that
+            # straight into the float array raised an opaque numpy "inhomogeneous
+            # shape" ValueError, and the `is None` check below it could never fire
+            # (a row of a float array is never None), so the intended recovery was
+            # dead code. Keep the last known position for a failed mode and stop
+            # tracking it: its threshold stays inf, which is how the rest of the
+            # pipeline already represents "never reached threshold".
+            to_delete = []
+            for i, (mode_index, mode) in enumerate(zip(current_modes, refined, strict=True)):
+                if mode is None:
+                    # ``new_modes`` holds complex passive modes on the first pass and
+                    # [k, alpha] pairs afterwards; from_complex normalises both.
+                    new_modes_tmp[mode_index] = from_complex(new_modes[mode_index])
+                    lost_modes.append(int(mode_index))
+                    to_delete.append(i)
+                    continue
+                new_modes_tmp[mode_index] = mode
+                if abs(new_modes_tmp[mode_index][1]) < 1e-6:
+                    to_delete.append(i)
+                    threshold_lasing_modes[mode_index] = new_modes_tmp[mode_index]
+                    lasing_thresholds[mode_index] = new_D0s[mode_index]
 
-            elif new_D0s[mode_index] > graph.graph["params"]["D0_max"]:
-                to_delete.append(i)
+                elif new_D0s[mode_index] > graph.graph["params"]["D0_max"]:
+                    to_delete.append(i)
 
-        current_modes = np.delete(current_modes, to_delete)
-        D0s = new_D0s.copy()
-        new_modes = new_modes_tmp.copy()
+            current_modes = np.delete(current_modes, to_delete)
+            D0s = new_D0s.copy()
+            new_modes = new_modes_tmp.copy()
 
     if lost_modes:
         warnings.warn(
@@ -1297,14 +1325,21 @@ def find_threshold_lasing_modes(modes_df, graph, quality_method="eigenvalue"):
     return modes_df.drop(columns=["th"])
 
 
-def lasing_threshold_linear(mode, graph, D0):
-    """Find the linear approximation of the new wavenumber."""
+def lasing_threshold_linear(mode, graph, D0, overlapping_factor=None):
+    """Find the linear approximation of the pump increment to reach threshold.
+
+    ``overlapping_factor`` is optional and only exists so a caller that also
+    needs it (:func:`_get_new_D0`) can compute it once; see
+    :func:`pump_linear`.
+    """
     graph = graph_with_pump(graph, D0)
+    if overlapping_factor is None:
+        overlapping_factor = compute_overlapping_factor(mode, graph)
     return 1.0 / (
         q_value(mode)
         * -1
         * np.imag(gamma(to_complex(mode), graph.graph["params"]))
-        * np.real(compute_overlapping_factor(mode, graph))
+        * np.real(overlapping_factor)
     )
 
 
