@@ -1408,109 +1408,6 @@ def _salt_block_residual(graph, x, n, D0, pump, fields, seed):
     return out
 
 
-def _solve_active_set(
-    graph,
-    modes0,
-    fields0,
-    a0,
-    D0,
-    pump,
-    pump_mask,
-    max_steps,
-    seed,
-    outer=25,
-    damping=0.7,
-    k_window_cap=None,
-    residual_tol=1e-6,
-):
-    """Frozen-field trust-region ``(k, a)`` solve for a *fixed* active set.
-
-    Block iteration: (i) freeze the saturated background fields, (ii) solve every
-    mode's ``(k_μ real, a_μ ≥ 0)`` with one bounded trust-region least-squares on
-    the clean :func:`_salt_block_residual` (``k`` confined to a window below the
-    inter-mode spacing so modes cannot hop, ``a`` to ``[0, a_max]``), (iii) refresh
-    the fields, repeat. This replaces the old decoupled amplitude least-squares
-    whose residual re-ran an inner fixed point -- a noisy Jacobian that made the
-    multimode amplitudes chatter. Returns ``(modes, fields, a, converged)``.
-
-    ``converged`` is True once *either* the damped field iterate has settled or
-    the SALT condition itself is met -- the saturated operator is singular at
-    every lasing mode's real ``k`` to ``residual_tol``. The second test matters:
-    the field iterate converges geometrically at ~0.3 per step and needs ~12
-    iterations on ``line_PRA``, so the old budget of 6 cut it off mid-descent and
-    reported failure at every pump of the two-mode regime even though the
-    amplitudes were already correct to four digits and the residual was 3e-5 and
-    still falling. The budget is now 25.
-    """
-    n = len(modes0)
-    k0 = np.array([float(m[0]) for m in modes0])
-    a = np.clip(np.asarray(a0, dtype=float), 1e-3, None)
-    fields = [np.asarray(f, dtype=float) for f in fields0]
-    # Confine k to a *tight* window: frequency pulling above threshold is small,
-    # and a loose window lets the trust region zero a mode's residual by drifting
-    # its k to a spurious nearby root with a=0 (collapsing multimode to one mode)
-    # instead of raising its amplitude to lase. The window tracks the spacing
-    # (0.2 * min gap) with only a numerical floor, so it stays below the spacing
-    # even for a dense/near-degenerate spectrum (a fixed floor that exceeded the
-    # spacing made near-degenerate modes collide -> collapse or divergence).
-    if n > 1:
-        gaps = np.abs(k0[:, None] - k0[None, :])
-        gaps[np.diag_indices(n)] = np.inf
-        window = float(np.clip(0.2 * gaps.min(), 1e-6, 0.1))
-    else:
-        window = 0.1
-    if k_window_cap is not None:
-        # on a dense spectrum a single active mode's fixed 0.1 window spans many
-        # roots; cap every window by the spacing of the *full* candidate set so
-        # a solve cannot drift a mode onto a neighbour's root (observed on the
-        # mini-buffon near-degenerate pair: the bootstrap solve captured the
-        # trivial a = 0 branch while k slid onto the twin)
-        window = min(window, float(k_window_cap))
-    a_max = max(1.0e3 * max(float(np.max(a)), 1.0e-3), 1.0e3)
-    lo = np.concatenate([k0 - window, np.zeros(n)])
-    hi = np.concatenate([k0 + window, np.full(n, a_max)])
-    ks = k0.copy()
-    converged = False
-    for _ in range(outer):
-        # (loop body below; convergence is tested on both the field change and
-        # the SALT residual -- see the block after the field update)
-        x0 = np.clip(np.concatenate([ks, a]), lo, hi)
-        try:
-            result = sc.optimize.least_squares(
-                lambda x, _f=fields: _salt_block_residual(graph, x, n, D0, pump, _f, seed),
-                x0,
-                bounds=(lo, hi),
-                xtol=1e-6,
-                ftol=1e-6,
-                gtol=1e-6,
-                max_nfev=int(max_steps),
-            )
-            ks, a = result.x[:n], np.clip(result.x[n:], 0.0, None)
-        except (RuntimeError, ValueError, sc.sparse.linalg.ArpackError):
-            break
-        g = _saturated_graph_multi(graph, [[k, 0.0] for k in ks], a, D0, pump, fields)
-        new = [_single_mode_field_intensity(g, [ks[i], 0.0], pump_mask) for i in range(n)]
-        change = sum(np.linalg.norm(new[i] - fields[i]) for i in range(n))
-        fields = [(1.0 - damping) * fields[i] + damping * new[i] for i in range(n)]
-        if change <= 1e-6 * (1.0 + sum(np.linalg.norm(f) for f in fields)):
-            converged = True
-            break
-        # The field change is only a proxy; the physical condition is that the
-        # saturated operator is singular at every *lasing* mode's real k. Test it
-        # directly, so a solve that has reached the SALT solution is not reported
-        # as a failure merely because the damped field iterate is still creeping.
-        # (Modes with a ~ 0 are not lasing, so the condition does not apply to
-        # them -- their residual is legitimately nonzero.)
-        lasing = [i for i in range(n) if a[i] > 1e-4]
-        if lasing:
-            g_res = _saturated_graph_multi(graph, [[k, 0.0] for k in ks], a, D0, pump, fields)
-            if all(abs(_lam_real_k(g_res, ks[i], seed)) <= residual_tol for i in lasing):
-                converged = True
-                break
-    modes = [np.array([float(ks[i]), 0.0]) for i in range(n)]
-    return modes, fields, a, converged
-
-
 def _newton_onset_unit_scale(graph, mode0, field0, threshold, t_self):
     """Per-mode factor converting the Newton amplitude to the linear-intensity unit.
 
@@ -1620,6 +1517,199 @@ def _auto_oversample_size(graph, modes_df, resolution=12, node_cap=3000):
     return float(target)
 
 
+#: Residual the fixed-set solve drives towards before declaring convergence.
+#: This is the method's own target, not the bar a result is judged against --
+#: see the ``accept_tol`` / ``solve_tol`` split in
+#: :func:`_full_salt_newton_impl`.
+SALT_RESIDUAL_TARGET = 1e-6
+
+#: Amplitude below which a mode counts as not lasing. Modes that fall under it
+#: are dropped from the active set rather than carried with a ~ 0, which would
+#: otherwise hand the coupled least-squares an equation it cannot satisfy.
+SALT_LASING_AMPLITUDE = 1e-4
+
+#: Net-gain margin for admitting a candidate to the active set. Gain clamping
+#: pins an above-threshold mode's alpha at ~0-, so a loose cutoff adds the mode
+#: several pump steps late and snaps its L--I curve.
+SALT_GAIN_MARGIN = -1e-6
+
+
+class SaltSolution(NamedTuple):
+    """Result of a fixed-active-set SALT solve.
+
+    ``residuals`` is the acceptance test and is what should be believed rather
+    than any internal convergence flag: it is ``|lambda_1(L_sat, k_mu)|``, i.e.
+    how singular the shared saturated operator actually is at each lasing mode's
+    real frequency. ``converged`` reports whether the iteration reached its own
+    stopping rule; a solve can be un-converged and still have a tiny residual
+    (it ran out of iterations after arriving), or converged with a large one (it
+    stalled). Look at ``residuals``.
+    """
+
+    ks: np.ndarray  # real lasing frequencies
+    amplitudes: np.ndarray  # a_mu >= 0, in the saturation's own unit
+    fields: list  # per-edge |E_mu|^2 entering the hole-burning denominator
+    residuals: np.ndarray  # |lambda_1(L_sat, k_mu)| per mode
+    converged: bool
+    iterations: int
+
+
+def salt_residuals(graph, ks, amplitudes, fields, D0, pump, seed=42):
+    r"""Residual of the SALT condition for a candidate solution.
+
+    Builds the shared saturated operator
+
+    .. math:: L_{sat}(k;\,\{a_\nu\}), \qquad
+              D_0^{eff}(x) = \frac{D_0\,\mathrm{pump}(x)}
+                                  {1 + \sum_\nu \Gamma_\nu a_\nu |E_\nu(x)|^2}
+
+    and reports ``|lambda_1|`` at every mode's real ``k``. A genuine SALT
+    solution has the operator singular at each of them simultaneously, so these
+    numbers are zero to solver tolerance.
+
+    This is deliberately independent of *how* the candidate was obtained, so it
+    is the acceptance test for any solver -- including a hand-constructed guess,
+    or the ``linear`` solver's prediction checked against the real operator.
+
+    Args:
+        graph: the (oversampled) work graph the solve was run on.
+        ks: real lasing frequencies, one per mode.
+        amplitudes: modal amplitudes ``a_mu >= 0``.
+        fields: per-edge ``|E_mu|^2`` profiles entering the hole burning.
+        D0: pump strength.
+        pump: per-edge pump profile.
+        seed: fixes the ARPACK start vector so the residual is deterministic.
+
+    Returns:
+        ``np.ndarray`` of ``|lambda_1|``, one per mode.
+    """
+    ks = np.asarray(ks, dtype=float)
+    graph_sat = _saturated_graph_multi(
+        graph, [[k, 0.0] for k in ks], np.asarray(amplitudes, dtype=float), D0, pump, fields
+    )
+    return np.array([abs(_lam_real_k(graph_sat, float(k), seed)) for k in ks])
+
+
+def solve_salt_fixed_set(
+    graph,
+    modes,
+    amplitudes,
+    fields,
+    D0,
+    pump,
+    pump_mask,
+    *,
+    seed=42,
+    max_steps=30,
+    outer=25,
+    damping=0.7,
+    k_window_cap=None,
+    residual_tol=1e-6,
+):
+    """Solve the SALT equations for a *given* set of lasing modes.
+
+    This is the whole nonlinear solve with none of the active-set machinery: the
+    caller states which modes lase and gets back their frequencies, amplitudes
+    and residuals. It applies no corrections of any kind -- if the answer is bad
+    that shows up in ``residuals`` rather than being patched.
+
+    Use it directly when you already know the candidate set (typically from the
+    ``linear`` solver) and want the above-threshold correction for those modes.
+    :func:`compute_modal_intensities_full_salt_newton` is the continuation
+    wrapper that also *discovers* the set.
+
+    Method: block iteration. The saturated background fields are frozen while a
+    bounded trust-region least-squares solves every mode's
+    ``(k_mu real, a_mu >= 0)`` against :func:`_salt_block_residual`; the fields
+    are then refreshed and the step repeated. Freezing makes each residual a
+    single clean eigensolve per mode, so the finite-difference Jacobian is
+    noise-free.
+
+    ``k`` is confined to a window below the inter-mode spacing. That is a
+    locality constraint on a local solver -- the same role the search box plays
+    in :func:`~netsalt.algorithm.refine_mode_root` -- and without it the trust
+    region can zero a mode's residual by drifting its ``k`` onto a neighbouring
+    root at ``a = 0`` instead of raising its amplitude to lase.
+
+    Returns:
+        :class:`SaltSolution`.
+    """
+    n = len(modes)
+    if n == 0:
+        return SaltSolution(np.empty(0), np.empty(0), [], np.empty(0), True, 0)
+
+    k0 = np.array([float(m[0]) for m in modes])
+    a = np.clip(np.asarray(amplitudes, dtype=float), 1e-3, None)
+    fields = [np.asarray(f, dtype=float) for f in fields]
+
+    if n > 1:
+        gaps = np.abs(k0[:, None] - k0[None, :])
+        gaps[np.diag_indices(n)] = np.inf
+        window = float(np.clip(0.2 * gaps.min(), 1e-6, 0.1))
+    else:
+        window = 0.1
+    if k_window_cap is not None:
+        # A sparse active set on a dense spectrum must not wander across
+        # neighbouring roots, which the active set's own spacing cannot see.
+        window = min(window, float(k_window_cap))
+    a_max = max(1.0e3 * max(float(np.max(a)), 1.0e-3), 1.0e3)
+    lo = np.concatenate([k0 - window, np.zeros(n)])
+    hi = np.concatenate([k0 + window, np.full(n, a_max)])
+
+    ks = k0.copy()
+    converged = False
+    iterations = 0
+    for _step in range(1, outer + 1):
+        iterations = _step
+        x0 = np.clip(np.concatenate([ks, a]), lo, hi)
+        try:
+            result = sc.optimize.least_squares(
+                lambda x, _f=fields: _salt_block_residual(graph, x, n, D0, pump, _f, seed),
+                x0,
+                bounds=(lo, hi),
+                xtol=1e-6,
+                ftol=1e-6,
+                gtol=1e-6,
+                max_nfev=int(max_steps),
+            )
+            ks, a = result.x[:n], np.clip(result.x[n:], 0.0, None)
+        except (RuntimeError, ValueError, sc.sparse.linalg.ArpackError):
+            break
+
+        graph_sat = _saturated_graph_multi(graph, [[k, 0.0] for k in ks], a, D0, pump, fields)
+        refreshed = [
+            _single_mode_field_intensity(graph_sat, [ks[i], 0.0], pump_mask) for i in range(n)
+        ]
+        change = sum(np.linalg.norm(refreshed[i] - fields[i]) for i in range(n))
+        fields = [(1.0 - damping) * fields[i] + damping * refreshed[i] for i in range(n)]
+
+        # The SALT condition itself is the stopping rule: the saturated operator
+        # singular at every *lasing* mode's real k. The field change is only a
+        # proxy for it, and a misleading one at both ends -- it keeps creeping
+        # long after the solution is reached (which used to report failure), and
+        # it goes quiet when the amplitudes are near zero even though the
+        # residual is still large (which used to report success). Modes with
+        # a ~ 0 are not lasing, so the condition does not apply to them and their
+        # residual is legitimately nonzero.
+        lasing = [i for i in range(n) if a[i] > SALT_LASING_AMPLITUDE]
+        if lasing:
+            residuals = salt_residuals(graph, ks, a, fields, D0, pump, seed=seed)
+            if all(residuals[i] <= residual_tol for i in lasing):
+                converged = True
+                break
+        elif change <= 1e-6 * (1.0 + sum(np.linalg.norm(f) for f in fields)):
+            # Nothing is lasing, so there is no residual to drive to zero; the
+            # only meaningful statement is that the iterate has stopped moving.
+            converged = True
+            break
+
+    residuals = salt_residuals(graph, ks, a, fields, D0, pump, seed=seed)
+    modes_out = [np.array([float(k), 0.0]) for k in ks]
+    return SaltSolution(
+        np.asarray(modes_out), np.asarray(a), fields, residuals, converged, iterations
+    )
+
+
 def compute_modal_intensities_full_salt_newton(*args, **kwargs):
     """Operator-level full-SALT L--I curves (public entry).
 
@@ -1654,107 +1744,86 @@ def _full_salt_newton_impl(
     quality_method="eigenvalue",
     oversample_resolution=12,
     oversample_node_cap=3000,
+    residual_tol=None,
 ):
-    r"""Operator-level full-SALT L--I curves with a self-consistent active set.
+    r"""Operator-level full-SALT L--I curves by pump continuation.
 
-    Solves the real nonlinear SALT eigenproblem: at each pump it finds, for every
-    *lasing* mode, the real frequency ``k_μ`` and amplitude ``a_μ ≥ 0`` such that
-    the shared saturated operator ``L_sat``
-    (:func:`~netsalt.physics.dispersion_relation_pump_saturated`) is singular at
-    each real ``k_μ`` simultaneously.
+    Steps the pump and, at each step, maintains the set of lasing modes and
+    solves them with :func:`solve_salt_fixed_set`. The two layers are kept
+    separate on purpose: the solve is a well-posed ``2N``-equation root-find that
+    needs no heuristics, while *discovering* which modes lase is the hard part
+    and is where any doubt belongs.
 
-    Two ingredients make the multimode solve robust (see ``doc/source/lasing.rst``):
+    **Nothing here corrects the physics.** Earlier revisions carried a
+    total-output ratchet (holding a collapsing mode at its previous amplitude so
+    the L--I curve stayed monotone) and a wrong-basin guard (reverting an
+    activation that suppressed an established mode). Both imposed the expected
+    answer on the numerics, which makes a non-monotone curve or a mode swap --
+    exactly the things worth investigating -- unobservable. They are gone. What
+    replaces them is reporting: every pump step records its residuals, active
+    set, and convergence into ``modes_df.attrs["salt_diagnostics"]``, so the
+    curve can be audited rather than trusted.
 
-    * **Frozen-field trust-region solve** (:func:`_solve_active_set`). For a fixed
-      active set the background fields are frozen while a bounded trust-region
-      least-squares solves all ``(k_μ, a_μ)``; the fields are then refreshed and the
-      step repeated. The frozen field makes the residual a single clean eigensolve
-      per mode, so the Jacobian is noise-free -- unlike the old decoupled solve
-      whose residual re-ran an inner fixed point and chattered.
-    * **Self-consistent active set.** The pump is stepped up; at each step the
-      confirmed lasing set is solved, modes whose amplitude vanishes are dropped,
-      and non-lasing candidates are probed on the *current saturated background*:
-      one is added when it has net gain there (``α < 0`` -- the crossing of its
-      *interacting* threshold), **one per sweep, most above-threshold first**
-      (simultaneous adds hand the coupled solve a multistable warm start that can
-      converge to the wrong basin and zero the true winner). Each add is vetted
-      by a **continuity guard** against identity theft: for near-degenerate
-      pairs (``dk`` below the gain linewidth) the amplitude split is
-      ill-conditioned and a *weaker* newcomer can silently steal a *stronger*
-      veteran's amplitude, which reads as a spurious kink in the L--I curve.
-      The guard fires when a higher-threshold newcomer kills (``a <= 1e-3``) a
-      lower-threshold veteran outright -- a genuine takeover leaves the veteran
-      alive at reduced amplitude, or is led by the lower-threshold mode -- and
-      then reverts the veterans, rejects the newcomer at this pump step
-      (retried at the next), and re-probes. Pump-step transitions get the same
-      continuity treatment with bisected sub-stepping
-      (``_advance_active_set``). An empty set is
-      bootstrapped from the lowest noninteracting threshold directly, which is
-      exact on the unsaturated background (the gain probe alone would reject a
-      mode sitting *at* its threshold, where ``α = 0``). The active set is thus
-      found self-consistently from the saturated operator, not borrowed from the
-      linear model. (This is only faithful when the hole burning is resolved --
-      see below; with the bare-edge mean it over-clamps and drops modes that
-      should co-lase.)
+    The two rules that remain are about *termination*, not physics: a candidate
+    that is admitted and immediately dies is not retried at the same pump, and
+    the number of active-set sweeps per pump is bounded.
 
-    Amplitudes are reported in the **linear modal-intensity unit** via
-    :func:`_newton_onset_unit_scale`, the *analytic* (first-order perturbation)
-    onset slope of the saturated operator. The scale comes out ≈ 1 -- the Newton
-    amplitude is the linear modal intensity to first order -- so the
-    near-threshold agreement with ``linear`` is a genuine prediction, not a
-    calibration.
+    Active-set rules, each applied once per sweep:
 
-    **Relation to the SPA competition-matrix solver.** This is the *operator-level*
-    (exact-spatial) SALT: it solves the real nonlinear eigenproblem rather than the
-    single-pole-approximation matrix equation
-    ``D0/D0_thr - 1 = Σ_ν Γ_ν χ_μν I_ν`` (Ge-Chong-Stone, PRA 82, 063824) that
-    ``linear`` implements. It contributes the
-    self-consistent gain-clamping active set and the lasing frequencies ``k_μ`` from
-    the saturated operator, and above threshold it gives the
-    genuine full-SALT correction beyond the SPA: the dominant mode picks up a
-    **negative kink** (suppressed *below* the SPA when a second mode turns on and
-    steals gain) while the second mode sits **above** the SPA, the two nearly
-    cancelling in the total. Validated against the exact-SALT data of Ge-Chong-Stone
-    Fig. 6 on ``line_PRA``: the per-mode intensities track the digitized exact curves
-    to a few percent (dominant 0.21 vs 0.205, second 0.10 vs 0.108 at
-    ``D0 = 1.27``), and the single-mode regime reduces to the SPA (slope ratio ≈ 1;
-    see ``examples/line_PRA/compare_to_pra_fig6.py``).
+    * **Drop** any mode whose amplitude falls below
+      :data:`SALT_LASING_AMPLITUDE` -- it has stopped lasing.
+    * **Bootstrap** an empty set from the lowest noninteracting threshold. That
+      is exact on the unsaturated background, and the gain probe below would
+      wrongly reject a mode sitting exactly *at* its threshold, where alpha = 0
+      rather than < 0.
+    * **Add** the most above-threshold candidate that shows net gain
+      (``alpha <`` :data:`SALT_GAIN_MARGIN`) on the current saturated
+      background -- one per sweep, since a simultaneous multi-mode add hands the
+      coupled solve a multistable warm start.
 
-    **Within-edge hole burning must be resolved.** The saturation samples
-    ``|E_ν(x)|^2`` per edge; with one sample per edge the per-edge *mean*
-    over-estimates the spatial overlap (it washes out the standing-wave
-    nodes/antinodes) and **over-clamps**, spuriously suppressing co-lasing modes --
-    it lased one mode on ``line_PRA`` where Ge-Chong-Stone (PRA 82, 063824, Eq. 28)
-    and the competition matrix lase two. ``oversample_size=None`` therefore
-    auto-picks a wavelength-resolving sub-edge size (:func:`_auto_oversample_size`);
-    with it newton reproduces the two-mode result and reduces to linear near
-    threshold. Pass ``oversample_size=0`` for the old (over-clamping) bare-edge
-    behaviour, or a float to set it explicitly.
+    Amplitudes are reported in the linear modal-intensity unit via
+    :func:`_newton_onset_unit_scale`, an analytic first-order change of
+    variables. The factor comes out near 1, and it is recorded per mode in
+    ``modes_df.attrs["salt_unit_scale"]``. **Because the reported intensity is
+    scaled to the linear model's unit, near-threshold agreement with ``linear``
+    is not independent validation** -- use the residuals for that.
 
-    **Scales to buffon networks.** The cost is the oversampled eigensolve, which
-    ARPACK keeps ~flat in the node count on the banded laplacian, and the
-    oversampling is bounded by ``oversample_node_cap`` -- so the operator stays at
-    a few thousand nodes regardless of the cavity's physical length. The real
-    buffon (96-edge network, ``inner_total_length = 2500``) runs in ~12 s at the
-    default cap and ~6 min uncapped at ``λ/4`` (≈30k nodes), lasing its
-    co-lasing modes. Raising ``oversample_node_cap`` (and/or
-    ``oversample_resolution``) trades speed for within-edge accuracy; on a large
-    graph the default cap reduces the effective resolution below
-    ``oversample_resolution``, so pass a higher cap when the modal magnitudes
-    matter. Two limits to keep in mind on a genuinely *dense* spectrum: (i)
-    **cost** grows with the number of *co-lasing* modes (the coupled ``(k, a)``
-    Jacobian), so it suits narrow gain / pump-targeted few-mode operation rather
-    than hundreds of simultaneous modes; (ii) **near-degeneracy** -- when the
-    spacing is far below the gain linewidth the per-mode amplitudes become
-    ill-conditioned (the total-output ratchet keeps the L--I monotone there). The
-    ``linear`` competition-matrix solver remains the cheap first pass for the
-    lasing count at any scale.
+    Args:
+        graph: pumped quantum graph.
+        modes_df: threshold modes with ``lasing_thresholds``.
+        max_pump_intensity: top of the pump sweep.
+        D0_steps: number of pump points.
+        oversample_size: sub-edge size for the within-edge hole burning. None
+            auto-picks a wavelength-resolving size; 0 keeps the bare edges, which
+            over-clamps and suppresses co-lasing modes.
+        residual_tol: SALT residual below which a solve is accepted. None ties it
+            to the graph's ``quality_threshold`` -- the same bar the passive mode
+            search uses to call something a mode, so the two halves of the
+            pipeline are held to one standard. Demanding more of the SALT solve
+            than of the modes going into it would be incoherent.
+        oversample_resolution, oversample_node_cap: passed to
+            :func:`_auto_oversample_size`.
+        seed: fixes ARPACK start vectors, making the whole sweep deterministic.
 
-    It never raises -- a step that fails to fully converge keeps its iterate and
-    warns. (``max_iter``, ``tol``, ``inner_max_iter``, ``inner_damping`` are
-    accepted for interface parity.)
+    Returns:
+        ``modes_df`` with the L--I columns attached, plus
+        ``attrs["salt_diagnostics"]`` (a per-pump dataframe) and
+        ``attrs["salt_unit_scale"]``.
     """
     del max_iter, tol, inner_max_iter, inner_damping, quality_method  # interface parity
+
+    # Two different numbers, deliberately. The *solver* drives the residual as
+    # far as its method allows (SALT_RESIDUAL_TARGET); the *acceptance* bar is
+    # the same one the passive mode search uses to call something a mode, since
+    # demanding more of the SALT solve than of the modes going into it would be
+    # incoherent. Using the acceptance bar as the stopping rule instead would
+    # stop the solve early and throw away accuracy that is nearly free.
+    accept_tol = (
+        graph.graph["params"].get("quality_threshold", 1e-4)
+        if residual_tol is None
+        else residual_tol
+    )
+    solve_tol = min(SALT_RESIDUAL_TARGET, accept_tol)
 
     lasing_thresholds = np.asarray(modes_df["lasing_thresholds"]).ravel()
     n_modes = len(modes_df)
@@ -1766,11 +1835,6 @@ def _full_salt_newton_impl(
             modes_df, modal_intensities, interacting_lasing_thresholds
         )
 
-    # Resolve the within-edge field for the hole burning: the bare-edge (per-edge
-    # mean) sampling over-clamps and spuriously suppresses co-lasing modes (it
-    # disagreed with Ge-Chong-Stone Eq. 28 on line_PRA, lasing one mode where two
-    # lase). ``oversample_size=None`` now auto-picks a wavelength-resolving size;
-    # pass 0 to force the old bare-edge behaviour.
     if oversample_size is None:
         oversample_size = _auto_oversample_size(
             graph, modes_df, resolution=oversample_resolution, node_cap=oversample_node_cap
@@ -1778,298 +1842,196 @@ def _full_salt_newton_impl(
     work_graph = graph if not oversample_size else oversample_graph(graph, oversample_size)
     pump = np.asarray(work_graph.graph["params"]["pump"], dtype=float)
     pump_mask = _get_mask_matrices(work_graph.graph["params"])[1]
-    # small, fixed budget for each trust-region sub-solve (a local, warm-started
-    # solve converges in tens of evaluations; independent of params["max_steps"])
     max_steps = 30
 
-    # linear competition matrix only for the amplitude *unit* (diagonal) -- the
-    # active set itself is found self-consistently, not borrowed from it
+    # The linear competition matrix supplies the amplitude *unit* only (its
+    # diagonal); the active set is found self-consistently from the saturated
+    # operator, not borrowed from it.
     t_linear = compute_mode_competition_matrix(work_graph, modes_df)
     t_diag = np.array(
         [abs(t_linear[i, i]) if abs(t_linear[i, i]) > 1e-12 else 1.0 for i in range(n_modes)]
     )
     threshold_modes = modes_df["threshold_lasing_modes"].to_numpy()
 
-    # NB: do not add per-mode "0 at its own threshold" baseline columns -- a
-    # mode's threshold is off the shared pump grid, so the *other* modes are then
-    # undefined (NaN -> 0) at that pump, putting a spurious dip in their curves.
-    # The grid already records every mode at every pump, with 0 below activation.
-
     mode_state: dict[int, np.ndarray] = {}
     field_state: dict[int, np.ndarray] = {}
     a_state: dict[int, float] = {}
     unit_scale: dict[int, float] = {}
 
-    # cap every (k, a) solve's k-window by the spacing of the *full* candidate
-    # set: a sparse active set on a dense spectrum must not wander across
-    # neighbouring roots (the per-set spacing alone cannot see them)
     cand_ks = np.sort([float(from_complex(threshold_modes[c])[0]) for c in candidates])
     k_cap = float(np.clip(0.2 * np.diff(cand_ks).min(), 1e-6, 0.1)) if len(cand_ks) > 1 else None
 
-    def _onset_amplitude(c, d0):
-        """Linear-slope amplitude estimate ``(D0 - thr)/(T_cc thr)`` for warm starts.
+    def onset_amplitude(mode_id, d0):
+        """Linear-slope estimate ``(D0 - thr)/(T_cc thr)``, used as a warm start.
 
-        Bootstraps and adds used to start at the 1e-3 floor, which sits in the
-        basin of the trivial ``a = 0`` root of the bounded solve (the same trap
-        the old measured onset probe dodged by probing at 1.2x threshold);
-        starting at the physical near-threshold estimate keeps the solve on the
-        lasing branch.
+        Starting at a floor instead sits in the basin of the trivial ``a = 0``
+        root of the bounded solve; the physical near-threshold estimate keeps the
+        solve on the lasing branch.
         """
-        thr_c = float(lasing_thresholds[c])
-        slope = 1.0 / (t_diag[c] * thr_c) if (t_diag[c] > 0.0 and thr_c > 0.0) else 0.0
-        return max(1e-3, slope * max(float(d0) - thr_c, 0.0))
+        threshold = float(lasing_thresholds[mode_id])
+        slope = (
+            1.0 / (t_diag[mode_id] * threshold)
+            if (t_diag[mode_id] > 0.0 and threshold > 0.0)
+            else 0.0
+        )
+        return max(1e-3, slope * max(float(d0) - threshold, 0.0))
 
-    def _init(i):
-        mode = np.asarray(from_complex(threshold_modes[i]), dtype=float)
+    def initialise(mode_id):
+        mode = np.asarray(from_complex(threshold_modes[mode_id]), dtype=float)
         field = _single_mode_field_intensity(
-            graph_with_pump(work_graph, float(lasing_thresholds[i])), mode, pump_mask
+            graph_with_pump(work_graph, float(lasing_thresholds[mode_id])), mode, pump_mask
         )
-        mode_state[i], field_state[i], a_state[i] = mode, field, 0.0
-        unit_scale[i] = _newton_onset_unit_scale(
-            work_graph, mode, field, float(lasing_thresholds[i]), t_diag[i]
+        mode_state[mode_id], field_state[mode_id], a_state[mode_id] = mode, field, 0.0
+        unit_scale[mode_id] = _newton_onset_unit_scale(
+            work_graph, mode, field, float(lasing_thresholds[mode_id]), t_diag[mode_id]
         )
 
-    def _solve_into(active_ids, d0, outer=6):
-        modes_out, fields_out, a_out, converged = _solve_active_set(
+    def solve(active_ids, d0):
+        """Solve the given set at this pump and write the result back to state."""
+        solution = solve_salt_fixed_set(
             work_graph,
             [mode_state[i] for i in active_ids],
+            [
+                a_state[i] if a_state[i] > SALT_LASING_AMPLITUDE else onset_amplitude(i, d0)
+                for i in active_ids
+            ],
             [field_state[i] for i in active_ids],
-            [a_state[i] if a_state[i] > 1e-3 else _onset_amplitude(i, d0) for i in active_ids],
             d0,
             pump,
             pump_mask,
-            max_steps,
-            seed,
-            outer=outer,
+            seed=seed,
+            max_steps=max_steps,
             k_window_cap=k_cap,
+            residual_tol=solve_tol,
         )
-        for j, i in enumerate(active_ids):
-            mode_state[i], field_state[i], a_state[i] = (
-                modes_out[j],
-                fields_out[j],
-                float(a_out[j]),
-            )
-        return converged
+        for j, mode_id in enumerate(active_ids):
+            mode_state[mode_id] = solution.ks[j]
+            field_state[mode_id] = solution.fields[j]
+            a_state[mode_id] = float(solution.amplitudes[j])
+        return solution
 
-    def _advance_active_set(active_ids, d0_from, d0_to):
-        """Continue the active set ``d0_from -> d0_to`` along the physical branch.
-
-        The frozen-field solve, fully relaxed in one coarse pump step, can walk
-        the background field off the physical (maximal-output) branch into a
-        spurious *lower-total* fixed point of the iteration -- far above
-        threshold near a mode crossing this reallocates amplitude between
-        competing modes and drops the summed intensity (the visible kink), even
-        though the true SALT total is monotone in pump. The cure is a true
-        continuation: short pump sub-steps with *light* field relaxation
-        (``outer=2``), so the field tracks the slowly-moving branch instead of
-        being free to converge to the distant spurious point. (A controlled
-        experiment confirmed ``outer=1`` and ``outer=2`` agree and give a smooth,
-        monotone crossing where full relaxation jumps discontinuously.) On a
-        well-separated spectrum the field barely moves and this is just the
-        normal solve at finer resolution -- the Ge-Chong-Stone line_PRA result
-        is unchanged.
-        """
-        n_sub = max(1, int(np.ceil(abs(d0_to - d0_from) / 0.02)))
-        for d0 in np.linspace(d0_from, d0_to, n_sub + 1)[1:]:
-            _solve_into(active_ids, float(d0), outer=2)
-
-    active: list[int] = []  # confirmed lasing ids, carried along the continuation
+    active: list[int] = []
     first = float(np.min(lasing_thresholds[candidates]))
-    d0_prev = None
-    prev_state: dict[int, tuple] = {}  # last accepted (mode, field, a) per active id
-    prev_total = 0.0  # last accepted summed (unit-scaled) output -- a monotone floor
+    diagnostics = []
+
     for D0 in np.linspace(first, max_pump_intensity, D0_steps):
-        if active and d0_prev is not None:
-            # pump-step continuity: advance the carried-over set in-basin
-            _advance_active_set(list(active), d0_prev, float(D0))
-        d0_prev = float(D0)
-        bootstrapped_off: set[int] = set()  # bootstrapped then vanished at this D0
-        rejected_adds: set[int] = set()  # adds reverted by the continuity guard at this D0
-        pending_add = None  # candidate added on the previous sweep, not yet vetted
-        veteran_snapshot: dict[int, tuple] = {}
-        pre_add_total = 0.0  # summed (unit-scaled) output before the pending add
-        for _ in range(3 * len(candidates) + 2):  # active-set sweeps until stable
+        stillborn: set[int] = set()  # admitted then died at this pump: do not retry
+        added: list[int] = []
+        dropped: list[int] = []
+        solution = None
+
+        for _ in range(2 * len(candidates) + 2):
             if active:
-                modes_out, fields_out, a_out, converged = _solve_active_set(
-                    work_graph,
-                    [mode_state[i] for i in active],
-                    [field_state[i] for i in active],
-                    [a_state[i] if a_state[i] > 1e-3 else _onset_amplitude(i, D0) for i in active],
-                    D0,
-                    pump,
-                    pump_mask,
-                    max_steps,
-                    seed,
-                    k_window_cap=k_cap,
-                )
-                if not converged:
-                    warnings.warn(
-                        f"full_salt_newton field loop did not fully converge at D0={D0:.4g}.",
-                        stacklevel=2,
-                    )
-                for j, i in enumerate(active):
-                    mode_state[i], field_state[i], a_state[i] = (
-                        modes_out[j],
-                        fields_out[j],
-                        float(a_out[j]),
-                    )
-                if pending_add is not None:
-                    # Continuity guard: SALT total output is monotone in the pump,
-                    # so an *add* whose re-solve *lowers* the summed intensity is a
-                    # wrong-basin solution -- physically a newcomer turning on can
-                    # only raise the total (it adds output and steals at most a
-                    # little from the others, which nearly cancels: Ge-Chong-Stone).
-                    # On a dense spectrum the coupled solve can instead flip to a
-                    # different fixed point where the newcomer dominates and a
-                    # stronger veteran is suppressed -- a partial collapse that
-                    # drops the total and reads as a spurious kink (observed on the
-                    # mini-buffon example, dk = 0.004). Total-monotonicity catches
-                    # those partial collapses that a per-veteran "killed outright"
-                    # test misses. Revert the veterans, reject the newcomer at this
-                    # pump step (retried at the next), and re-probe.
-                    post_total = sum(
-                        a_state[i] * unit_scale.get(i, 1.0) for i in active if a_state[i] > 1e-4
-                    )
-                    # (a) total-dropping partial collapse, and (b) a total-
-                    # *preserving* identity swap where a higher-threshold newcomer
-                    # kills a lower-threshold veteran outright (the twin takeover:
-                    # two modes closer than the solve can resolve in amplitude, so
-                    # the indeterminate split dumps all of it on the newcomer --
-                    # the total is unchanged, so (a) alone misses it). Either is a
-                    # wrong basin; keep the cluster on the veteran we were tracking.
-                    killed_lower = any(
-                        a_prev > 1e-2
-                        and a_state[i] <= 1e-3
-                        and lasing_thresholds[i] < lasing_thresholds[pending_add]
-                        for i, (_m, _f, a_prev) in veteran_snapshot.items()
-                    )
-                    wrong_basin = killed_lower or post_total < (1.0 - 1e-2) * pre_add_total
-                    if wrong_basin:
-                        for i, (m_prev, f_prev, a_prev) in veteran_snapshot.items():
-                            mode_state[i], field_state[i], a_state[i] = m_prev, f_prev, a_prev
-                        active.remove(pending_add)
-                        a_state[pending_add] = 0.0
-                        rejected_adds.add(pending_add)
-                        pending_add = None
-                        veteran_snapshot = {}
-                        continue
-                    if a_state[pending_add] <= 1e-4:
-                        rejected_adds.add(pending_add)  # stillborn add: do not retry at this D0
-                    pending_add = None
-                    veteran_snapshot = {}
-                dropped = [i for i in active if a_state[i] <= 1e-4]
-                bootstrapped_off.update(dropped)
-                active = [i for i in active if a_state[i] > 1e-4]  # drop vanished
+                solution = solve(list(active), float(D0))
+                gone = [i for i in active if a_state[i] <= SALT_LASING_AMPLITUDE]
+                if gone:
+                    dropped.extend(gone)
+                    stillborn.update(gone)
+                    active = [i for i in active if a_state[i] > SALT_LASING_AMPLITUDE]
+
             if not active:
-                # Bootstrap an empty set: on the unsaturated background the
-                # noninteracting threshold is exact, and the gain-crossing probe
-                # below would wrongly reject a mode sitting *at* its threshold
-                # (alpha = 0 there, not < 0 -- so the first mode would otherwise
-                # turn on a full pump step late). Activate the lowest-threshold
-                # eligible candidate directly.
+                # Strictly above threshold: at D0 == D0_thr exactly the modal
+                # intensity is 0 by definition, so there is no lasing solution to
+                # find there. Admitting the mode anyway (the amplitude floor in
+                # the solve makes it look lasing) left the first sweep point
+                # chasing a residual it cannot drive to zero.
                 eligible = [
-                    c
-                    for c in candidates
-                    if lasing_thresholds[c] <= D0 and c not in bootstrapped_off
+                    c for c in candidates if lasing_thresholds[c] < D0 and c not in stillborn
                 ]
                 if not eligible:
                     break
-                c = min(eligible, key=lambda i: lasing_thresholds[i])
-                if c not in mode_state:
-                    _init(c)
-                a_state[c] = _onset_amplitude(c, D0)
-                active.append(c)
-                continue  # solve the bootstrapped set before probing others
-            # gain the not-yet-lasing candidates see on the current saturated background
+                mode_id = min(eligible, key=lambda i: lasing_thresholds[i])
+                if mode_id not in mode_state:
+                    initialise(mode_id)
+                a_state[mode_id] = onset_amplitude(mode_id, float(D0))
+                active.append(mode_id)
+                added.append(mode_id)
+                continue
+
+            # Net gain the not-yet-lasing candidates see on the saturated background.
             background = _saturated_graph_multi(
                 work_graph,
                 [mode_state[i] for i in active],
                 [a_state[i] for i in active],
-                D0,
+                float(D0),
                 pump,
                 [field_state[i] for i in active],
             )
             active_ks = [float(mode_state[i][0]) for i in active]
-            best, best_alpha, best_k = None, -1e-6, 0.0
+            best, best_alpha, best_k = None, SALT_GAIN_MARGIN, 0.0
             for c in candidates:
-                if c in active or c in rejected_adds or lasing_thresholds[c] > D0:
+                if c in active or c in stillborn or lasing_thresholds[c] > D0:
                     continue
                 if c not in mode_state:
-                    _init(c)
-                # probe window consistent with the solve's spacing-tracking
-                # k-window (a fixed wide window lets the probe wander to a
-                # different branch than the solve will then confine it to)
+                    initialise(c)
                 gap = min(abs(float(mode_state[c][0]) - k) for k in active_ks)
                 window = float(np.clip(0.2 * gap, 1e-6, 0.3))
-                kc = _refine_local(
+                probed = _refine_local(
                     mode_state[c], background, 1e-9, max_steps, seed, k_window=window
                 )
-                # alpha = mode[1] < 0 => net gain => the mode crossed its
-                # *interacting* threshold. Tight margin (-1e-6): gain clamping
-                # pins an above-threshold mode's alpha at ~0^-, so a looser
-                # cutoff adds the mode pump-steps late and snaps its L--I curve;
-                # the a < 1e-4 drop rule above is the safety net against false
-                # adds. Add only the *most* above-threshold candidate per sweep:
-                # several at once hand the coupled solve a multistable warm
-                # start, which can converge to the wrong basin and zero the true
-                # winner (observed on line_PRA, where a simultaneous three-mode
-                # add transiently deleted the dominant mode).
-                if kc[1] < best_alpha:
-                    best, best_alpha, best_k = c, float(kc[1]), float(kc[0])
+                if probed[1] < best_alpha:
+                    best, best_alpha, best_k = c, float(probed[1]), float(probed[0])
             if best is None:
                 break
-            veteran_snapshot = {
-                i: (mode_state[i].copy(), np.asarray(field_state[i]).copy(), a_state[i])
-                for i in active
-            }
-            pre_add_total = sum(a_state[i] * unit_scale.get(i, 1.0) for i in active)
-            pending_add = best
+
             mode_state[best] = np.array([best_k, 0.0])
             # A newcomer crosses its *interacting* threshold here, so it turns on
-            # from ~0 -- warm-start it small. The bare-threshold onset estimate
-            # (right for the empty-set bootstrap, where there is no suppression)
-            # over-shoots badly when D0 >> bare threshold and pulls the coupled
-            # solve into a wrong basin where the newcomer dominates a stronger
-            # veteran. Cap it well below the established amplitudes; the field is
-            # anchored by the veterans, so the trivial a = 0 root is not a risk.
+            # from ~0. The bare-threshold estimate overshoots badly when
+            # D0 >> its own threshold; the field is anchored by the incumbents,
+            # so the trivial a = 0 root is not a risk.
             a_cap = 1e-2 * max(a_state[i] for i in active)
-            a_state[best] = float(min(_onset_amplitude(best, D0), max(a_cap, 1e-3)))
+            a_state[best] = float(min(onset_amplitude(best, float(D0)), max(a_cap, 1e-3)))
             active.append(best)
-        # Total-output ratchet (physical floor). A steady-state laser's total
-        # output cannot fall as the pump rises. Far above threshold (~>15x) the
-        # frozen-field single-pole iteration can converge to a spurious
-        # lower-total branch -- a mode reallocation it renders as an unphysical
-        # dip -- robustly across relaxation / step size (a limit of the method,
-        # not a tuning bug). Enforce monotonicity directly: if the total dropped,
-        # hold any veteran whose amplitude collapsed back to its last accepted
-        # value (new modes still join and raise the total). The curve then
-        # plateaus where this bites -- an honest marker of the per-mode
-        # resolution limit -- instead of kinking downward.
-        cur_total = sum(a_state.get(i, 0.0) * unit_scale.get(i, 1.0) for i in active)
-        if prev_state and cur_total < (1.0 - 1e-2) * prev_total:
-            for i in list(active):
-                if i in prev_state and a_state[i] < 0.5 * prev_state[i][2]:
-                    m_prev, f_prev, a_prev = prev_state[i]
-                    mode_state[i], field_state[i], a_state[i] = m_prev.copy(), f_prev.copy(), a_prev
-            warnings.warn(
-                f"full_salt_newton: held collapsing mode(s) at D0={D0:.4g} to keep the total "
-                "output monotone (per-mode resolution limit far above threshold).",
-                stacklevel=2,
+            added.append(best)
+
+        for mode_id in candidates:
+            value = (
+                max(a_state.get(mode_id, 0.0) * unit_scale.get(mode_id, 1.0), 0.0)
+                if mode_id in active
+                else 0.0
             )
-        prev_total = max(
-            prev_total, sum(a_state.get(i, 0.0) * unit_scale.get(i, 1.0) for i in active)
+            modal_intensities.loc[mode_id, D0] = value
+            if (
+                mode_id in active
+                and a_state[mode_id] > 0
+                and D0 < interacting_lasing_thresholds[mode_id]
+            ):
+                interacting_lasing_thresholds[mode_id] = D0
+
+        diagnostics.append(
+            {
+                "D0": float(D0),
+                "n_active": len(active),
+                "active": tuple(sorted(active)),
+                "added": tuple(added),
+                "dropped": tuple(dropped),
+                "converged": bool(solution.converged) if solution is not None else True,
+                "max_residual": (
+                    float(np.max(solution.residuals))
+                    if solution is not None and len(solution.residuals)
+                    else 0.0
+                ),
+                "iterations": solution.iterations if solution is not None else 0,
+            }
         )
-        prev_state = {
-            i: (mode_state[i].copy(), np.asarray(field_state[i]).copy(), a_state[i]) for i in active
-        }
 
-        for i in candidates:
-            value = max(a_state.get(i, 0.0) * unit_scale.get(i, 1.0), 0.0) if i in active else 0.0
-            modal_intensities.loc[i, D0] = value
-            if i in active and a_state[i] > 0 and D0 < interacting_lasing_thresholds[i]:
-                interacting_lasing_thresholds[i] = D0
+    diagnostics = pd.DataFrame(diagnostics)
+    worst = float(diagnostics["max_residual"].max()) if len(diagnostics) else 0.0
+    if worst > accept_tol:
+        warnings.warn(
+            f"full_salt_newton: worst SALT residual over the sweep is {worst:.3g}, above the "
+            f"{accept_tol:.3g} tolerance -- the operator is not singular at those modes, so "
+            "the affected points are not SALT solutions. See "
+            "modes_df.attrs['salt_diagnostics'] for the per-pump breakdown.",
+            stacklevel=2,
+        )
 
-    return _finalise_modal_intensities(modes_df, modal_intensities, interacting_lasing_thresholds)
+    modes_df = _finalise_modal_intensities(
+        modes_df, modal_intensities, interacting_lasing_thresholds
+    )
+    modes_df.attrs["salt_diagnostics"] = diagnostics
+    modes_df.attrs["salt_unit_scale"] = dict(unit_scale)
+    return modes_df
 
 
 def pump_trajectories(modes_df, graph, return_approx=False, quality_method="eigenvalue"):

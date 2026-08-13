@@ -405,6 +405,24 @@ graphs they only track ``linear``.)
     so use a modest
     ``salt_D0_steps``.
 
+    **Check the residuals, not the agreement.** The solver is split into
+    :func:`~netsalt.solve_salt_fixed_set`, which solves a *given* set of lasing
+    modes with no heuristics, and a continuation on top that discovers the set.
+    Every pump step records its SALT residual --
+    :func:`~netsalt.salt_residuals`, i.e. how singular the saturated operator
+    actually is at each lasing mode's real frequency -- along with the active
+    set and convergence, into ``modes_df.attrs["salt_diagnostics"]``. That is
+    the acceptance test, and it is independent of how the answer was reached.
+    Note that the reported intensities are scaled into the linear solver's unit
+    (the factor is recorded in ``modes_df.attrs["salt_unit_scale"]`` and comes
+    out near 1), so near-threshold agreement with ``linear`` is a units check,
+    **not** independent validation.
+
+    The solver applies no corrections. Earlier revisions carried a total-output
+    ratchet and a wrong-basin guard that forced monotone L--I curves and
+    reverted mode swaps; both imposed the expected physics on the numerics and
+    have been removed in favour of reporting.
+
 ``benchmark/bench_salt.py`` compares the two solvers on speed and accuracy: it
 runs the shared pipeline once, swaps only the intensity step, writes overlaid
 L–I curves, and contrasts the operator-level Newton solver with the linear model

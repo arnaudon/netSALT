@@ -2645,3 +2645,166 @@ class TestLengthJitter:
         values = np.array([1e-3 + 1e6j, -1e6 + 0j])
         assert not (values > 1e5).any()
         assert (np.abs(values) > 1e5).all()
+
+
+class TestSaltSolverStructure:
+    """The full-SALT solver is split into a guard-free fixed-set solve and a
+    continuation that only *reports*. These pin that contract."""
+
+    def _cavity(self):
+        """Small open Fabry-Perot with a gain line, pumped."""
+        import networkx as nx
+
+        import netsalt
+        from netsalt.modes import find_passive_modes, find_threshold_lasing_modes, pump_trajectories
+        from netsalt.physics import dispersion_relation_pump
+        from netsalt.quantum_graph import create_quantum_graph, set_total_length
+
+        graph = nx.path_graph(11)
+        positions = np.array([[i, 0.0] for i in range(11)], dtype=float)
+        params = {
+            "open_model": "open",
+            "c": 1.0,
+            "k_a": 15.0,
+            "gamma_perp": 3.0,
+            "k_min": 12.0,
+            "k_max": 18.0,
+            "alpha_min": 0.0,
+            "alpha_max": 1.0,
+            "n_workers": 1,
+            "quality_threshold": 1e-4,
+            "search_stepsize": 0.01,
+            "max_steps": 1000,
+            "D0_max": 1.4,
+            "D0_steps": 10,
+            "dielectric_params": {
+                "method": "uniform",
+                "inner_value": 9.0,
+                "outer_value": 1.0,
+                "loss": 0.0,
+            },
+        }
+        with pytest.warns(UserWarning, match="share a length"):
+            create_quantum_graph(graph, params, positions=positions)
+        set_total_length(graph, 0.5)
+        netsalt.set_dielectric_constant(graph, graph.graph["params"])
+        netsalt.set_dispersion_relation(graph, dispersion_relation_pump)
+        passive = find_passive_modes(graph, method="contour")
+        graph.graph["params"]["pump"] = np.array(
+            [1.0 if graph[u][v]["inner"] else 0.0 for u, v in graph.edges()]
+        )
+        traj = pump_trajectories(passive, graph, return_approx=True)
+        return graph, find_threshold_lasing_modes(traj, graph)
+
+    def test_solve_fixed_set_reaches_a_small_salt_residual(self):
+        """The core contract: given which modes lase, the saturated operator is
+        driven singular at each of their real frequencies."""
+        from netsalt.modes import (
+            _auto_oversample_size,
+            _get_mask_matrices,
+            _single_mode_field_intensity,
+            solve_salt_fixed_set,
+        )
+        from netsalt.quantum_graph import graph_with_pump, oversample_graph
+        from netsalt.utils import from_complex
+
+        graph, tdf = self._cavity()
+        thresholds = np.asarray(tdf["lasing_thresholds"]).ravel()
+        best = int(np.argmin(thresholds))
+        assert np.isfinite(thresholds[best]), "fixture must have a lasing mode"
+
+        size = _auto_oversample_size(graph, tdf)
+        work = oversample_graph(graph, size) if size else graph
+        pump = np.asarray(work.graph["params"]["pump"], dtype=float)
+        pump_mask = _get_mask_matrices(work.graph["params"])[1]
+        mode = np.asarray(from_complex(tdf["threshold_lasing_modes"].to_numpy()[best]), float)
+        field = _single_mode_field_intensity(
+            graph_with_pump(work, float(thresholds[best])), mode, pump_mask
+        )
+
+        d0 = 1.4 * float(thresholds[best])
+        solution = solve_salt_fixed_set(work, [mode], [1e-2], [field], d0, pump, pump_mask, seed=42)
+        assert solution.amplitudes[0] > 0, "the mode should lase above its threshold"
+        assert solution.residuals[0] < 1e-4, f"residual {solution.residuals[0]:.3e} too large"
+        assert np.isfinite(solution.ks[0][0])
+
+    def test_salt_residuals_flags_a_wrong_amplitude(self):
+        """The residual has to be a real test, not a rubber stamp: a badly wrong
+        amplitude must show up as a large residual."""
+        from netsalt.modes import (
+            _auto_oversample_size,
+            _get_mask_matrices,
+            _single_mode_field_intensity,
+            salt_residuals,
+            solve_salt_fixed_set,
+        )
+        from netsalt.quantum_graph import graph_with_pump, oversample_graph
+        from netsalt.utils import from_complex
+
+        graph, tdf = self._cavity()
+        thresholds = np.asarray(tdf["lasing_thresholds"]).ravel()
+        best = int(np.argmin(thresholds))
+        size = _auto_oversample_size(graph, tdf)
+        work = oversample_graph(graph, size) if size else graph
+        pump = np.asarray(work.graph["params"]["pump"], dtype=float)
+        pump_mask = _get_mask_matrices(work.graph["params"])[1]
+        mode = np.asarray(from_complex(tdf["threshold_lasing_modes"].to_numpy()[best]), float)
+        field = _single_mode_field_intensity(
+            graph_with_pump(work, float(thresholds[best])), mode, pump_mask
+        )
+        d0 = 1.4 * float(thresholds[best])
+        solution = solve_salt_fixed_set(work, [mode], [1e-2], [field], d0, pump, pump_mask, seed=42)
+        good = solution.residuals[0]
+        bad = salt_residuals(
+            work,
+            [solution.ks[0][0]],
+            [10.0 * solution.amplitudes[0]],
+            solution.fields,
+            d0,
+            pump,
+            seed=42,
+        )[0]
+        assert bad > 100 * good, f"a 10x wrong amplitude gave residual {bad:.3e} vs {good:.3e}"
+
+    def test_empty_set_solves_trivially(self):
+        from netsalt.modes import solve_salt_fixed_set
+
+        solution = solve_salt_fixed_set(None, [], [], [], 1.0, None, None)
+        assert solution.converged and solution.iterations == 0
+        assert len(solution.ks) == 0 and len(solution.residuals) == 0
+
+    def test_continuation_records_diagnostics_and_applies_no_corrections(self):
+        from netsalt.modes import compute_modal_intensities_full_salt_newton
+
+        graph, tdf = self._cavity()
+        out = compute_modal_intensities_full_salt_newton(graph, tdf.copy(), 1.4, D0_steps=4)
+
+        diagnostics = out.attrs["salt_diagnostics"]
+        assert set(diagnostics.columns) >= {
+            "D0",
+            "n_active",
+            "active",
+            "added",
+            "dropped",
+            "converged",
+            "max_residual",
+            "iterations",
+        }
+        assert len(diagnostics) == 4
+        # the acceptance bar is quality_threshold; the sweep should meet it
+        assert diagnostics["max_residual"].max() < 1e-3
+
+        # the unit scale is exposed, so "agrees with linear" can be judged
+        scales = out.attrs["salt_unit_scale"]
+        assert scales and all(0.5 < v < 2.0 for v in scales.values())
+
+    def test_first_pump_point_at_threshold_has_nothing_lasing(self):
+        """At D0 == D0_thr the modal intensity is 0 by definition; admitting the
+        mode there leaves the solve chasing a residual it cannot reach."""
+        from netsalt.modes import compute_modal_intensities_full_salt_newton
+
+        graph, tdf = self._cavity()
+        out = compute_modal_intensities_full_salt_newton(graph, tdf.copy(), 1.4, D0_steps=4)
+        first = out.attrs["salt_diagnostics"].iloc[0]
+        assert first["n_active"] == 0
+        assert first["max_residual"] == 0.0

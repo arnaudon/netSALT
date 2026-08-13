@@ -26,22 +26,28 @@ Three measured stages (all encoded in `run.py`):
 - **Solver cost is not the constraint at this scale**: `full_salt_newton`
   takes ~25–40 s per sweep on the ~700-node oversampled work graph (vs ~0.1 s
   for `linear`) and tracks `linear`'s sets.
-- **This graph hardened the solver**: early runs showed spurious per-mode
-  kinks (the Δk = 0.004 pair swapping identities at active-set events, the
-  bootstrap capturing the trivial a = 0 root, an add flipping a stronger
-  veteran into a weaker newcomer). Fixed in `full_salt_newton` by
-  linear-slope warm starts, a candidate-spacing cap on the k-window, and
-  continuity guards keyed on physical invariants (lower-threshold veteran
-  killed, total-output monotonicity). The coarse and fine grids now agree up
-  to a genuine **mode crossing** at D0 ≈ 0.6 (~20× threshold) where mode 8
-  overtakes mode 6 — there the frozen-field single-pole iteration cannot
-  resolve the per-mode split (it falls to a spurious lower-total branch,
-  robustly across relaxation/step size: a method limit). A **total-output
-  ratchet** enforces the hard physical law (total cannot fall as pump rises)
-  by holding the collapsing mode — the dominant curve plateaus (flagged) and
-  the **total L–I stays monotone and physical**. The per-mode magnitudes
-  across the crossing are at the method's resolution limit; fully resolving
-  it would need a constant-flux-state SALT solver.
+- **This graph exposed the solver's resolution limit**: the Δk = 0.004 pair
+  swaps identities at active-set events, and around the **mode crossing** at
+  D0 ≈ 0.6 (~20× threshold), where mode 8 overtakes mode 6, the frozen-field
+  single-pole iteration cannot resolve the per-mode split — robustly across
+  relaxation and step size, so it is a method limit, not a tuning bug.
+
+  Earlier revisions hid this behind a *total-output ratchet* (holding a
+  collapsing mode so the summed L–I stayed monotone) and a *wrong-basin guard*
+  (reverting an activation that suppressed an established mode). Both have been
+  **removed**: they imposed the expected answer on the numerics, which made the
+  very thing worth investigating — a non-monotone curve, a mode swap —
+  impossible to observe. What replaces them is reporting. Every pump step
+  records its SALT residual, active set and convergence into
+  `modes_df.attrs["salt_diagnostics"]`, so the crossing region shows up as data
+  rather than being smoothed over. Read that table before trusting per-mode
+  magnitudes there; the totals are far better determined than the split.
+
+  What was kept from that work, because it is numerics rather than physics:
+  linear-slope warm starts (a floor start sits in the trivial `a = 0` basin) and
+  a candidate-spacing cap on the k-window (a locality constraint on a local
+  solver). Fully resolving the crossing would need a constant-flux-state SALT
+  solver — see issue #50.
 
 For many co-lasing modes by *design* (localisation, not pump), see
 `../ring_chain`; for why raw spectral density does not help, `../chord_sweep`.

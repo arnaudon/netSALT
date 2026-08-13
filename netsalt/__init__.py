@@ -16,6 +16,7 @@ from .io import (
 )
 from .modes import (
     compute_modal_intensities,
+    compute_modal_intensities_full_salt_newton,
     compute_mode_competition_matrix,
     find_modes,
     find_passive_modes,
@@ -23,7 +24,9 @@ from .modes import (
     lasing_threshold_linear,
     mode_on_nodes,
     pump_trajectories,
+    salt_residuals,
     scan_frequencies,
+    solve_salt_fixed_set,
 )
 from .params import NetSaltParams
 from .physics import set_dielectric_constant, set_dispersion_relation
@@ -40,6 +43,7 @@ __all__ = [
     "NetSaltParams",
     "QuantumGraph",
     "compute_modal_intensities",
+    "compute_modal_intensities_full_salt_newton",
     "compute_mode_competition_matrix",
     "create_quantum_graph",
     "find_modes",
@@ -59,7 +63,9 @@ __all__ = [
     "save_graph",
     "save_modes",
     "save_qualities",
+    "salt_residuals",
     "scan_frequencies",
+    "solve_salt_fixed_set",
     "set_dielectric_constant",
     "set_dispersion_relation",
     "set_total_length",

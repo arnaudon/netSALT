@@ -128,8 +128,13 @@ def main():
     d0c = 1.258
 
     def at(p, row):
-        on = row > 0
-        return float(np.interp(d0c, p[on], row[on])) if on.sum() > 1 else 0.0
+        # Interpolate over *all* samples. Filtering to ``row > 0`` first threw
+        # away the onset point, where the intensity is exactly 0 by
+        # construction -- a genuine data point. On a coarse event-driven grid
+        # that could leave a single positive sample and silently report 0.
+        if len(p) == 0:
+            return 0.0
+        return float(np.interp(d0c, p, row))
 
     def ref_at(name):
         d = ref[name]
