@@ -310,7 +310,21 @@ def step_find_passive_modes(p: NetSaltParams, qg, qualities):
             threshold_abs=p.get("threshold_abs", 0.1),
         )
     else:
-        modes_df = find_passive_modes(qg, method=method)
+        # Contour knobs, all optional: n_k defaults to a Weyl-law estimate of how
+        # many sub-contours the expected mode count needs (see
+        # netsalt.contour.default_contour_n_k).
+        contour_kwargs = {
+            name: p.get(f"contour_{name}")
+            for name in ("n_k", "n_alpha", "n_quad", "probe_dim")
+            if p.get(f"contour_{name}") is not None
+        }
+        modes_df = find_passive_modes(qg, method=method, **contour_kwargs)
+        if not len(modes_df):
+            raise ValueError(
+                "The contour mode search found no modes in the scan rectangle. Check "
+                "k_min/k_max/alpha_min/alpha_max, or raise contour_n_k / contour_probe_dim "
+                "if the window holds more modes than a single contour can resolve."
+            )
     save_modes(modes_df, filename=str(out))
     return modes_df
 

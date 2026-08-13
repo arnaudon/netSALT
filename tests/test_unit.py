@@ -1717,6 +1717,8 @@ class TestRefinementFailureIsReported:
 
         # The unrefinable mode is reported as never having reached threshold.
         assert out["lasing_thresholds"].to_numpy()[1] == np.inf
+
+
 class TestModeCompetitionVectorisation:
     """Pin the vectorised mode-competition kernel to the scalar reference.
 
@@ -1935,3 +1937,88 @@ class TestModeCompetitionVectorisation:
         assert _competition_chunk_size(10, 10, budget=12 * 16 * 10 * 10 * 7) == 7
         # Never degenerates to zero, however tight the budget.
         assert _competition_chunk_size(400, 2500, budget=1) == 1
+
+
+class TestContourSubdivisionDefaults:
+    """A single Beyn contour resolves at most ``probe_dim`` modes; past that the
+    SVD extraction collapses and commonly returns *nothing*. The subdivision
+    default therefore has to be sized from the expected mode count.
+
+    The previous default (one cell per unit of ``k``) was not: on the shipped
+    ``examples/buffon`` config (k in [10.35, 11.0], ~780 modes by the Weyl
+    estimate) it gave ``n_k = 1`` and the pipeline found zero passive modes.
+    """
+
+    def _ring(self, n_nodes=12, total_length=40.0, dielectric=4.0, k_max=12.0):
+        import networkx as nx
+
+        import netsalt
+        from netsalt.physics import dispersion_relation_pump
+        from netsalt.quantum_graph import create_quantum_graph, set_total_length
+
+        graph = nx.cycle_graph(n_nodes)
+        theta = np.linspace(0, 2 * np.pi, n_nodes, endpoint=False)
+        positions = np.stack([np.cos(theta), np.sin(theta)], axis=1)
+        params = {
+            "open_model": "closed",
+            "c": 1.0,
+            "k_a": 0.5 * k_max,
+            "gamma_perp": 5.0,
+            "n_workers": 1,
+            "dielectric_params": {
+                "method": "uniform",
+                "inner_value": dielectric,
+                "outer_value": 1.0,
+                "loss": 0.0,
+            },
+            "k_min": 1.0,
+            "k_max": k_max,
+            "alpha_min": -0.5,
+            "alpha_max": 0.5,
+            "quality_threshold": 1e-6,
+        }
+        create_quantum_graph(graph, params, positions=positions)
+        set_total_length(graph, total_length, inner=True)
+        netsalt.set_dielectric_constant(graph, graph.graph["params"])
+        netsalt.set_dispersion_relation(graph, dispersion_relation_pump)
+        return graph
+
+    def test_optical_length_uses_the_refractive_index(self):
+        from netsalt.contour import optical_length
+
+        graph = self._ring(total_length=40.0, dielectric=4.0)
+        # n = sqrt(eps) = 2 on every edge, so the optical length is 2 x geometric.
+        assert optical_length(graph) == pytest.approx(80.0, rel=1e-9)
+
+    def test_mode_count_matches_the_weyl_law(self):
+        from netsalt.contour import estimate_mode_count
+
+        graph = self._ring(total_length=40.0, dielectric=4.0, k_max=12.0)
+        # N ~ L_opt * dk / pi
+        assert estimate_mode_count(graph) == pytest.approx(80.0 * 11.0 / np.pi, rel=1e-9)
+
+    def test_n_k_scales_with_the_expected_mode_count(self):
+        from netsalt.contour import default_contour_n_k
+
+        small = self._ring(total_length=4.0)
+        large = self._ring(total_length=400.0)
+        assert default_contour_n_k(small) >= 1
+        assert default_contour_n_k(large) > 10 * default_contour_n_k(small)
+
+    def test_default_finds_modes_a_single_contour_would_lose(self):
+        """The regression itself: many more modes in the window than probe_dim."""
+        from netsalt.contour import default_contour_n_k, find_modes_contour
+        from netsalt.modes import find_passive_modes
+
+        graph = self._ring(n_nodes=12, total_length=400.0, dielectric=4.0, k_max=12.0)
+        probe_dim = min(40, len(graph))
+        assert default_contour_n_k(graph) > 1, "fixture must need subdivision"
+
+        # One contour over the whole window is over capacity and loses almost
+        # everything; the sized default recovers the spectrum.
+        single = find_modes_contour(
+            graph, n_k=1, n_alpha=1, n_quad=80, rng=np.random.default_rng(0)
+        )
+        default = find_passive_modes(graph, method="contour")
+        assert len(default) > 5 * max(len(single), 1)
+        assert len(default) > probe_dim

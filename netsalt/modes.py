@@ -289,7 +289,7 @@ def find_passive_modes(graph, qualities=None, method=None, **kwargs):
         )
 
     if method == "contour":
-        from .contour import find_modes_contour
+        from .contour import default_contour_n_k, find_modes_contour
 
         # Reasonable defaults; callers can override via kwargs.
         contour_defaults = {
@@ -299,12 +299,9 @@ def find_passive_modes(graph, qualities=None, method=None, **kwargs):
             "probe_dim": kwargs.pop("probe_dim", None),
         }
         if contour_defaults["n_k"] is None:
-            # Rule of thumb: roughly one sub-cell per ~5 expected modes.
-            # Without an accurate prior we fall back to 1 cell per unit k
-            # (sensible for the small ranges netsalt normally scans).
-            k_min = graph.graph["params"]["k_min"]
-            k_max = graph.graph["params"]["k_max"]
-            contour_defaults["n_k"] = max(int(round(k_max - k_min)), 1)
+            contour_defaults["n_k"] = default_contour_n_k(
+                graph, probe_dim=contour_defaults["probe_dim"]
+            )
         modes = find_modes_contour(graph, **contour_defaults, **kwargs)
         # Build modes_df in the same shape find_modes returns.
         modes_df = _init_dataframe()
