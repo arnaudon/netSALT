@@ -6,6 +6,7 @@ and specific node/edges attributes.
 
 import copy
 import logging
+import warnings
 
 import networkx as nx
 import numpy as np
@@ -44,26 +45,60 @@ def create_quantum_graph(
     """
     _set_node_positions(graph, positions)
     _set_edge_lengths(graph, lengths=lengths)
-    _verify_lengths(graph, seed=seed, noise_level=noise_level)
+    _verify_lengths(graph, seed=seed, noise_level=noise_level, from_positions=lengths is None)
     if params is None:
         params = graph.graph["params"]
     set_inner_edges(graph, params)
     update_parameters(graph, params)
 
 
-def _verify_lengths(graph, seed=42, noise_level=0.001):
-    """Add noise to lengths if many edges have equal."""
-    if noise_level > 0.0:
-        lengths = [graph[u][v]["length"] for u, v in graph.edges]
-        rng = np.random.default_rng(seed)
-        if np.max(np.unique(np.around(lengths, 5), return_counts=True)) > 0.2 * len(graph.edges):
-            L.info(
-                """You have more than 20% of edges of the same length,
-                so we add some small noise for safety for the numerics."""
-            )
-            for u in graph:
-                graph.nodes[u]["position"][0] += rng.normal(0, noise_level * np.min(lengths))
-            _set_edge_lengths(graph)
+def _verify_lengths(graph, seed=42, noise_level=0.001, from_positions=True):
+    """Jitter the geometry when too many edges share a length.
+
+    Equal edge lengths put every edge's ``k_e l_e`` on the secular matrix's pole
+    at the same ``k`` (see the module docstring of ``examples/audit``), so the
+    modes there are lost. This breaks the tie — but it is a *physics* change,
+    not a numerical nudge: at the default ``noise_level=0.001`` the measured
+    price is ~1e-4 relative in every mode's ``k`` and a ~1e-3 relative splitting
+    of exact degeneracies. Hence the warning rather than a silent log line.
+
+    Args:
+        graph (graph): quantum graph
+        seed (int): seed for the jitter
+        noise_level (float): jitter scale, relative to the shortest edge. 0 disables.
+        from_positions (bool): jitter node positions and recompute lengths from
+            them. False when the caller supplied explicit ``lengths``, in which
+            case the lengths are jittered directly — recomputing from positions
+            would throw the supplied lengths away entirely.
+    """
+    if noise_level <= 0.0:
+        return
+    lengths = np.array([graph[u][v]["length"] for u, v in graph.edges])
+    # ``np.unique(..., return_counts=True)`` returns ``(values, counts)``; taking
+    # ``np.max`` over the pair compared the largest edge *length* against a
+    # threshold on the *count*, so any graph whose edges were longer than
+    # ``0.2 * n_edges`` got jittered even with every length distinct.
+    _, counts = np.unique(np.around(lengths, 5), return_counts=True)
+    if counts.max() <= 0.2 * len(graph.edges):
+        return
+
+    warnings.warn(
+        f"{counts.max()} of {len(graph.edges)} edges share a length; jittering the geometry "
+        f"by noise_level={noise_level} so the equal-length modes are not lost to the secular "
+        "matrix's pole at k*l in pi*Z. This perturbs every mode (~1e-4 relative in k at the "
+        "default) and splits exact degeneracies. Pass noise_level=0 to keep the geometry "
+        "exactly as given, and see issue #45.",
+        stacklevel=3,
+    )
+    rng = np.random.default_rng(seed)
+    if from_positions:
+        for u in graph:
+            graph.nodes[u]["position"][0] += rng.normal(0, noise_level * lengths.min())
+        _set_edge_lengths(graph)
+    else:
+        _set_edge_lengths(
+            graph, lengths=lengths + rng.normal(0, noise_level * lengths.min(), len(lengths))
+        )
 
 
 def _not_equal(data1, data2, force=False):
@@ -466,7 +501,12 @@ def construct_weight_matrix(graph, with_k=True):
         with_k (bool): multiplies or not the laplacian by k
     """
     data_tmp = 1.0 / (np.exp(2.0j * graph.graph["lengths"] * graph.graph["ks"]) - 1.0)
-    if (data_tmp > 1e5).any():
+    # ``data_tmp`` is complex, and numpy's ``>`` on complex compares the real
+    # part, so the old ``(data_tmp > 1e5)`` missed a blown-up entry unless it
+    # happened to be large *and positive real* -- exactly two thirds of the
+    # cases. This guard exists to catch an edge sitting on the pole
+    # ``k_e l_e in pi*Z``, where the entry is large in modulus and of any phase.
+    if (np.abs(data_tmp) > 1e5).any():
         L.info("Large values in Winv, it may not work!")
     if with_k:
         data_tmp *= graph.graph["ks"]

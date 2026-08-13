@@ -2182,3 +2182,77 @@ class TestLaplacianPatternCache:
         big.graph["_incidence_topology"] = small.graph["_incidence_topology"]
         _BT, B = construct_incidence_matrix(big)
         assert B.shape == (2 * 8, len(big))
+
+
+class TestLengthJitter:
+    """``_verify_lengths`` breaks ties between equal edge lengths, which would
+    otherwise all sit on the secular matrix's pole at ``k*l in pi*Z`` (issue #45)."""
+
+    def _ring(self, n_nodes=8):
+        import networkx as nx
+
+        graph = nx.cycle_graph(n_nodes)
+        theta = np.linspace(0, 2 * np.pi, n_nodes, endpoint=False)
+        positions = np.stack([np.cos(theta), np.sin(theta)], axis=1)
+        return graph, positions
+
+    def test_explicit_lengths_are_honoured(self):
+        """Jittering used to recompute lengths from node positions, throwing an
+        explicit ``lengths=`` argument away wholesale rather than perturbing it."""
+        from netsalt.quantum_graph import create_quantum_graph
+
+        graph, positions = self._ring()
+        wanted = np.full(len(graph.edges), 0.125)
+        with pytest.warns(UserWarning, match="share a length"):
+            create_quantum_graph(
+                graph,
+                {"open_model": "closed"},
+                positions=positions,
+                lengths=wanted,
+                noise_level=1e-3,
+            )
+        got = np.array([graph[u][v]["length"] for u, v in graph.edges])
+        # jittered, but around the requested value rather than replaced by the
+        # chord length of the unit circle (~0.765)
+        assert np.allclose(got, wanted, rtol=5e-3)
+        assert not np.allclose(got, wanted, rtol=1e-12), "the tie must actually be broken"
+
+    def test_distinct_lengths_are_left_alone(self):
+        """The trigger compared the largest edge *length* against a threshold on
+        the *count*, so long-edged graphs were jittered with every length
+        distinct."""
+        from netsalt.quantum_graph import create_quantum_graph
+
+        graph, positions = self._ring()
+        wanted = 26.0 * (1.0 + 0.01 * np.arange(len(graph.edges)))
+        create_quantum_graph(
+            graph,
+            {"open_model": "closed"},
+            positions=positions,
+            lengths=wanted,
+            noise_level=1e-3,
+        )
+        got = np.array([graph[u][v]["length"] for u, v in graph.edges])
+        assert np.array_equal(got, wanted)
+
+    def test_noise_level_zero_disables_it(self):
+        from netsalt.quantum_graph import create_quantum_graph
+
+        graph, positions = self._ring()
+        wanted = np.full(len(graph.edges), 0.125)
+        create_quantum_graph(
+            graph,
+            {"open_model": "closed"},
+            positions=positions,
+            lengths=wanted,
+            noise_level=0.0,
+        )
+        got = np.array([graph[u][v]["length"] for u, v in graph.edges])
+        assert np.array_equal(got, wanted)
+
+    def test_winv_guard_sees_a_large_entry_of_any_phase(self):
+        """The guard compared a complex array with ``>``, which numpy resolves on
+        the real part, so it missed large-but-imaginary entries."""
+        values = np.array([1e-3 + 1e6j, -1e6 + 0j])
+        assert not (values > 1e5).any()
+        assert (np.abs(values) > 1e5).all()
