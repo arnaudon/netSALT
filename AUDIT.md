@@ -6,7 +6,10 @@ research on how graph structure controls lasing, and lay out the intermediate
 steps toward a trustworthy full-SALT solver.
 
 Everything below is backed by a measurement. The reproducers live in
-[`examples/audit/`](examples/audit/).
+[`examples/audit/`](examples/audit/) and `benchmark/`.
+
+Items marked **[fixed]** were repaired on this branch; the rest are the
+roadmap in §6.
 
 ---
 
@@ -17,15 +20,18 @@ slow. The above-threshold (full-SALT) layer is not yet research-grade.**
 
 | layer | what it computes | verdict |
 | --- | --- | --- |
-| secular matrix + contour mode search | passive modes `k` | **accurate to ~1e-12**; one structural blind spot |
-| pump trajectories + thresholds | `D0_thr`, threshold modes | sound; slow, no diagnostics |
-| competition matrix `T` + linear L–I | near-threshold modal intensities | **physics is right**; the kernel is ~100x slower than it needs to be |
+| secular matrix + contour mode search | passive modes `k` | **accurate to ~1e-12**; the *subdivision default* found zero modes on the flagship example **[fixed]**; one structural blind spot remains |
+| pump trajectories + thresholds | `D0_thr`, threshold modes | sound physics; crashed on a failed refinement **[fixed]**; still slow |
+| competition matrix `T` + linear L–I | near-threshold modal intensities | **physics is right**, validated against a published reference; kernel was ~100x slower than needed **[fixed]** |
 | `full_salt_newton` (PR #43) | above-threshold L–I | promising core, but wrapped in heuristics that make results unfalsifiable |
 
-The single most important structural point: **PR #43 fuses three separable
-things into one 430-line function, and patches the failures of the outermost
-layer inside the innermost one.** Splitting them is the intermediate step that
-makes full SALT usable — see §5.
+Two headline points:
+
+1. **The default pipeline on `examples/buffon` returned zero passive modes.**
+   Not a slowdown — an empty spectrum, silently. §3.1.
+2. **PR #43 fuses three separable things into one 430-line function, and
+   patches the failures of the outermost layer inside the innermost one.**
+   Splitting them is the intermediate step that makes full SALT usable — §5.
 
 ---
 
@@ -79,14 +85,65 @@ Grid-independent to 5–6 digits. The continuation machinery itself is fine.
 
 ---
 
-## 3. Accuracy problems
+## 3. Accuracy and robustness problems
 
-### 3.1 Modes are silently lost on commensurate-length graphs
+### 3.1 The contour subdivision default returned an empty spectrum  **[fixed]**
+
+A single Beyn contour resolves at most `probe_dim` modes — the SVD of `A_0` has
+that many non-zero singular values — and past capacity the extraction collapses,
+usually to *nothing*. `find_passive_modes` sized the subdivision as
+`n_k = max(round(k_max - k_min), 1)`, which has nothing to do with how many
+modes the window holds. On `examples/buffon` (`k` in `[10.35, 11.0]`) that is
+`n_k = 1`, and the default pipeline found **zero** modes. There was also no
+config key to override it.
+
+`n_k` is now sized from the Weyl law, `N ~ L_opt (k_max - k_min) / pi` with
+`L_opt = sum_e sqrt(eps_e) l_e` the optical length:
+
+```
+buffon: 208 nodes, 243 edges, optical length 3758
+  Weyl estimate  778 modes
+  old default    n_k = 1   ->    0 modes
+  new default    n_k = 78  ->  454 modes in 27 s
+```
+
+454 is exactly the count `netsalt/contour.py`'s own docstring records as ground
+truth for that workload. `contour_n_k` / `contour_n_alpha` / `contour_n_quad` /
+`contour_probe_dim` are now config keys, and an empty result raises.
+
+### 3.2 A failed refinement crashed the pump sweep  **[fixed]**
+
+`refine_mode` returns `None` when it cannot converge. Both tracking loops
+mishandled it:
+
+* `pump_trajectories` substituted the stale previous position and kept feeding
+  it to `pump_linear` at the *new* pump, where `mode_on_nodes` correctly
+  rejected it. The run then died one iteration later with `"Not a mode, as
+  quality is too high"` naming a mode that was never the problem.
+* `find_threshold_lasing_modes` assigned the `None` into a float array (opaque
+  numpy `ValueError`); its `is None` recovery check was unreachable dead code,
+  since a row of a float array is never `None`.
+
+Reproducer: on the shipped `examples/line_PRA` config, changing only
+`gamma_perp` from 3.0 to 1.5 crashes the run at `D0 = 1.655`. Unrefinable modes
+are now frozen and reported — a `tracking_lost_at_D0` column plus a warning —
+so the failure is visible in the data instead of killing the run.
+
+### 3.3 Editing a config silently reused stale results  **[fixed]**
+
+Every `step_*` short-circuits on `out.exists() and not force`, keyed on the
+*filename*. Measured: on `examples/line_PRA`, changing `k_a` 15.0 -> 16.5 and
+`gamma_perp` 3.0 -> 1.5 and re-running produced a **byte-identical**
+`modal_intensities.h5`. For a parameter sweep run in place this is the worst
+possible failure mode. A per-key config fingerprint is now written next to the
+outputs, and a changed physics key raises and names itself.
+
+### 3.4 Modes are silently lost on equilateral graphs
 
 The secular matrix `L(k) = B^T W^{-1} B` uses per-edge weights
 `k_e / (exp(2 i k_e l_e) - 1)`, singular when `k_e l_e` is a multiple of `pi`.
-On an equilateral graph every edge hits that point at the same `k`, and the
-corresponding eigenfunctions vanish at every vertex — invisible to *any*
+On an equilateral graph *every* edge hits that point at the same `k`, and the
+corresponding eigenfunctions vanish at every vertex — invisible to any
 vertex-based secular equation.
 
 Measured on a closed 8-node equilateral ring (`L = 1`, `n = 1`, `l = 0.125`):
@@ -103,13 +160,17 @@ dodges this by jittering node positions when >20% of edges share a length — bu
 `examples/buffon/_base.yaml` sets `noise_level: 0.0`, disabling it, and random
 graphs never trigger it anyway.
 
+Scope: this is demonstrated for *simultaneous* commensurability (all edges at
+once). A single commensurate edge among many appears to be harmless; the
+partial case was not measured and should not be assumed either way.
+
 **Why this matters for the research plan.** "Design graphs to achieve some
 property" means building *regular* graphs — equal edges, symmetric layouts —
 which is precisely the case that breaks. Any structure/spectrum study on
 designed graphs must either use the noise dodge (and pay a geometry error) or
-switch to a pole-free secular equation.
+switch to a pole-free secular equation (§6, item 5).
 
-### 3.2 Near-degenerate modes have no error bar
+### 3.5 Near-degenerate modes have no error bar
 
 `compute_modal_intensities` inverts the competition submatrix with
 `np.linalg.pinv` and reports intensities with no conditioning diagnostic. When
@@ -120,7 +181,7 @@ guard exists because a near-degenerate pair's amplitude split is
 ill-conditioned). Today the user gets numbers with no signal that they are
 unresolved.
 
-### 3.3 The above-threshold within-edge resolution is not converged
+### 3.6 The above-threshold within-edge resolution is not converged
 
 The spatial hole burning samples `|E(x)|^2` per edge, so the graph is
 oversampled to resolve the standing wave. Measured spread of the total lasing
@@ -129,7 +190,7 @@ intensity as that resolution is refined:
 ```
                   lambda/6   lambda/12   lambda/20   lambda/32
 ~3x  threshold      17.08      17.48       17.54       17.56    (converging)
-~30x threshold     308.19     325.25      328.78         --     (weakest mode moves 2x)
+~30x threshold     308.19     325.25      328.78         --    (weakest mode moves 2x)
 ```
 
 Near threshold `lambda/12` (the default) is ~0.5% off the refined value — fine.
@@ -142,35 +203,90 @@ dense spectrum.
 
 ## 4. Speed
 
-### 4.1 The competition-matrix kernel is the scaling wall
+Per-step wall time, measured end to end (4 cores, `OMP_NUM_THREADS=1`) on
+`line_PRA` (11 nodes, 6 modes, 100x30 scan grid) and a mid-size buffon analogue
+(61 nodes / 73 edges, 33 modes, 400x50 grid, `n_workers=4`):
 
-`_compute_mode_competition_element` is a pure-Python loop over edges, called
-`M^2` times. Measured cost, ~14.5 microseconds per edge:
+| step | line_PRA | mid |
+| --- | ---: | ---: |
+| `step_scan_frequencies` | 2.87 s (25.8%) | 21.99 s (47.8%) |
+| `step_compute_mode_trajectories` | 3.35 s (30.1%) | 12.77 s (27.8%) |
+| `step_find_threshold_modes` | 2.44 s (21.9%) | 7.27 s (15.8%) |
+| `step_find_passive_modes` (contour) | 0.63 s (5.6%) | 0.63 s (1.4%) |
+| `step_compute_mode_competition_matrix` | 0.08 s | 0.49 s |
+| all plots | 1.74 s | 2.80 s |
+| **total** | **11.13 s** | **46.01 s** |
 
-| edges `E` | per element | `M=100` | `M=400` |
-| --- | --- | --- | --- |
-| 250 | 3.5 ms | 35 s | 9.4 min |
-| 500 | 7.5 ms | 74 s | 20 min |
-| 2500 | 36 ms | 6.0 min | **98 min** |
+Three steps are 96% of every run.
 
-These are **serial** CPU seconds; `compute_mode_competition_matrix` divides
-them by `n_workers`, so the production buffon config (`n_workers: 80`,
-`E ≈ 250` after oversampling, `M ≈ 450`) pays roughly 15 s of wall time and the
-cost is invisible.
+### 4.1 The grid scan was pure waste on the default path  **[fixed]**
 
-It stops being invisible the moment the research question changes from "this
-graph" to "this family of graphs". An ensemble sweep parallelises over *graphs*,
-so each graph gets one core and pays the serial number — ~12 min for the buffon
-case above, times a few hundred graphs. Raising the oversampling to resolve
-above-threshold physics (§3.3) multiplies `E` and makes it worse.
+`compute_lasing_modes` always ran the dense `k_n x alpha_n` quality grid, but
+the default contour search never reads it — verified by feeding
+`find_passive_modes` the real grid, `None`, and an all-zeros grid: identical
+modes to 5e-12 in all three cases. It only fed two figures.
 
-The whole contraction is a batched tensor operation over `(mu, nu, edge)`; the
-Python loop is pure interpreter overhead, and this matrix is the central object
-for the mode-competition question.
+```
+                 before   after   speedup
+line_PRA         11.13 s  8.12 s   1.37x
+mid              46.01 s 26.61 s   1.73x
+```
 
-### 4.2 Other measured costs
+At production buffon scale (8000 x 500 = 4M eigensolves at 3.5 ms) that is
+**3.9 CPU-hours discarded per run**. The scan is now gated on something needing
+it, with a `with_scan` key to force it back on.
 
-See §7 for the profiling results.
+### 4.2 The competition-matrix kernel was the scaling wall  **[fixed]**
+
+`_compute_mode_competition_element` was a pure-Python loop over edges, called
+`M^2` times through a pool — ~14.5 microseconds per edge, and `M^2 E` of them.
+The whole contraction factorises: every transcendental in the `(mu, nu, edge)`
+tensor splits into a mu-only times a nu-only exponential, so the batched form
+has no transcendentals left in the hot tensor at all, and the E/F terms collapse
+to a single matrix product. Measured (`benchmark/bench_competition.py`):
+
+| `E` | `M` | loop (serial) | batched | speedup |
+| ---: | ---: | ---: | ---: | ---: |
+| 250 | 50 | 6.70 s | 0.064 s | 104x |
+| 500 | 100 | 52.8 s | 0.765 s | 69x |
+| 2500 | 100 | 272.9 s | 2.89 s | 94x |
+
+Agreement with the scalar loop on real pipeline data: **5.8e-16** relative. The
+original loop is kept as `_compute_mode_competition_element_reference`, used as
+the permanent test oracle. Extrapolating, the research-scale case (`M=400`,
+`E=2500`) drops from ~73 min of serial CPU to ~46 s.
+
+This matters because the matrix is the central object for the mode-competition
+question: an ensemble sweep parallelises over *graphs*, so each graph gets one
+core and pays the serial number.
+
+### 4.3 Still on the table (measured, not yet fixed)
+
+* **`mode_quality` is 83% of profiled compute**, and `eigs(sigma=0)` is a 31x
+  more expensive way to test singularity than the LU it already computes
+  (2.395 ms vs 0.077 ms for `splu` + `logdet(U)` on a 61-node graph). Swapping
+  the scan to `quality_method="determinant"` cut it 21.99 s -> 8.39 s. **Not a
+  drop-in**: the determinant field has a different scale, and
+  `find_rough_modes_from_scan(threshold_abs=0.1)` returned 0 candidates on it
+  versus 31 on the eigenvalue field. Also `quality_method="singularvalue"` is a
+  latent trap — 109 ms versus 0.267 ms for a dense SVD of the same matrix,
+  410x slower.
+* **One `multiprocessing.Pool` is created per D0 iteration.** 91 pools in the
+  mid run (2.09 s, 4.5%); `find_threshold_lasing_modes` creates two per
+  while-loop iteration, and its tail iterations carry 1-2 tasks each while
+  paying ~15 ms fork + ~8 ms teardown twice. Extrapolated to `n_workers=80`,
+  `D0_steps=101`: **105-207 s per run of pure fork/teardown**. Graph pickling,
+  by contrast, is *not* a problem (0.79 ms per dump even at buffon size), and
+  `chunksize` makes no measurable difference. The fix is pool reuse.
+* **`construct_laplacian` rebuilds the CSR sparsity pattern every call** (38% of
+  profiled time). A prototype caching the index arrays next to the existing
+  `_incidence_topology`: 0.370 ms -> 0.168 ms (2.2x), agreeing to 9.1e-13.
+* **`_get_new_D0` computes the same overlap factor twice** — it calls
+  `lasing_threshold_linear(mode, graph, D0)` and then
+  `pump_linear(mode, graph, D0, new_D0)`, whose first act is to rebuild the same
+  pumped graph. Instrumented: identical arguments, 52% of the function.
+* **`pump_trajectories` runs `pump_linear` serially in the parent** while the
+  pool idles: 3.79 s of the 12.77 s step (30%).
 
 ---
 
@@ -272,67 +388,96 @@ changed lines. The rest is the solver and its demos.
 ## 6. Roadmap
 
 Ordered so each rung is independently verifiable and immediately useful.
+Items 1-4 landed on this branch; 5 onward is the work ahead.
 
-### Stage 0 — foundations (small, unblocks everything)
+### Stage 0 — foundations  **[done on this branch]**
 
-1. **Vectorise the competition-matrix kernel.** Batched tensor contraction over
-   `(mu, nu, edge)` instead of an `M^2` Python fan-out. Verified against the
-   scalar loop as a permanent test oracle.
-2. **Skip the grid scan when the contour solver is in use.** See §7.
-3. **Warn on commensurate edge lengths.** A cheap check at
-   `create_quantum_graph` time: if many edges share a length and
-   `noise_level == 0`, say which modes will be invisible.
-4. **Cherry-pick the four safe pieces of PR #43 listed in §5.**
+1. **Size the contour subdivision from the expected mode count** (§3.1) — the
+   flagship example went from 0 to 454 modes.
+2. **Report unrefinable modes instead of crashing** (§3.2).
+3. **Refuse to reuse cached results from a different config** (§3.3).
+4. **Skip the grid scan when nothing reads it** (§4.1) and **vectorise the
+   competition-matrix kernel** (§4.2) — 1.4-1.7x end to end, ~100x on the
+   kernel.
 
-### Stage 1 — make the answers falsifiable
+### Stage 1 — remaining performance (all measured in §4.3)
 
-5. **A SALT residual checker.** Given any candidate `(k_mu, a_mu)` set and a
-   pump, build `L_sat` and report `|lambda_1(k_mu)|` and `Im k_mu`. This is a
-   dozen lines and turns "does the solver work?" into a number, independent of
-   how the solution was obtained. It should be the acceptance test for every
-   solver, including `linear`.
-6. **Conditioning diagnostics.** Report `cond(T_active)` alongside the modal
-   intensities, and flag mode pairs whose split is unresolvable.
-7. **Convergence reporting instead of silent guards.** Every heuristic in
-   §5 becomes a *flag on the output row* rather than a silent correction.
+5. **Pool reuse** across D0 iterations. Low difficulty; ~105-207 s per
+   production run.
+6. **Cache the CSR sparsity pattern in `construct_laplacian`.** Low-medium;
+   ~1.2x end to end, and it compounds with 7.
+7. **Replace `eigs(sigma=0)` in `laplacian_quality` with an LU-based residual.**
+   The big one (31x on the kernel, 83% of profiled time) and the riskiest:
+   `refine_mode_root` needs a signed complex residual and the peak-detection
+   threshold must be recalibrated. Do it behind the existing `quality_method`
+   switch with the current path as the reference.
+8. **De-duplicate `_get_new_D0`'s overlap factor** and move `pump_linear` into
+   the pool worker. Low difficulty, ~1.15x.
 
-### Stage 2 — split the full-SALT solver
+### Stage 2 — make the answers falsifiable
 
-8. **Expose 3a on its own:** `solve_salt_fixed_set(graph, modes, D0)` — given
-   which modes lase, solve `(k, a)`. No active-set discovery, no ratchet, no
-   continuity guards; returns the solution *and* its residual. This is
-   directly useful: a researcher usually knows (from `linear`) which modes are
-   candidates, and wants the above-threshold correction.
-9. **Rebuild 3b on top of it** as a separate, testable continuation layer whose
-   failures are reported, not patched.
-10. **Validate against `line_PRA` / Ge Fig. 6** at each step, with the residual
-    checker as the primary criterion rather than agreement with `linear`.
+9. **A SALT residual checker.** Given any candidate `(k_mu, a_mu)` set and a
+   pump, build `L_sat` and report `|lambda_1(k_mu)|` and `Im k_mu`. A dozen
+   lines, and it turns "does the solver work?" into a number independent of how
+   the solution was obtained. This should be the acceptance test for every
+   solver, including `linear`. It is the single highest-value item on this list:
+   §5.1 shows PR #43 producing a roughly-correct answer while reporting
+   non-convergence, and there is currently no way to tell those cases apart.
+10. **Conditioning diagnostics** (§3.5): report `cond(T_active)` with the modal
+    intensities and flag mode pairs whose split is unresolvable.
+11. **A pole-free secular equation** (§3.4) — the Kottos-Smilansky bond
+    scattering form `det(I - S_B(k)) = 0` is entire in `k`, so it has neither
+    the equilateral blind spot nor the conditioning problem near it. This is a
+    real project (netsalt's open/directed models and complex per-edge dielectric
+    all have to be re-expressed), so it is worth doing only if designed
+    equilateral graphs become central to the research.
 
-### Stage 3 — the research questions
+### Stage 3 — split the full-SALT solver
 
-11. **Observables module** for the properties you want to classify: effective
-    number of lasing modes vs pump, `T` asymmetry and off-diagonal strength
-    (low/high competition), mode localisation on the graph (`compute_IPRs`
+12. **Expose the fixed-active-set solve on its own:**
+    `solve_salt_fixed_set(graph, modes, D0)` — given which modes lase, solve
+    `(k, a)`. No active-set discovery, no ratchet, no continuity guards; returns
+    the solution *and* its residual (item 9). Directly useful on its own: a
+    researcher usually knows from `linear` which modes are candidates and wants
+    the above-threshold correction.
+13. **Rebuild active-set discovery on top of it** as a separate, testable
+    continuation layer whose failures are reported, not patched. Every heuristic
+    in §5 becomes a flag on the output row.
+14. **Validate at each step against `line_PRA` / Ge Fig. 6**, using the residual
+    as the primary criterion rather than agreement with `linear`.
+
+### Stage 4 — the research questions
+
+15. **Observables module** for the properties to classify: effective number of
+    lasing modes vs pump, `T` asymmetry and off-diagonal strength (the low/high
+    mode-competition axis), mode localisation on the graph (`compute_IPRs`
     exists; add edge participation and a graph-distance localisation length),
     and pump-region overlap.
-12. **An ensemble/sweep layer.** Given a graph family and a parameter grid,
+16. **An ensemble/sweep layer.** Given a graph family and a parameter grid,
     produce one tidy dataframe of per-mode descriptors, cached by content hash.
-    This is what makes "which structures give low mode competition?" a query
-    rather than a project. Stage 0.1 is the prerequisite — without it a
-    500-graph sweep is weeks of CPU.
-13. **Inverse design.** `pump.py` already optimises the *pump* profile; graph
-    *structure* optimisation is new work and should wait until 11–12 make the
+    This is what turns "which structures give low mode competition?" into a
+    query rather than a project. Stage 0 item 4 is the prerequisite — without it
+    a 500-graph sweep is weeks of CPU.
+17. **Inverse design.** `pump.py` already optimises the *pump* profile; graph
+    *structure* optimisation is new work and should wait until 15-16 make the
     forward model cheap and the objective well-defined.
 
-### Deliberately not on the list yet
+### Deliberately not on the list
 
-The CF-state route sketched in `doc/cf_states_design.md` is real research (the
-note honestly records that both attempted basis finders failed) and it is not
-needed for feasibility — bounded oversampling already runs on buffon. Revisit
-only if Stage 2 shows the oversampled operator is the accuracy limit.
+The CF-state route sketched in PR #43's `doc/cf_states_design.md` is real
+research — the note honestly records that both attempted basis finders failed —
+and it is not needed for feasibility, since bounded oversampling already runs on
+buffon. Revisit only if Stage 3 shows the oversampled operator is the accuracy
+limit.
 
 ---
 
-## 7. Profiling
+## 7. Reproducing these numbers
 
-_Filled in below from the profiling pass._
+| claim | how |
+| --- | --- |
+| passive-solver accuracy, equilateral blind spot | `examples/audit/validate_solver_accuracy.py` |
+| full-SALT grid independence and within-edge convergence | `examples/audit/probe_full_salt_convergence.py` (run against PR #43) |
+| competition-matrix speedup and agreement | `benchmark/bench_competition.py` |
+| Ge-Chong-Stone Fig. 6 validation | `examples/line_PRA/compare_to_pra_fig6.py` on PR #43 |
+| stale-cache hazard, gamma_perp crash | run `examples/line_PRA` twice, editing `gamma_perp` between runs |
