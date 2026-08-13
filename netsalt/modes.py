@@ -1023,7 +1023,11 @@ def _find_next_lasing_mode(
     """Find next interacting lasing mode."""
     interacting_lasing_thresholds = np.ones(len(modes_df)) * np.inf
     for mu in modes_df.index:
-        if mu not in lasing_mode_ids:
+        # Modes with an infinite threshold never lase, so they are not
+        # candidates. Running them through the formula below gave
+        # ``inf * -0.0 = nan`` -- harmless, since ``nan > pump`` is False, but it
+        # emitted a RuntimeWarning per mode per event and buried real warnings.
+        if mu not in lasing_mode_ids and np.isfinite(lasing_thresholds[mu]):
             sub_mode_comp_matrix_mu = mode_competition_matrix[
                 np.ix_(lasing_mode_ids + [mu], lasing_mode_ids)
             ]

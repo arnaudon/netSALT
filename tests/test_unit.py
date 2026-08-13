@@ -7,6 +7,7 @@ every new bug that slips past the functional test is the point.
 
 import networkx as nx
 import numpy as np
+import pandas as pd
 import pytest
 
 from netsalt.algorithm import clean_duplicate_modes
@@ -2808,3 +2809,32 @@ class TestSaltSolverStructure:
         first = out.attrs["salt_diagnostics"].iloc[0]
         assert first["n_active"] == 0
         assert first["max_residual"] == 0.0
+
+
+class TestNextLasingModeSkipsNonLasing:
+    """Modes that never reach threshold are not candidates for the next lasing
+    mode; running them through the interacting-threshold formula produced
+    ``inf * -0.0 = nan`` and a RuntimeWarning per mode per event."""
+
+    def test_infinite_threshold_modes_emit_no_warning(self):
+        import warnings as _warnings
+
+        from netsalt.modes import _find_next_lasing_mode
+
+        modes_df = pd.DataFrame(index=range(3))
+        thresholds = np.array([0.1, 0.2, np.inf])
+        matrix = np.eye(3) + 0.1 * np.ones((3, 3))
+        with _warnings.catch_warnings(record=True) as caught:
+            _warnings.simplefilter("always")
+            np.seterr(all="warn")
+            _find_next_lasing_mode(0.15, modes_df, thresholds, [0], matrix)
+        assert not [c for c in caught if issubclass(c.category, RuntimeWarning)]
+
+    def test_finite_threshold_mode_is_still_found(self):
+        from netsalt.modes import _find_next_lasing_mode
+
+        modes_df = pd.DataFrame(index=range(3))
+        thresholds = np.array([0.1, 0.2, np.inf])
+        matrix = np.eye(3) + 0.1 * np.ones((3, 3))
+        next_id, next_thr = _find_next_lasing_mode(0.15, modes_df, thresholds, [0], matrix)
+        assert next_id == 1 and np.isfinite(next_thr)
