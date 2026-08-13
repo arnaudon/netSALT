@@ -16,6 +16,7 @@ import logging
 import multiprocessing
 import warnings
 from functools import partial
+from typing import NamedTuple
 
 import numpy as np
 import pandas as pd
@@ -598,8 +599,14 @@ def _precomputations_mode_competition(graph, pump_mask, mode_threshold):
     return k_mu, edge_flux, gam
 
 
-def _compute_mode_competition_element(lengths, params, data, with_gamma=True):
-    """Computes a single element of the mode competition matrix."""
+def _compute_mode_competition_element_reference(lengths, params, data, with_gamma=True):
+    """Scalar reference implementation of a mode-competition matrix element.
+
+    This is the original per-edge Python loop. It is kept **only** as the test
+    oracle for the vectorised kernel below (see
+    ``tests/test_unit.py::TestModeCompetitionVectorisation``); nothing in the
+    library calls it.
+    """
     mu_data, nu_data, gamma_nu = data
     k_mus, edge_flux_mu = mu_data
     k_nus, edge_flux_nu = nu_data
@@ -679,6 +686,217 @@ def _compute_mode_competition_element(lengths, params, data, with_gamma=True):
     return matrix_element
 
 
+#: Peak working-set budget, in bytes, for the batched mode-competition kernel.
+#:
+#: The contraction over ``(mu, nu, edge)`` is blocked over ``mu`` so that the
+#: temporaries stay inside this budget. The kernel keeps at most ~7 complex128
+#: arrays of shape ``(mu_chunk, n_modes, n_edges)`` alive at once; the divisor
+#: below is deliberately conservative (12) to leave headroom for NumPy's own
+#: scratch buffers. 512 MiB was chosen because it is comfortably below a typical
+#: compute-node per-core allowance while still giving large chunks at research
+#: scale (M=400 modes, E=2500 edges gives a chunk of 2 rows, i.e. 2M elements of
+#: vectorised work per block -- far more than enough to amortise loop overhead).
+MODE_COMPETITION_MEMORY_BUDGET = 512 * 1024**2
+
+_COMPETITION_TEMPORARIES = 12
+
+
+def _competition_chunk_size(n_modes, n_edges, budget=None):
+    """Number of ``mu`` rows to process per block under the memory budget."""
+    budget = MODE_COMPETITION_MEMORY_BUDGET if budget is None else budget
+    per_row = _COMPETITION_TEMPORARIES * 16 * max(int(n_modes), 1) * max(int(n_edges), 1)
+    return max(1, int(budget // max(per_row, 1)))
+
+
+def _competition_edge_mask(params):
+    """Boolean mask of the edges that contribute to the competition matrix.
+
+    Mirrors ``params["pump"][ei] > 0.0 and params["inner"][ei]`` from the scalar
+    reference implementation.
+    """
+    pump = np.asarray(params["pump"], dtype=float)
+    inner = np.asarray(params["inner"]).astype(bool)
+    return (pump > 0.0) & inner
+
+
+def _split_fluxes(fluxes, mask):
+    """Split a stack of ``2E`` edge fluxes into the ``+`` / ``-`` halves on masked edges."""
+    fluxes = np.atleast_2d(np.asarray(fluxes, dtype=np.complex128))
+    return fluxes[:, 0::2][:, mask], fluxes[:, 1::2][:, mask]
+
+
+class _CompetitionLeftTerms(NamedTuple):
+    """Mode-nu (left-vector) per-edge factors, all of shape ``(n_modes, n_edges)``."""
+
+    s: np.ndarray  # k_nu - conj(k_nu)
+    bpc: np.ndarray  # k_nu + conj(k_nu)
+    x: np.ndarray  # exp(1j * s * length)
+    p: np.ndarray  # exp(1j * k_nu * length)
+    q: np.ndarray  # exp(-1j * conj(k_nu) * length)
+    l0: np.ndarray  # |flux_nu_plus|^2
+    l1: np.ndarray  # flux_nu_plus * conj(flux_nu_minus)
+    l2: np.ndarray  # conj(flux_nu_plus) * flux_nu_minus
+    l3: np.ndarray  # |flux_nu_minus|^2
+    ef: np.ndarray  # collapsed E/F contribution, see below
+
+
+class _CompetitionRightTerms(NamedTuple):
+    """Mode-mu (right-vector) per-edge factors, all of shape ``(n_modes, n_edges)``."""
+
+    k2: np.ndarray  # 2 * k_mu
+    y: np.ndarray  # exp(2j * k_mu * length)
+    r0: np.ndarray  # flux_mu_plus ** 2
+    r3: np.ndarray  # flux_mu_minus ** 2
+    g: np.ndarray  # 2 * exp(1j * k_mu * length) * flux_mu_plus * flux_mu_minus
+
+
+def _competition_left_terms(lengths, ks, fp, fm):
+    """Precompute the nu-dependent factors of the inner 4x4 matrix and left vector."""
+    ks = np.asarray(ks, dtype=np.complex128)
+    ks_c = np.conj(ks)
+
+    s = ks - ks_c
+    bpc = ks + ks_c
+    x = np.exp(1.0j * s * lengths)
+    p = np.exp(1.0j * ks * lengths)
+    q = np.exp(-1.0j * ks_c * lengths)
+
+    l0 = np.abs(fp) ** 2
+    l1 = fp * np.conj(fm)
+    l2 = np.conj(fp) * fm
+    l3 = np.abs(fm) ** 2
+
+    # Degenerate wavenumbers (real or purely imaginary k_nu) make these
+    # denominators vanish. The scalar reference divides by zero there too,
+    # producing inf / nan and a RuntimeWarning; that behaviour is deliberately
+    # preserved rather than "fixed" -- see TestModeCompetitionVectorisation.
+    e_nu = (x - 1.0) / (1.0j * s)
+    f_nu = (p - q) / (1.0j * bpc)
+
+    # The E and F blocks of the inner matrix both factor as
+    # ``exp(1j * k_mu * length) * (nu-only term)``, and both multiply the same
+    # right-vector entry (``flux_mu_plus * flux_mu_minus``, which appears twice).
+    # Their whole contribution therefore collapses to a single mode-by-mode
+    # matrix product ``g @ ef.T`` instead of an (mu, nu, edge) tensor.
+    ef = e_nu * (l0 + l3) + f_nu * (l1 + l2)
+
+    return _CompetitionLeftTerms(s, bpc, x, p, q, l0, l1, l2, l3, ef)
+
+
+def _competition_right_terms(lengths, ks, fp, fm):
+    """Precompute the mu-dependent factors of the inner 4x4 matrix and right vector."""
+    ks = np.asarray(ks, dtype=np.complex128)
+    return _CompetitionRightTerms(
+        k2=2.0 * ks,
+        y=np.exp(2.0j * ks * lengths),
+        r0=fp**2,
+        r3=fm**2,
+        g=2.0 * np.exp(1.0j * ks * lengths) * fp * fm,
+    )
+
+
+def _mode_competition_contraction(left, right, chunk=None):
+    """Contract the inner 4x4 matrices over all edges for every ``(mu, nu)`` pair.
+
+    Expanding ``left_vector @ inner_matrix @ right_vector`` with the symmetries of
+    ``inner_matrix`` (``A`` on the diagonal corners, ``B`` on the anti-diagonal
+    corners, ``C``/``D`` on the first column and last column of the middle rows,
+    ``E``/``F`` filling the middle columns) leaves six scalar terms per edge::
+
+        A * (l0 r0 + l3 r3) + B * (l0 r3 + l3 r0)
+      + C * (l1 r0 + l2 r3) + D * (l1 r3 + l2 r0)
+      + E * 2 p_mu * (l0 + l3) + F * 2 p_mu * (l1 + l2)
+
+    The four transcendentals that the scalar loop evaluates per ``(mu, nu, edge)``
+    all factor into a mu-only and a nu-only exponential, so only multiplies and
+    divides remain inside the blocked tensor.
+    """
+    n_mu, n_edges = right.y.shape
+    n_nu = left.x.shape[0]
+    out = np.zeros((n_mu, n_nu), dtype=np.complex128)
+    if n_edges == 0 or n_mu == 0 or n_nu == 0:
+        return out
+
+    if chunk is None:
+        chunk = _competition_chunk_size(n_nu, n_edges)
+
+    x, p, q = left.x[None], left.p[None], left.q[None]
+    s, bpc = left.s[None], left.bpc[None]
+    l0, l1, l2, l3 = left.l0[None], left.l1[None], left.l2[None], left.l3[None]
+
+    for start in range(0, n_mu, chunk):
+        stop = min(start + chunk, n_mu)
+        y = right.y[start:stop, None, :]
+        k2 = right.k2[start:stop, None, :]
+        r0 = right.r0[start:stop, None, :]
+        r3 = right.r3[start:stop, None, :]
+
+        # A terms
+        acc = (x * y - 1.0) / (1.0j * (s + k2)) * (l0 * r0 + l3 * r3)
+        # B terms: exp(2j k_mu l) * (exp(1j (s - 2 k_mu) l) - 1) == x - y
+        acc += (x - y) / (1.0j * (s - k2)) * (l0 * r3 + l3 * r0)
+        # C terms
+        acc += (p * y - q) / (1.0j * (bpc + k2)) * (l1 * r0 + l2 * r3)
+        # D terms
+        acc += (p - y * q) / (1.0j * (bpc - k2)) * (l1 * r3 + l2 * r0)
+        out[start:stop] = acc.sum(axis=2)
+
+    # E and F terms, collapsed to one complex matrix product.
+    out += right.g @ left.ef.T
+    return out
+
+
+def _compute_mode_competition_element(lengths, params, data, with_gamma=True):
+    """Computes a single element of the mode competition matrix.
+
+    Vectorised over edges: drop-in replacement for
+    :func:`_compute_mode_competition_element_reference`.
+    """
+    mu_data, nu_data, gamma_nu = data
+    k_mus, edge_flux_mu = mu_data
+    k_nus, edge_flux_nu = nu_data
+
+    mask = _competition_edge_mask(params)
+    lengths = np.asarray(lengths, dtype=float)[mask]
+
+    fp_nu, fm_nu = _split_fluxes(edge_flux_nu, mask)
+    fp_mu, fm_mu = _split_fluxes(edge_flux_mu, mask)
+    left = _competition_left_terms(lengths, np.atleast_2d(k_nus)[:, mask], fp_nu, fm_nu)
+    right = _competition_right_terms(lengths, np.atleast_2d(k_mus)[:, mask], fp_mu, fm_mu)
+
+    matrix_element = _mode_competition_contraction(left, right)[0, 0]
+    if with_gamma:
+        return -matrix_element * np.imag(gamma_nu)
+    return matrix_element
+
+
+def _compute_mode_competition_matrix_batched(lengths, params, precomp, with_gamma=True):
+    """Full ``M x M`` mode-competition matrix from the per-mode precomputations.
+
+    ``precomp`` is the list of ``(k_mus, edge_flux, gamma)`` tuples produced by
+    :func:`_precomputations_mode_competition`.
+    """
+    n_modes = len(precomp)
+    if n_modes == 0:
+        return np.zeros((0, 0), dtype=np.complex128)
+
+    mask = _competition_edge_mask(params)
+    lengths = np.asarray(lengths, dtype=float)[mask]
+
+    ks = np.asarray([np.asarray(entry[0]) for entry in precomp], dtype=np.complex128)[:, mask]
+    fluxes = np.asarray([np.asarray(entry[1]) for entry in precomp], dtype=np.complex128)
+    fp, fm = _split_fluxes(fluxes, mask)
+
+    left = _competition_left_terms(lengths, ks, fp, fm)
+    right = _competition_right_terms(lengths, ks, fp, fm)
+
+    matrix = _mode_competition_contraction(left, right)
+    if with_gamma:
+        gammas = np.asarray([entry[2] for entry in precomp], dtype=np.complex128)
+        matrix = -matrix * np.imag(gammas)[None, :]
+    return matrix
+
+
 def compute_mode_competition_matrix(graph, modes_df, with_gamma=True):
     """Compute the mode competition matrix, or T matrix."""
     threshold_modes = modes_df["threshold_lasing_modes"].to_numpy()
@@ -706,45 +924,17 @@ def compute_mode_competition_matrix(graph, modes_df, with_gamma=True):
             )
         )
 
-    input_data = []
-    for mu in range(len(threshold_modes)):
-        for nu in range(len(threshold_modes)):
-            input_data.append(
-                [
-                    precomp_results[mu][:2],
-                    precomp_results[nu][:2],
-                    precomp_results[nu][2],
-                ]
-            )
-
-    chunksize = max(1, int(0.1 * len(input_data) / graph.graph["params"]["n_workers"]))
-    with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
-        output_data = list(
-            tqdm(
-                pool.imap(
-                    partial(
-                        _compute_mode_competition_element,
-                        graph.graph["lengths"],
-                        graph.graph["params"],
-                        with_gamma=with_gamma,
-                    ),
-                    input_data,
-                    chunksize=chunksize,
-                ),
-                total=len(input_data),
-            )
-        )
-
-    mode_competition_matrix = np.zeros(
-        [len(threshold_modes), len(threshold_modes)], dtype=np.complex128
+    # The M*M elements used to be fanned out over a multiprocessing pool, one
+    # Python edge-loop per element. The whole tensor contraction is now a handful
+    # of batched array ops (blocked over mu to respect
+    # MODE_COMPETITION_MEMORY_BUDGET), which is faster in a single process than
+    # the pool ever was -- so no pool here.
+    mode_competition_matrix = _compute_mode_competition_matrix_batched(
+        graph.graph["lengths"],
+        graph.graph["params"],
+        precomp_results,
+        with_gamma=with_gamma,
     )
-    index = 0
-    for mu in range(len(threshold_modes)):
-        for nu in range(len(threshold_modes)):
-            mode_competition_matrix[mu, nu] = output_data[index]
-            index += 1
-
-    pool.close()
 
     mode_competition_matrix_full = np.zeros(
         [

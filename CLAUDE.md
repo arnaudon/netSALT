@@ -21,6 +21,14 @@ mapping.
     `find_threshold_lasing_modes`, `pump_trajectories`,
     `compute_mode_competition_matrix`, `compute_modal_intensities`). Runs
     `multiprocessing.Pool` over the scan grid.
+    `compute_mode_competition_matrix` no longer fans the `M*M` elements out
+    over a pool: `_compute_mode_competition_matrix_batched` contracts the
+    whole `(mu, nu, edge)` tensor with NumPy, blocked over `mu` under
+    `MODE_COMPETITION_MEMORY_BUDGET` (512 MiB). The original scalar edge
+    loop survives as `_compute_mode_competition_element_reference`, used
+    only as the test oracle in
+    `tests/test_unit.py::TestModeCompetitionVectorisation`. Benchmark:
+    `benchmark/bench_competition.py`.
   - `algorithm.py` — rough mode detection (skimage `peak_local_max`) and
     two refinement algorithms: `refine_mode_root` (MINPACK ``hybr``,
     default) and `refine_mode_brownian_ratchet` (legacy random-walk

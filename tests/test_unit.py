@@ -1717,3 +1717,221 @@ class TestRefinementFailureIsReported:
 
         # The unrefinable mode is reported as never having reached threshold.
         assert out["lasing_thresholds"].to_numpy()[1] == np.inf
+class TestModeCompetitionVectorisation:
+    """Pin the vectorised mode-competition kernel to the scalar reference.
+
+    ``netsalt.modes._compute_mode_competition_element_reference`` is the original
+    per-edge Python loop, kept solely as the oracle for these tests. The
+    production kernel contracts the whole ``(mu, nu, edge)`` tensor with array
+    ops, so it must agree with the loop element for element.
+    """
+
+    @staticmethod
+    def _competition_fixture(n_edges=10, unpumped_edge=1):
+        """A real quantum graph plus per-mode precomputations for its passive modes.
+
+        The line graph is open (leaky), so its passive modes have a genuine
+        ``alpha > 0``; evaluating at zero pump (``D0 = 0``) keeps them exact
+        roots so ``mode_on_nodes`` accepts them. One edge is left unpumped to
+        exercise the ``pump > 0 and inner`` edge mask.
+        """
+        from netsalt.contour import find_modes_contour
+        from netsalt.modes import _get_mask_matrices, _precomputations_mode_competition
+
+        graph = make_line_graph(
+            n_edges=n_edges,
+            extra_params={
+                "gamma_perp": 3.0,
+                "k_a": 10.0,
+                "D0": 0.0,
+                "n_workers": 1,
+                "k_min": 5.0,
+                "k_max": 15.0,
+                "alpha_min": 0.0,
+                "alpha_max": 1.0,
+            },
+            total_length=1.0,
+        )
+        params = graph.graph["params"]
+        params["pump"] = np.ones(len(graph.edges))
+        params["pump"][unpumped_edge] = 0.0
+
+        modes = find_modes_contour(
+            graph,
+            bounds=(5.0, 15.0, 0.0, 1.0),
+            n_quad=120,
+            probe_dim=20,
+            rng=np.random.default_rng(0),
+        )
+        assert len(modes) >= 4
+        pump_mask = _get_mask_matrices(params)[1]
+        precomp = [
+            _precomputations_mode_competition(graph, pump_mask, (mode, 0.0)) for mode in modes
+        ]
+        return graph, params, precomp
+
+    @pytest.mark.parametrize("with_gamma", [True, False])
+    def test_element_matches_scalar_reference(self, with_gamma):
+        from netsalt.modes import (
+            _compute_mode_competition_element,
+            _compute_mode_competition_element_reference,
+        )
+
+        graph, params, precomp = self._competition_fixture()
+        lengths = graph.graph["lengths"]
+        n_modes = len(precomp)
+
+        ref = np.zeros((n_modes, n_modes), dtype=np.complex128)
+        new = np.zeros((n_modes, n_modes), dtype=np.complex128)
+        for mu in range(n_modes):
+            for nu in range(n_modes):
+                data = [precomp[mu][:2], precomp[nu][:2], precomp[nu][2]]
+                ref[mu, nu] = _compute_mode_competition_element_reference(
+                    lengths, params, data, with_gamma=with_gamma
+                )
+                new[mu, nu] = _compute_mode_competition_element(
+                    lengths, params, data, with_gamma=with_gamma
+                )
+
+        assert np.all(np.isfinite(ref))
+        assert np.abs(ref).min() > 0.0  # a non-trivial oracle, not a matrix of zeros
+        assert np.allclose(new, ref, rtol=1e-10, atol=1e-12)
+
+    @pytest.mark.parametrize("with_gamma", [True, False])
+    def test_batched_matrix_matches_scalar_reference(self, with_gamma):
+        from netsalt.modes import (
+            _compute_mode_competition_element_reference,
+            _compute_mode_competition_matrix_batched,
+        )
+
+        graph, params, precomp = self._competition_fixture()
+        lengths = graph.graph["lengths"]
+        n_modes = len(precomp)
+
+        ref = np.zeros((n_modes, n_modes), dtype=np.complex128)
+        for mu in range(n_modes):
+            for nu in range(n_modes):
+                data = [precomp[mu][:2], precomp[nu][:2], precomp[nu][2]]
+                ref[mu, nu] = _compute_mode_competition_element_reference(
+                    lengths, params, data, with_gamma=with_gamma
+                )
+
+        batched = _compute_mode_competition_matrix_batched(
+            lengths, params, precomp, with_gamma=with_gamma
+        )
+        assert batched.shape == (n_modes, n_modes)
+        assert np.allclose(batched, ref, rtol=1e-10, atol=1e-12)
+
+    def test_batched_matrix_is_independent_of_mu_blocking(self):
+        """Chunking over mu must not change a single bit of the result."""
+        from netsalt.modes import (
+            _competition_edge_mask,
+            _competition_left_terms,
+            _competition_right_terms,
+            _mode_competition_contraction,
+            _split_fluxes,
+        )
+
+        graph, params, precomp = self._competition_fixture()
+        mask = _competition_edge_mask(params)
+        lengths = np.asarray(graph.graph["lengths"])[mask]
+        ks = np.asarray([np.asarray(e[0]) for e in precomp])[:, mask]
+        fluxes = np.asarray([np.asarray(e[1]) for e in precomp])
+        fp, fm = _split_fluxes(fluxes, mask)
+        left = _competition_left_terms(lengths, ks, fp, fm)
+        right = _competition_right_terms(lengths, ks, fp, fm)
+
+        whole = _mode_competition_contraction(left, right, chunk=len(precomp))
+        for chunk in (1, 2, 3):
+            np.testing.assert_array_equal(
+                _mode_competition_contraction(left, right, chunk=chunk), whole
+            )
+
+    def test_edge_mask_matches_reference_condition(self):
+        from netsalt.modes import _competition_edge_mask
+
+        params = {
+            "pump": np.array([0.0, 1.0, 0.5, 2.0, 0.0]),
+            "inner": np.array([True, True, False, True, False]),
+        }
+        expected = np.array(
+            [params["pump"][ei] > 0.0 and bool(params["inner"][ei]) for ei in range(5)]
+        )
+        np.testing.assert_array_equal(_competition_edge_mask(params), expected)
+
+    def test_empty_edge_mask_gives_zero(self):
+        """No pumped inner edge -> the reference sums nothing; so must the kernel."""
+        from netsalt.modes import (
+            _compute_mode_competition_element,
+            _compute_mode_competition_element_reference,
+        )
+
+        n_edges = 4
+        rng = np.random.default_rng(0)
+        params = {"pump": np.zeros(n_edges), "inner": np.ones(n_edges, dtype=bool)}
+        lengths = rng.uniform(0.5, 1.5, n_edges)
+        flux = rng.normal(size=2 * n_edges) + 1j * rng.normal(size=2 * n_edges)
+        ks = rng.uniform(3, 5, n_edges) - 1j * rng.uniform(0.01, 0.1, n_edges)
+        data = [(ks, flux), (ks, flux), 0.3 - 0.7j]
+
+        assert _compute_mode_competition_element_reference(lengths, params, data) == 0
+        assert _compute_mode_competition_element(lengths, params, data) == 0
+
+    @pytest.mark.parametrize(
+        "case",
+        ["real_k_nu", "imag_k_nu", "zero_denom_a", "zero_denom_d"],
+    )
+    def test_degenerate_denominators_reproduce_reference_nan(self, case):
+        """Zero denominators are *not* fixed up: the kernel must produce the same
+        non-finite value the scalar loop always produced.
+
+        - ``real_k_nu``:    ``k_nu - conj(k_nu) = 0``   -> E terms divide by zero
+        - ``imag_k_nu``:    ``k_nu + conj(k_nu) = 0``   -> F terms divide by zero
+        - ``zero_denom_a``: ``k_nu - conj(k_nu) + 2 k_mu = 0`` on one edge
+        - ``zero_denom_d``: ``k_nu + conj(k_nu) - 2 k_mu = 0`` on one edge
+        """
+        import warnings
+
+        from netsalt.modes import (
+            _compute_mode_competition_element,
+            _compute_mode_competition_element_reference,
+        )
+
+        n_edges = 6
+        rng = np.random.default_rng(3)
+        lengths = rng.uniform(0.5, 1.5, n_edges)
+        params = {"pump": np.ones(n_edges), "inner": np.ones(n_edges, dtype=bool)}
+        k_mu = rng.uniform(3, 5, n_edges) - 1j * rng.uniform(0.01, 0.1, n_edges)
+        k_nu = rng.uniform(3, 5, n_edges) - 1j * rng.uniform(0.01, 0.1, n_edges)
+
+        if case == "real_k_nu":
+            k_nu = rng.uniform(3, 5, n_edges) + 0j
+        elif case == "imag_k_nu":
+            k_nu = 1j * rng.uniform(3, 5, n_edges)
+        elif case == "zero_denom_a":
+            k_mu[2] = -(k_nu[2] - np.conj(k_nu[2])) / 2.0
+        elif case == "zero_denom_d":
+            k_mu[3] = (k_nu[3] + np.conj(k_nu[3])) / 2.0
+
+        def flux():
+            return rng.normal(size=2 * n_edges) + 1j * rng.normal(size=2 * n_edges)
+
+        data = [(k_mu, flux()), (k_nu, flux()), 0.3 - 0.7j]
+        with np.errstate(divide="ignore", invalid="ignore"), warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            ref = _compute_mode_competition_element_reference(lengths, params, data)
+            new = _compute_mode_competition_element(lengths, params, data)
+
+        assert not np.isfinite(ref)  # the reference really is broken here
+        assert np.isnan(ref.real) == np.isnan(new.real)
+        assert np.isnan(ref.imag) == np.isnan(new.imag)
+        assert np.isinf(ref.real) == np.isinf(new.real)
+        assert np.isinf(ref.imag) == np.isinf(new.imag)
+
+    def test_chunk_size_respects_memory_budget(self):
+        from netsalt.modes import _competition_chunk_size
+
+        # 12 complex128 temporaries of shape (chunk, n_modes, n_edges).
+        assert _competition_chunk_size(10, 10, budget=12 * 16 * 10 * 10 * 7) == 7
+        # Never degenerates to zero, however tight the budget.
+        assert _competition_chunk_size(400, 2500, budget=1) == 1
