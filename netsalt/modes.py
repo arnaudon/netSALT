@@ -16,6 +16,7 @@ import logging
 import multiprocessing
 import warnings
 from functools import partial
+from typing import NamedTuple
 
 import numpy as np
 import pandas as pd
@@ -290,7 +291,7 @@ def find_passive_modes(graph, qualities=None, method=None, **kwargs):
         )
 
     if method == "contour":
-        from .contour import find_modes_contour
+        from .contour import default_contour_n_k, find_modes_contour
 
         # Reasonable defaults; callers can override via kwargs.
         contour_defaults = {
@@ -300,12 +301,9 @@ def find_passive_modes(graph, qualities=None, method=None, **kwargs):
             "probe_dim": kwargs.pop("probe_dim", None),
         }
         if contour_defaults["n_k"] is None:
-            # Rule of thumb: roughly one sub-cell per ~5 expected modes.
-            # Without an accurate prior we fall back to 1 cell per unit k
-            # (sensible for the small ranges netsalt normally scans).
-            k_min = graph.graph["params"]["k_min"]
-            k_max = graph.graph["params"]["k_max"]
-            contour_defaults["n_k"] = max(int(round(k_max - k_min)), 1)
+            contour_defaults["n_k"] = default_contour_n_k(
+                graph, probe_dim=contour_defaults["probe_dim"]
+            )
         modes = find_modes_contour(graph, **contour_defaults, **kwargs)
         # Build modes_df in the same shape find_modes returns.
         modes_df = _init_dataframe()
@@ -417,10 +415,18 @@ def compute_overlapping_factor(passive_mode, graph):
     return pump_norm / inner_norm
 
 
-def pump_linear(mode_0, graph, D0_0, D0_1):
-    """Find the linear approximation of the new wavenumber."""
+def pump_linear(mode_0, graph, D0_0, D0_1, overlapping_factor=None):
+    """Find the linear approximation of the new wavenumber.
+
+    ``overlapping_factor`` is the mode's overlap with the pump evaluated at
+    ``D0_0``. It is an optional argument only so callers that already have it
+    can avoid recomputing it — :func:`compute_overlapping_factor` costs an
+    eigensolve plus several sparse products, and :func:`_get_new_D0` used to
+    pay for it twice with identical arguments.
+    """
     graph = graph_with_pump(graph, D0_0)
-    overlapping_factor = compute_overlapping_factor(mode_0, graph)
+    if overlapping_factor is None:
+        overlapping_factor = compute_overlapping_factor(mode_0, graph)
     freq = to_complex(mode_0)
     gamma_overlap = gamma(freq, graph.graph["params"]) * overlapping_factor
     return from_complex(freq * np.sqrt((1.0 + gamma_overlap * D0_0) / (1.0 + gamma_overlap * D0_1)))
@@ -633,8 +639,14 @@ def _precomputations_mode_competition(graph, pump_mask, mode_threshold, check_qu
     return k_mu, edge_flux, gam
 
 
-def _compute_mode_competition_element(lengths, params, data, with_gamma=True):
-    """Computes a single element of the mode competition matrix."""
+def _compute_mode_competition_element_reference(lengths, params, data, with_gamma=True):
+    """Scalar reference implementation of a mode-competition matrix element.
+
+    This is the original per-edge Python loop. It is kept **only** as the test
+    oracle for the vectorised kernel below (see
+    ``tests/test_unit.py::TestModeCompetitionVectorisation``); nothing in the
+    library calls it.
+    """
     mu_data, nu_data, gamma_nu = data
     k_mus, edge_flux_mu = mu_data
     k_nus, edge_flux_nu = nu_data
@@ -714,6 +726,217 @@ def _compute_mode_competition_element(lengths, params, data, with_gamma=True):
     return matrix_element
 
 
+#: Peak working-set budget, in bytes, for the batched mode-competition kernel.
+#:
+#: The contraction over ``(mu, nu, edge)`` is blocked over ``mu`` so that the
+#: temporaries stay inside this budget. The kernel keeps at most ~7 complex128
+#: arrays of shape ``(mu_chunk, n_modes, n_edges)`` alive at once; the divisor
+#: below is deliberately conservative (12) to leave headroom for NumPy's own
+#: scratch buffers. 512 MiB was chosen because it is comfortably below a typical
+#: compute-node per-core allowance while still giving large chunks at research
+#: scale (M=400 modes, E=2500 edges gives a chunk of 2 rows, i.e. 2M elements of
+#: vectorised work per block -- far more than enough to amortise loop overhead).
+MODE_COMPETITION_MEMORY_BUDGET = 512 * 1024**2
+
+_COMPETITION_TEMPORARIES = 12
+
+
+def _competition_chunk_size(n_modes, n_edges, budget=None):
+    """Number of ``mu`` rows to process per block under the memory budget."""
+    budget = MODE_COMPETITION_MEMORY_BUDGET if budget is None else budget
+    per_row = _COMPETITION_TEMPORARIES * 16 * max(int(n_modes), 1) * max(int(n_edges), 1)
+    return max(1, int(budget // max(per_row, 1)))
+
+
+def _competition_edge_mask(params):
+    """Boolean mask of the edges that contribute to the competition matrix.
+
+    Mirrors ``params["pump"][ei] > 0.0 and params["inner"][ei]`` from the scalar
+    reference implementation.
+    """
+    pump = np.asarray(params["pump"], dtype=float)
+    inner = np.asarray(params["inner"]).astype(bool)
+    return (pump > 0.0) & inner
+
+
+def _split_fluxes(fluxes, mask):
+    """Split a stack of ``2E`` edge fluxes into the ``+`` / ``-`` halves on masked edges."""
+    fluxes = np.atleast_2d(np.asarray(fluxes, dtype=np.complex128))
+    return fluxes[:, 0::2][:, mask], fluxes[:, 1::2][:, mask]
+
+
+class _CompetitionLeftTerms(NamedTuple):
+    """Mode-nu (left-vector) per-edge factors, all of shape ``(n_modes, n_edges)``."""
+
+    s: np.ndarray  # k_nu - conj(k_nu)
+    bpc: np.ndarray  # k_nu + conj(k_nu)
+    x: np.ndarray  # exp(1j * s * length)
+    p: np.ndarray  # exp(1j * k_nu * length)
+    q: np.ndarray  # exp(-1j * conj(k_nu) * length)
+    l0: np.ndarray  # |flux_nu_plus|^2
+    l1: np.ndarray  # flux_nu_plus * conj(flux_nu_minus)
+    l2: np.ndarray  # conj(flux_nu_plus) * flux_nu_minus
+    l3: np.ndarray  # |flux_nu_minus|^2
+    ef: np.ndarray  # collapsed E/F contribution, see below
+
+
+class _CompetitionRightTerms(NamedTuple):
+    """Mode-mu (right-vector) per-edge factors, all of shape ``(n_modes, n_edges)``."""
+
+    k2: np.ndarray  # 2 * k_mu
+    y: np.ndarray  # exp(2j * k_mu * length)
+    r0: np.ndarray  # flux_mu_plus ** 2
+    r3: np.ndarray  # flux_mu_minus ** 2
+    g: np.ndarray  # 2 * exp(1j * k_mu * length) * flux_mu_plus * flux_mu_minus
+
+
+def _competition_left_terms(lengths, ks, fp, fm):
+    """Precompute the nu-dependent factors of the inner 4x4 matrix and left vector."""
+    ks = np.asarray(ks, dtype=np.complex128)
+    ks_c = np.conj(ks)
+
+    s = ks - ks_c
+    bpc = ks + ks_c
+    x = np.exp(1.0j * s * lengths)
+    p = np.exp(1.0j * ks * lengths)
+    q = np.exp(-1.0j * ks_c * lengths)
+
+    l0 = np.abs(fp) ** 2
+    l1 = fp * np.conj(fm)
+    l2 = np.conj(fp) * fm
+    l3 = np.abs(fm) ** 2
+
+    # Degenerate wavenumbers (real or purely imaginary k_nu) make these
+    # denominators vanish. The scalar reference divides by zero there too,
+    # producing inf / nan and a RuntimeWarning; that behaviour is deliberately
+    # preserved rather than "fixed" -- see TestModeCompetitionVectorisation.
+    e_nu = (x - 1.0) / (1.0j * s)
+    f_nu = (p - q) / (1.0j * bpc)
+
+    # The E and F blocks of the inner matrix both factor as
+    # ``exp(1j * k_mu * length) * (nu-only term)``, and both multiply the same
+    # right-vector entry (``flux_mu_plus * flux_mu_minus``, which appears twice).
+    # Their whole contribution therefore collapses to a single mode-by-mode
+    # matrix product ``g @ ef.T`` instead of an (mu, nu, edge) tensor.
+    ef = e_nu * (l0 + l3) + f_nu * (l1 + l2)
+
+    return _CompetitionLeftTerms(s, bpc, x, p, q, l0, l1, l2, l3, ef)
+
+
+def _competition_right_terms(lengths, ks, fp, fm):
+    """Precompute the mu-dependent factors of the inner 4x4 matrix and right vector."""
+    ks = np.asarray(ks, dtype=np.complex128)
+    return _CompetitionRightTerms(
+        k2=2.0 * ks,
+        y=np.exp(2.0j * ks * lengths),
+        r0=fp**2,
+        r3=fm**2,
+        g=2.0 * np.exp(1.0j * ks * lengths) * fp * fm,
+    )
+
+
+def _mode_competition_contraction(left, right, chunk=None):
+    """Contract the inner 4x4 matrices over all edges for every ``(mu, nu)`` pair.
+
+    Expanding ``left_vector @ inner_matrix @ right_vector`` with the symmetries of
+    ``inner_matrix`` (``A`` on the diagonal corners, ``B`` on the anti-diagonal
+    corners, ``C``/``D`` on the first column and last column of the middle rows,
+    ``E``/``F`` filling the middle columns) leaves six scalar terms per edge::
+
+        A * (l0 r0 + l3 r3) + B * (l0 r3 + l3 r0)
+      + C * (l1 r0 + l2 r3) + D * (l1 r3 + l2 r0)
+      + E * 2 p_mu * (l0 + l3) + F * 2 p_mu * (l1 + l2)
+
+    The four transcendentals that the scalar loop evaluates per ``(mu, nu, edge)``
+    all factor into a mu-only and a nu-only exponential, so only multiplies and
+    divides remain inside the blocked tensor.
+    """
+    n_mu, n_edges = right.y.shape
+    n_nu = left.x.shape[0]
+    out = np.zeros((n_mu, n_nu), dtype=np.complex128)
+    if n_edges == 0 or n_mu == 0 or n_nu == 0:
+        return out
+
+    if chunk is None:
+        chunk = _competition_chunk_size(n_nu, n_edges)
+
+    x, p, q = left.x[None], left.p[None], left.q[None]
+    s, bpc = left.s[None], left.bpc[None]
+    l0, l1, l2, l3 = left.l0[None], left.l1[None], left.l2[None], left.l3[None]
+
+    for start in range(0, n_mu, chunk):
+        stop = min(start + chunk, n_mu)
+        y = right.y[start:stop, None, :]
+        k2 = right.k2[start:stop, None, :]
+        r0 = right.r0[start:stop, None, :]
+        r3 = right.r3[start:stop, None, :]
+
+        # A terms
+        acc = (x * y - 1.0) / (1.0j * (s + k2)) * (l0 * r0 + l3 * r3)
+        # B terms: exp(2j k_mu l) * (exp(1j (s - 2 k_mu) l) - 1) == x - y
+        acc += (x - y) / (1.0j * (s - k2)) * (l0 * r3 + l3 * r0)
+        # C terms
+        acc += (p * y - q) / (1.0j * (bpc + k2)) * (l1 * r0 + l2 * r3)
+        # D terms
+        acc += (p - y * q) / (1.0j * (bpc - k2)) * (l1 * r3 + l2 * r0)
+        out[start:stop] = acc.sum(axis=2)
+
+    # E and F terms, collapsed to one complex matrix product.
+    out += right.g @ left.ef.T
+    return out
+
+
+def _compute_mode_competition_element(lengths, params, data, with_gamma=True):
+    """Computes a single element of the mode competition matrix.
+
+    Vectorised over edges: drop-in replacement for
+    :func:`_compute_mode_competition_element_reference`.
+    """
+    mu_data, nu_data, gamma_nu = data
+    k_mus, edge_flux_mu = mu_data
+    k_nus, edge_flux_nu = nu_data
+
+    mask = _competition_edge_mask(params)
+    lengths = np.asarray(lengths, dtype=float)[mask]
+
+    fp_nu, fm_nu = _split_fluxes(edge_flux_nu, mask)
+    fp_mu, fm_mu = _split_fluxes(edge_flux_mu, mask)
+    left = _competition_left_terms(lengths, np.atleast_2d(k_nus)[:, mask], fp_nu, fm_nu)
+    right = _competition_right_terms(lengths, np.atleast_2d(k_mus)[:, mask], fp_mu, fm_mu)
+
+    matrix_element = _mode_competition_contraction(left, right)[0, 0]
+    if with_gamma:
+        return -matrix_element * np.imag(gamma_nu)
+    return matrix_element
+
+
+def _compute_mode_competition_matrix_batched(lengths, params, precomp, with_gamma=True):
+    """Full ``M x M`` mode-competition matrix from the per-mode precomputations.
+
+    ``precomp`` is the list of ``(k_mus, edge_flux, gamma)`` tuples produced by
+    :func:`_precomputations_mode_competition`.
+    """
+    n_modes = len(precomp)
+    if n_modes == 0:
+        return np.zeros((0, 0), dtype=np.complex128)
+
+    mask = _competition_edge_mask(params)
+    lengths = np.asarray(lengths, dtype=float)[mask]
+
+    ks = np.asarray([np.asarray(entry[0]) for entry in precomp], dtype=np.complex128)[:, mask]
+    fluxes = np.asarray([np.asarray(entry[1]) for entry in precomp], dtype=np.complex128)
+    fp, fm = _split_fluxes(fluxes, mask)
+
+    left = _competition_left_terms(lengths, ks, fp, fm)
+    right = _competition_right_terms(lengths, ks, fp, fm)
+
+    matrix = _mode_competition_contraction(left, right)
+    if with_gamma:
+        gammas = np.asarray([entry[2] for entry in precomp], dtype=np.complex128)
+        matrix = -matrix * np.imag(gammas)[None, :]
+    return matrix
+
+
 def _mode_competition_matrix_block(
     graph, threshold_modes, pumps, with_gamma=True, check_quality=True
 ):
@@ -749,45 +972,19 @@ def _mode_competition_matrix_block(
             )
         )
 
-    input_data = []
-    for mu in range(len(threshold_modes)):
-        for nu in range(len(threshold_modes)):
-            input_data.append(
-                [
-                    precomp_results[mu][:2],
-                    precomp_results[nu][:2],
-                    precomp_results[nu][2],
-                ]
-            )
-
-    chunksize = max(1, int(0.1 * len(input_data) / n_workers))
-    with multiprocessing.Pool(n_workers) as pool:
-        output_data = list(
-            tqdm(
-                pool.imap(
-                    partial(
-                        _compute_mode_competition_element,
-                        graph.graph["lengths"],
-                        graph.graph["params"],
-                        with_gamma=with_gamma,
-                    ),
-                    input_data,
-                    chunksize=chunksize,
-                ),
-                total=len(input_data),
-            )
+    # The M*M elements used to be fanned out over a multiprocessing pool, one
+    # Python edge-loop per element. The whole tensor contraction is now a handful
+    # of batched array ops (blocked over mu to respect
+    # MODE_COMPETITION_MEMORY_BUDGET), which is faster in a single process than
+    # the pool ever was -- so no pool here.
+    return np.real(
+        _compute_mode_competition_matrix_batched(
+            graph.graph["lengths"],
+            graph.graph["params"],
+            precomp_results,
+            with_gamma=with_gamma,
         )
-
-    mode_competition_matrix = np.zeros(
-        [len(threshold_modes), len(threshold_modes)], dtype=np.complex128
     )
-    index = 0
-    for mu in range(len(threshold_modes)):
-        for nu in range(len(threshold_modes)):
-            mode_competition_matrix[mu, nu] = output_data[index]
-            index += 1
-
-    return np.real(mode_competition_matrix)
 
 
 def _scatter_competition_block(block, lasing_mask, n_total):
@@ -851,6 +1048,32 @@ def _find_next_lasing_mode(
     return next_lasing_mode_id, next_lasing_threshold
 
 
+#: Condition number of the active competition submatrix above which the split of
+#: intensity between modes is reported as unresolved. The solve inverts that
+#: submatrix, so its conditioning is exactly the amplification factor from
+#: threshold/competition errors to per-mode intensities. 1e8 leaves ~8 digits of
+#: double precision, i.e. the per-mode split is meaningless beyond it even though
+#: the *total* stays well determined.
+COMPETITION_CONDITION_WARN = 1e8
+
+
+def competition_conditioning(mode_competition_matrix, lasing_mode_ids):
+    """Condition number of the competition submatrix over the given modes.
+
+    Near-degenerate modes -- closer than the gain linewidth -- have nearly
+    parallel competition rows, so the submatrix is ill-conditioned. Both places
+    the sweep inverts it are then unreliable: the intensity *split* between
+    those modes (only their sum is determined) and, upstream of that, *which* of
+    them lases at all, since :func:`_find_next_lasing_mode` picks the winner
+    from the same inverse. The solver uses ``pinv``, which returns an answer
+    regardless; this is the number that says whether to believe it.
+    """
+    if not len(lasing_mode_ids):
+        return 1.0
+    submatrix = mode_competition_matrix[np.ix_(lasing_mode_ids, lasing_mode_ids)]
+    return float(np.linalg.cond(submatrix))
+
+
 def _intensity_slopes_shifts(mode_competition_matrix, lasing_thresholds, lasing_mode_ids):
     """Linear modal-intensity solve for the active set.
 
@@ -871,8 +1094,24 @@ def compute_modal_intensities(modes_df, max_pump_intensity, mode_competition_mat
     Event-driven sweep over the pump strength with the fixed (near-threshold)
     competition matrix: intensities grow piecewise-linearly between mode
     activation / vanishing events.
+
+    The per-mode intensities come from inverting the competition submatrix over
+    the currently-lasing modes. When that submatrix is ill-conditioned (a
+    near-degenerate mode pair), the split between those modes is not resolvable
+    and a warning fires; the worst conditioning seen over the sweep is recorded
+    in ``modes_df.attrs["competition_condition_max"]``. See
+    :func:`competition_conditioning`.
     """
     lasing_thresholds = np.asarray(modes_df["lasing_thresholds"]).ravel()
+
+    # Conditioning over every candidate (finite-threshold) mode, not just the
+    # active set. A near-degenerate pair is usually never *co*-active -- the
+    # sweep picks one and suppresses the other -- so watching only the active
+    # set misses the pathology entirely. What is unresolved there is which of
+    # them won.
+    candidate_ids = [int(i) for i in np.where(np.isfinite(lasing_thresholds))[0]]
+    candidate_condition = competition_conditioning(mode_competition_matrix, candidate_ids)
+    worst_condition = 1.0
 
     next_lasing_mode_id = int(np.argmin(lasing_thresholds))
     next_lasing_threshold = lasing_thresholds[next_lasing_mode_id]
@@ -901,6 +1140,9 @@ def compute_modal_intensities(modes_df, max_pump_intensity, mode_competition_mat
         L.debug("Current pump intensity %s", pump_intensity)
 
         # 1) compute the current mode intensities
+        worst_condition = max(
+            worst_condition, competition_conditioning(mode_competition_matrix, lasing_mode_ids)
+        )
         slopes, shifts = _intensity_slopes_shifts(
             mode_competition_matrix, lasing_thresholds, lasing_mode_ids
         )
@@ -973,6 +1215,19 @@ def compute_modal_intensities(modes_df, max_pump_intensity, mode_competition_mat
         modes_df["modal_intensities", np.around(pump_intensity, 8)] = modal_intensities[
             pump_intensity
         ]
+    modes_df.attrs["competition_condition_max"] = worst_condition
+    modes_df.attrs["competition_condition_candidates"] = candidate_condition
+    worst = max(worst_condition, candidate_condition)
+    if worst > COMPETITION_CONDITION_WARN:
+        warnings.warn(
+            f"The mode-competition matrix reached condition number {worst:.2e} "
+            f"(candidate set {candidate_condition:.2e}, worst active set {worst_condition:.2e}), "
+            "so the per-mode result is not resolved: which of the near-degenerate modes lases, "
+            "and how intensity splits between co-lasing ones, are both set by differences below "
+            "the numerical noise floor. Their total is still well determined. Treat the "
+            "per-mode intensities as indicative only.",
+            stacklevel=2,
+        )
     L.info(
         "%s lasing modes out of %s",
         len(np.where(modal_intensities.to_numpy()[:, -1] > 0)[0]),
@@ -1163,9 +1418,10 @@ def _solve_active_set(
     pump_mask,
     max_steps,
     seed,
-    outer=6,
+    outer=25,
     damping=0.7,
     k_window_cap=None,
+    residual_tol=1e-6,
 ):
     """Frozen-field trust-region ``(k, a)`` solve for a *fixed* active set.
 
@@ -1176,6 +1432,15 @@ def _solve_active_set(
     the fields, repeat. This replaces the old decoupled amplitude least-squares
     whose residual re-ran an inner fixed point -- a noisy Jacobian that made the
     multimode amplitudes chatter. Returns ``(modes, fields, a, converged)``.
+
+    ``converged`` is True once *either* the damped field iterate has settled or
+    the SALT condition itself is met -- the saturated operator is singular at
+    every lasing mode's real ``k`` to ``residual_tol``. The second test matters:
+    the field iterate converges geometrically at ~0.3 per step and needs ~12
+    iterations on ``line_PRA``, so the old budget of 6 cut it off mid-descent and
+    reported failure at every pump of the two-mode regime even though the
+    amplitudes were already correct to four digits and the residual was 3e-5 and
+    still falling. The budget is now 25.
     """
     n = len(modes0)
     k0 = np.array([float(m[0]) for m in modes0])
@@ -1207,6 +1472,8 @@ def _solve_active_set(
     ks = k0.copy()
     converged = False
     for _ in range(outer):
+        # (loop body below; convergence is tested on both the field change and
+        # the SALT residual -- see the block after the field update)
         x0 = np.clip(np.concatenate([ks, a]), lo, hi)
         try:
             result = sc.optimize.least_squares(
@@ -1228,6 +1495,18 @@ def _solve_active_set(
         if change <= 1e-6 * (1.0 + sum(np.linalg.norm(f) for f in fields)):
             converged = True
             break
+        # The field change is only a proxy; the physical condition is that the
+        # saturated operator is singular at every *lasing* mode's real k. Test it
+        # directly, so a solve that has reached the SALT solution is not reported
+        # as a failure merely because the damped field iterate is still creeping.
+        # (Modes with a ~ 0 are not lasing, so the condition does not apply to
+        # them -- their residual is legitimately nonzero.)
+        lasing = [i for i in range(n) if a[i] > 1e-4]
+        if lasing:
+            g_res = _saturated_graph_multi(graph, [[k, 0.0] for k in ks], a, D0, pump, fields)
+            if all(abs(_lam_real_k(g_res, ks[i], seed)) <= residual_tol for i in lasing):
+                converged = True
+                break
     modes = [np.array([float(ks[i]), 0.0]) for i in range(n)]
     return modes, fields, a, converged
 
@@ -1794,7 +2073,21 @@ def _full_salt_newton_impl(
 
 
 def pump_trajectories(modes_df, graph, return_approx=False, quality_method="eigenvalue"):
-    """For a sequence of D0s, find the mode positions of the modes modes."""
+    """Track every mode's position as the pump ``D0`` is raised from 0 to ``D0_max``.
+
+    Modes whose refinement fails at some pump are *frozen*: their last
+    successfully refined position is carried through the remaining pump steps
+    and the pump at which tracking was lost is recorded in the
+    ``tracking_lost_at_D0`` column (``NaN`` for modes tracked all the way).
+
+    Freezing rather than re-seeding matters. The previous behaviour substituted
+    the last good position and kept feeding it to :func:`pump_linear` at the
+    *new* pump, where it is no longer a mode — :func:`mode_on_nodes` then raised
+    ``"Not a mode, as quality is too high"`` from inside the next iteration,
+    killing the whole run with an error pointing at a mode that was fine. On the
+    shipped ``examples/line_PRA`` config, changing only ``gamma_perp`` from 3.0
+    to 1.5 was enough to hit it.
+    """
 
     D0s = np.linspace(
         0,
@@ -1806,32 +2099,59 @@ def pump_trajectories(modes_df, graph, return_approx=False, quality_method="eige
 
     pumped_modes = [[from_complex(mode) for mode in modes_df["passive"]]]
     pumped_modes_approx = pumped_modes.copy()
-    for d in range(len(D0s) - 1):
-        L.info(
-            "Step %s / %s, computing for D0= %s",
-            str(d + 1),
-            str(len(D0s) - 1),
-            str(D0s[d + 1]),
-        )
-        pumped_modes_approx.append(pumped_modes[-1].copy())
-        for m in range(n_modes):
-            pumped_modes_approx[-1][m] = pump_linear(pumped_modes[-1][m], graph, D0s[d], D0s[d + 1])
+    # D0 at which each mode stopped being trackable; NaN while still tracked.
+    lost_at = np.full(n_modes, np.nan)
+    # One pool for the whole sweep. Creating it per D0 step cost a fork +
+    # teardown each time (~15 ms + ~8 ms at 4 workers, ~690 ms at 80), which
+    # dominates the tail of the sweep where only a handful of modes are left.
+    # Pickling the graph to the workers is cheap by comparison (<1 ms even at
+    # buffon size), so nothing else has to change.
+    with (
+        _scoped_warning_filters(),
+        multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool,
+    ):
+        for d in range(len(D0s) - 1):
+            L.info(
+                "Step %s / %s, computing for D0= %s",
+                str(d + 1),
+                str(len(D0s) - 1),
+                str(D0s[d + 1]),
+            )
+            tracked = [m for m in range(n_modes) if np.isnan(lost_at[m])]
+            pumped_modes_approx.append(pumped_modes[-1].copy())
+            # The linear pump step is one eigensolve per mode and was run
+            # serially in the parent while the pool sat idle (30% of this step).
+            approx = pool.imap(
+                partial(pump_linear, graph=graph, D0_0=D0s[d], D0_1=D0s[d + 1]),
+                [pumped_modes[-1][m] for m in tracked],
+            )
+            for m, mode_approx in zip(tracked, approx, strict=True):
+                pumped_modes_approx[-1][m] = mode_approx
 
-        worker_modes = WorkerModes(
-            pumped_modes_approx[-1],
-            graph,
-            D0s=n_modes * [D0s[d + 1]],
-            quality_method=quality_method,
+            worker_modes = WorkerModes(
+                pumped_modes_approx[-1],
+                graph,
+                D0s=n_modes * [D0s[d + 1]],
+                quality_method=quality_method,
+            )
+            refined = list(tqdm(pool.imap(worker_modes, tracked), total=len(tracked)))
+
+            # Frozen modes keep their last position; newly-lost ones join them.
+            pumped_modes.append(pumped_modes[-1].copy())
+            for m, mode in zip(tracked, refined, strict=True):
+                if mode is None:
+                    lost_at[m] = D0s[d + 1]
+                else:
+                    pumped_modes[-1][m] = mode
+
+    n_lost = int(np.count_nonzero(~np.isnan(lost_at)))
+    if n_lost:
+        warnings.warn(
+            f"{n_lost} of {n_modes} modes could not be tracked over the whole pump sweep and "
+            "were frozen at their last refined position; see the 'tracking_lost_at_D0' column. "
+            "Consider a finer D0_steps or a looser quality_threshold.",
+            stacklevel=2,
         )
-        with (
-            _scoped_warning_filters(),
-            multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool,
-        ):
-            pumped_modes.append(list(tqdm(pool.imap(worker_modes, range(n_modes)), total=n_modes)))
-        for i, mode in enumerate(pumped_modes[-1]):
-            if mode is None:
-                L.info("Mode not be updated, consider changing the search parameters.")
-                pumped_modes[-1][i] = pumped_modes[-2][i]
 
     if "mode_trajectories" in modes_df:
         del modes_df["mode_trajectories"]
@@ -1846,13 +2166,19 @@ def pump_trajectories(modes_df, graph, return_approx=False, quality_method="eige
                 to_complex(mode) for mode in pumped_mode_approx
             ]
 
+    modes_df["tracking_lost_at_D0"] = lost_at
     return modes_df
 
 
 def _get_new_D0(arg, graph=None, D0_steps=0.1):
     """Internal function for multiprocessing."""
     mode_id, new_mode, D0 = arg
-    increment = lasing_threshold_linear(new_mode, graph, D0)
+    # Both helpers below need the mode's overlap with the pump at this same D0.
+    # Computing it here and passing it in halves the work: it was previously
+    # evaluated twice per call with byte-identical arguments (52% of this
+    # function's cost).
+    overlapping_factor = compute_overlapping_factor(new_mode, graph_with_pump(graph, D0))
+    increment = lasing_threshold_linear(new_mode, graph, D0, overlapping_factor=overlapping_factor)
     if increment > -D0_steps:
         new_D0 = abs(D0 + increment)
         new_D0 = min(new_D0, D0_steps + D0)
@@ -1861,12 +2187,20 @@ def _get_new_D0(arg, graph=None, D0_steps=0.1):
         new_D0 = D0 + 0.5 * D0_steps
 
     L.debug("Mode %s at intensity %s", mode_id, new_D0)
-    new_modes_approx = pump_linear(new_mode, graph, D0, new_D0)
+    new_modes_approx = pump_linear(
+        new_mode, graph, D0, new_D0, overlapping_factor=overlapping_factor
+    )
     return mode_id, new_D0, new_modes_approx
 
 
 def find_threshold_lasing_modes(modes_df, graph, quality_method="eigenvalue"):
-    """Find the threshold lasing modes and associated lasing thresholds."""
+    """Find the threshold lasing modes and associated lasing thresholds.
+
+    Modes whose refinement fails part-way up the pump are dropped from the
+    search with their threshold left at ``inf`` (the existing "never reached
+    threshold" encoding) and reported in a warning, rather than crashing the
+    run — see the comment at the refinement result loop below.
+    """
     stepsize = graph.graph["params"]["search_stepsize"]
     D0_steps = graph.graph["params"]["D0_max"] / graph.graph["params"]["D0_steps"]
     new_modes = modes_df["passive"].to_numpy()
@@ -1875,67 +2209,113 @@ def find_threshold_lasing_modes(modes_df, graph, quality_method="eigenvalue"):
     lasing_thresholds = np.inf * np.ones(len(modes_df))
     D0s = np.zeros(len(modes_df))
     current_modes = np.arange(len(modes_df))
+    lost_modes: list[int] = []
     stuck_modes_count = 0
     max_modes = len(current_modes)
     prev_n_modes = 0
-    while len(current_modes) > 0:
-        if len(current_modes) == prev_n_modes:
-            stuck_modes_count += 1
-        prev_n_modes = len(current_modes)
-        if max_modes > stuck_modes_count > 100:
-            warnings.warn("We stop here, some modes got stuck.", stacklevel=2)
-            current_modes = []
-            continue
-        L.info("%s modes left to find", len(current_modes))
+    # One pool for the whole search. It used to create *two* per while-loop
+    # iteration, and the tail iterations carry one or two modes each yet still
+    # paid a full fork + teardown twice -- over half the iteration at that point.
+    with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
+        while len(current_modes) > 0:
+            if len(current_modes) == prev_n_modes:
+                stuck_modes_count += 1
+            prev_n_modes = len(current_modes)
+            if max_modes > stuck_modes_count > 100:
+                warnings.warn("We stop here, some modes got stuck.", stacklevel=2)
+                current_modes = []
+                continue
+            L.info("%s modes left to find", len(current_modes))
 
-        new_D0s = np.zeros(len(modes_df))
-        new_modes_approx = np.empty([len(new_modes), 2])
-        args = ((mode_id, new_modes[mode_id], D0s[mode_id]) for mode_id in current_modes)
-        with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
+            new_D0s = np.zeros(len(modes_df))
+            new_modes_approx = np.empty([len(new_modes), 2])
+            args = ((mode_id, new_modes[mode_id], D0s[mode_id]) for mode_id in current_modes)
             for mode_id, new_D0, new_mode_approx in pool.imap(
                 partial(_get_new_D0, graph=graph, D0_steps=D0_steps), args
             ):
                 new_D0s[mode_id] = new_D0
                 new_modes_approx[mode_id] = new_mode_approx
 
-        # this is a trick to reduce the stepsizes as we are near the solution.
-        # Passed explicitly to WorkerModes (applied to its per-call params copy)
-        # rather than stashed on the shared graph.graph["params"].
-        search_stepsize = (
-            stepsize * np.mean(abs(new_D0s[new_D0s > 0] - D0s[new_D0s > 0])) / D0_steps
-        )
-
-        L.debug("Current search_stepsize: %s", search_stepsize)
-        worker_modes = WorkerModes(
-            new_modes_approx,
-            graph,
-            D0s=new_D0s,
-            search_stepsize=search_stepsize,
-            quality_method=quality_method,
-        )
-        new_modes_tmp = np.zeros([len(modes_df), 2])
-
-        with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
-            new_modes_tmp[current_modes] = list(
-                tqdm(pool.imap(worker_modes, current_modes), total=len(current_modes))
+            # this is a trick to reduce the stepsizes as we are near the solution.
+            # Passed explicitly to WorkerModes (applied to its per-call params copy)
+            # rather than stashed on the shared graph.graph["params"].
+            search_stepsize = (
+                stepsize * np.mean(abs(new_D0s[new_D0s > 0] - D0s[new_D0s > 0])) / D0_steps
             )
 
-        to_delete = []
-        for i, mode_index in enumerate(current_modes):
-            if new_modes_tmp[mode_index] is None:
-                L.info("A mode could not be updated, consider modifying the search parameters.")
-                new_modes_tmp[mode_index] = new_modes[mode_index]
-            elif abs(new_modes_tmp[mode_index][1]) < 1e-6:
-                to_delete.append(i)
-                threshold_lasing_modes[mode_index] = new_modes_tmp[mode_index]
-                lasing_thresholds[mode_index] = new_D0s[mode_index]
+            L.debug("Current search_stepsize: %s", search_stepsize)
+            worker_modes = WorkerModes(
+                new_modes_approx,
+                graph,
+                D0s=new_D0s,
+                search_stepsize=search_stepsize,
+                quality_method=quality_method,
+            )
+            new_modes_tmp = np.zeros([len(modes_df), 2])
 
-            elif new_D0s[mode_index] > graph.graph["params"]["D0_max"]:
-                to_delete.append(i)
+            refined = list(tqdm(pool.imap(worker_modes, current_modes), total=len(current_modes)))
 
-        current_modes = np.delete(current_modes, to_delete)
-        D0s = new_D0s.copy()
-        new_modes = new_modes_tmp.copy()
+            # ``refine_mode`` returns None when it fails to converge. Assigning that
+            # straight into the float array raised an opaque numpy "inhomogeneous
+            # shape" ValueError, and the `is None` check below it could never fire
+            # (a row of a float array is never None), so the intended recovery was
+            # dead code. Keep the last known position for a failed mode and stop
+            # tracking it: its threshold stays inf, which is how the rest of the
+            # pipeline already represents "never reached threshold".
+            to_delete = []
+            for i, (mode_index, mode) in enumerate(zip(current_modes, refined, strict=True)):
+                if mode is None:
+                    # ``new_modes`` holds complex passive modes on the first pass and
+                    # [k, alpha] pairs afterwards; from_complex normalises both.
+                    new_modes_tmp[mode_index] = from_complex(new_modes[mode_index])
+                    lost_modes.append(int(mode_index))
+                    to_delete.append(i)
+                    continue
+                new_modes_tmp[mode_index] = mode
+                if abs(new_modes_tmp[mode_index][1]) < 1e-6:
+                    to_delete.append(i)
+                    threshold_lasing_modes[mode_index] = new_modes_tmp[mode_index]
+                    lasing_thresholds[mode_index] = new_D0s[mode_index]
+
+                elif new_D0s[mode_index] > graph.graph["params"]["D0_max"]:
+                    to_delete.append(i)
+
+            current_modes = np.delete(current_modes, to_delete)
+            D0s = new_D0s.copy()
+            new_modes = new_modes_tmp.copy()
+
+    # A mode whose threshold comes out at (essentially) zero was already at or
+    # above threshold with no pump -- a near-zero-loss trapped mode, alpha ~ 0.
+    # The whole near-threshold model divides by alpha (q_value = k / 2*alpha), so
+    # it says nothing about such a mode, and feeding it downstream produces
+    # absurd intensities rather than an error (observed: 7e7 where the real modes
+    # sit at ~1e2). Exclude them the same way modes that never reach threshold
+    # are excluded, and say so.
+    threshold_floor = 1e-6 * graph.graph["params"]["D0_max"]
+    already_lasing = [
+        int(i)
+        for i in np.where(lasing_thresholds <= threshold_floor)[0]
+        if np.isfinite(lasing_thresholds[i])
+    ]
+    if already_lasing:
+        warnings.warn(
+            f"Mode(s) {already_lasing} reach threshold at D0 <= {threshold_floor:.3g}, i.e. they "
+            "already lase with no pump (alpha ~ 0, a trapped or numerically marginal mode). The "
+            "near-threshold model divides by alpha and cannot describe them, so they are excluded "
+            "from the lasing set. Narrow the scan window (alpha_min > 0) or tighten "
+            "quality_threshold if these are numerical artefacts.",
+            stacklevel=2,
+        )
+        lasing_thresholds[already_lasing] = np.inf
+        threshold_lasing_modes[already_lasing] = 0.0
+
+    if lost_modes:
+        warnings.warn(
+            f"Refinement failed for mode(s) {sorted(set(lost_modes))} part-way up the pump; "
+            "their lasing threshold is reported as inf. Consider a finer D0_steps or a "
+            "looser quality_threshold.",
+            stacklevel=2,
+        )
 
     modes_df["threshold_lasing_modes"] = [to_complex(mode) for mode in threshold_lasing_modes]
     modes_df["lasing_thresholds"] = lasing_thresholds
@@ -1953,14 +2333,21 @@ def find_threshold_lasing_modes(modes_df, graph, quality_method="eigenvalue"):
     return modes_df.drop(columns=["th"])
 
 
-def lasing_threshold_linear(mode, graph, D0):
-    """Find the linear approximation of the new wavenumber."""
+def lasing_threshold_linear(mode, graph, D0, overlapping_factor=None):
+    """Find the linear approximation of the pump increment to reach threshold.
+
+    ``overlapping_factor`` is optional and only exists so a caller that also
+    needs it (:func:`_get_new_D0`) can compute it once; see
+    :func:`pump_linear`.
+    """
     graph = graph_with_pump(graph, D0)
+    if overlapping_factor is None:
+        overlapping_factor = compute_overlapping_factor(mode, graph)
     return 1.0 / (
         q_value(mode)
         * -1
         * np.imag(gamma(to_complex(mode), graph.graph["params"]))
-        * np.real(compute_overlapping_factor(mode, graph))
+        * np.real(overlapping_factor)
     )
 
 

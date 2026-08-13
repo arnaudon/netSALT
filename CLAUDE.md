@@ -32,6 +32,15 @@ mapping.
     **also runs on the real buffon** (~12 s capped, ~6 min uncapped at λ/4 ≈30k
     nodes, lasing its co-lasing modes) — raise the cap / `oversample_resolution`
     for accuracy at higher cost. `linear` is still the cheap first pass for counts.
+    `multiprocessing.Pool` over the scan grid.
+    `compute_mode_competition_matrix` no longer fans the `M*M` elements out
+    over a pool: `_compute_mode_competition_matrix_batched` contracts the
+    whole `(mu, nu, edge)` tensor with NumPy, blocked over `mu` under
+    `MODE_COMPETITION_MEMORY_BUDGET` (512 MiB). The original scalar edge
+    loop survives as `_compute_mode_competition_element_reference`, used
+    only as the test oracle in
+    `tests/test_unit.py::TestModeCompetitionVectorisation`. Benchmark:
+    `benchmark/bench_competition.py`.
   - `algorithm.py` — rough mode detection (skimage `peak_local_max`) and
     two refinement algorithms: `refine_mode_root` (MINPACK ``hybr``,
     default) and `refine_mode_brownian_ratchet` (legacy random-walk
@@ -40,7 +49,11 @@ mapping.
     Nelder-Mead used to live here but were dropped: see
     `benchmark/bench_refine.py` for the wall-time numbers
     that didn't justify the maintenance cost.
-  - `contour.py` — Beyn's contour-integration mode search. Locates every
+  - `contour.py` — Beyn's contour-integration mode search. `n_k` must be
+    sized from the expected mode count, not the `k` range: a single contour
+    caps at `probe_dim` modes and returns *nothing* past capacity.
+    `default_contour_n_k` does this from the Weyl law via
+    `estimate_mode_count` / `optical_length`. Locates every
     root of ``det(L(k)) = 0`` inside a complex contour in ``O(N_quad·L²)``
     work. ``find_modes_contour`` is the production entry point — runs
     Beyn on an ``n_k × n_alpha`` grid of sub-contours and dedups at
@@ -57,7 +70,14 @@ mapping.
     `pulp` LP)
   - `io.py` — `pickle` for graphs, `pandas.to_hdf` for modes/qualities
   - `plotting.py`, `utils.py`
-  - `pipeline.py` — plain-Python pipeline. `step_*` functions are the
+  - `pipeline.py` — plain-Python pipeline. Three behaviours worth knowing:
+    the dense quality-grid scan runs only when something reads it
+    (`_needs_scan`; the default contour search does not — override with
+    `with_scan: true`); `check_output_cache` refuses to reuse cached step
+    outputs produced by a different config, since the caches are keyed on
+    filename alone; and the contour knobs are config keys
+    (`contour_n_k`, `contour_n_alpha`, `contour_n_quad`,
+    `contour_probe_dim`). `step_*` functions are the
     individual cached compute / plot steps; `compute_passive_modes`,
     `compute_lasing_modes`, `compute_controllability` are the entry
     points (replacing the Luigi `Compute*` wrappers). Each step caches
@@ -105,6 +125,12 @@ mapping.
   `numpy.random.Generator`). If omitted, a fresh generator with fresh
   entropy is used. Pass a seeded `np.random.default_rng(seed)` when you
   need reproducibility.
+
+## Audit
+
+`AUDIT.md` is the standing assessment of accuracy, speed and the road to a
+research-grade full-SALT solver, with every claim backed by a reproducer in
+`examples/audit/` or `benchmark/`. Read it before starting new physics work.
 
 ## Important improvements to prioritise
 

@@ -6,6 +6,7 @@ and specific node/edges attributes.
 
 import copy
 import logging
+import warnings
 
 import networkx as nx
 import numpy as np
@@ -35,6 +36,12 @@ L = logging.getLogger(__name__)
 # *locally* (NEWTON_DENSE_EIG_MAX) for its own banded, oversampled saturated solves,
 # where ARPACK is both fast (~flat in N) and stable (isolated lasing modes).
 DENSE_EIG_MAX = 256
+# Above this dimension ``laplacian_quality(method="singularvalue")`` falls back to
+# the sparse ``svds`` path. Below it, a dense SVD is far cheaper: ``svds(which="SM")``
+# converges very slowly on quantum-graph laplacians (measured 109 ms vs 0.267 ms at
+# n=61 -- a 410x penalty), because the smallest singular value is exactly what
+# Lanczos-type methods are worst at.
+DENSE_SVD_MAX = 1000
 
 
 def create_quantum_graph(
@@ -52,26 +59,60 @@ def create_quantum_graph(
     """
     _set_node_positions(graph, positions)
     _set_edge_lengths(graph, lengths=lengths)
-    _verify_lengths(graph, seed=seed, noise_level=noise_level)
+    _verify_lengths(graph, seed=seed, noise_level=noise_level, from_positions=lengths is None)
     if params is None:
         params = graph.graph["params"]
     set_inner_edges(graph, params)
     update_parameters(graph, params)
 
 
-def _verify_lengths(graph, seed=42, noise_level=0.001):
-    """Add noise to lengths if many edges have equal."""
-    if noise_level > 0.0:
-        lengths = [graph[u][v]["length"] for u, v in graph.edges]
-        rng = np.random.default_rng(seed)
-        if np.max(np.unique(np.around(lengths, 5), return_counts=True)) > 0.2 * len(graph.edges):
-            L.info(
-                """You have more than 20% of edges of the same length,
-                so we add some small noise for safety for the numerics."""
-            )
-            for u in graph:
-                graph.nodes[u]["position"][0] += rng.normal(0, noise_level * np.min(lengths))
-            _set_edge_lengths(graph)
+def _verify_lengths(graph, seed=42, noise_level=0.001, from_positions=True):
+    """Jitter the geometry when too many edges share a length.
+
+    Equal edge lengths put every edge's ``k_e l_e`` on the secular matrix's pole
+    at the same ``k`` (see the module docstring of ``examples/audit``), so the
+    modes there are lost. This breaks the tie — but it is a *physics* change,
+    not a numerical nudge: at the default ``noise_level=0.001`` the measured
+    price is ~1e-4 relative in every mode's ``k`` and a ~1e-3 relative splitting
+    of exact degeneracies. Hence the warning rather than a silent log line.
+
+    Args:
+        graph (graph): quantum graph
+        seed (int): seed for the jitter
+        noise_level (float): jitter scale, relative to the shortest edge. 0 disables.
+        from_positions (bool): jitter node positions and recompute lengths from
+            them. False when the caller supplied explicit ``lengths``, in which
+            case the lengths are jittered directly — recomputing from positions
+            would throw the supplied lengths away entirely.
+    """
+    if noise_level <= 0.0:
+        return
+    lengths = np.array([graph[u][v]["length"] for u, v in graph.edges])
+    # ``np.unique(..., return_counts=True)`` returns ``(values, counts)``; taking
+    # ``np.max`` over the pair compared the largest edge *length* against a
+    # threshold on the *count*, so any graph whose edges were longer than
+    # ``0.2 * n_edges`` got jittered even with every length distinct.
+    _, counts = np.unique(np.around(lengths, 5), return_counts=True)
+    if counts.max() <= 0.2 * len(graph.edges):
+        return
+
+    warnings.warn(
+        f"{counts.max()} of {len(graph.edges)} edges share a length; jittering the geometry "
+        f"by noise_level={noise_level} so the equal-length modes are not lost to the secular "
+        "matrix's pole at k*l in pi*Z. This perturbs every mode (~1e-4 relative in k at the "
+        "default) and splits exact degeneracies. Pass noise_level=0 to keep the geometry "
+        "exactly as given, and see issue #45.",
+        stacklevel=3,
+    )
+    rng = np.random.default_rng(seed)
+    if from_positions:
+        for u in graph:
+            graph.nodes[u]["position"][0] += rng.normal(0, noise_level * lengths.min())
+        _set_edge_lengths(graph)
+    else:
+        _set_edge_lengths(
+            graph, lengths=lengths + rng.normal(0, noise_level * lengths.min(), len(lengths))
+        )
 
 
 def _not_equal(data1, data2, force=False):
@@ -366,6 +407,25 @@ def graph_with_pump(graph, D0):
     return graph_with_params(graph, D0=D0)
 
 
+def _csr_pattern(rows, cols, n_rows):
+    """Return ``(perm, indices, indptr)`` reproducing ``csr_matrix((data, (rows, cols)))``.
+
+    With them, ``csr_matrix((data[perm], indices, indptr))`` is *bit-identical* to
+    the COO construction, because the COO path is a pure reordering here: the
+    quantum incidence matrices have one entry per (bond, node) pair, so there
+    are no duplicates to sum. Returns None if duplicates do exist (a self-loop),
+    so the caller falls back to the COO path rather than silently dropping them.
+    """
+    order = np.lexsort((cols, rows))
+    sorted_rows, sorted_cols = rows[order], cols[order]
+    duplicated = np.any((np.diff(sorted_rows) == 0) & (np.diff(sorted_cols) == 0))
+    if duplicated:
+        return None
+    indptr = np.zeros(n_rows + 1, dtype=np.int64)
+    np.cumsum(np.bincount(rows, minlength=n_rows), out=indptr[1:])
+    return order, sorted_cols, indptr
+
+
 def _incidence_topology(graph):
     """Precompute the k-independent arrays used by ``construct_incidence_matrix``.
 
@@ -389,6 +449,14 @@ def _incidence_topology(graph):
         "m": m,
         "n": len(graph.nodes),
     }
+    # CSR patterns for B and B^T. Building a csr_matrix from COO triplets on
+    # every call re-sorts the indices and re-runs scipy's index-dtype and format
+    # checks, which is most of what construct_laplacian costs at these sizes
+    # (the cost is nearly flat in the graph size, i.e. pure bookkeeping). The
+    # pattern depends only on the topology, so it is cached here and each call
+    # becomes a permutation of the data array.
+    topology["b_pattern"] = _csr_pattern(row, col, 2 * m)
+    topology["bt_pattern"] = _csr_pattern(col, row, len(graph.nodes))
     graph.graph["_incidence_topology"] = topology
     return topology
 
@@ -422,8 +490,18 @@ def construct_incidence_matrix(graph):
         data[2::4] = 0
         data[3::4] = 0
 
-    BT = sc.sparse.csr_matrix((data_out, (col, row)), shape=(n, 2 * m), dtype=np.complex128)
-    B = sc.sparse.csr_matrix((data, (row, col)), shape=(2 * m, n), dtype=np.complex128)
+    b_pattern, bt_pattern = topo["b_pattern"], topo["bt_pattern"]
+    if b_pattern is None or bt_pattern is None:  # self-loops: no cached pattern
+        BT = sc.sparse.csr_matrix((data_out, (col, row)), shape=(n, 2 * m), dtype=np.complex128)
+        B = sc.sparse.csr_matrix((data, (row, col)), shape=(2 * m, n), dtype=np.complex128)
+        return BT, B
+
+    perm, indices, indptr = bt_pattern
+    BT = sc.sparse.csr_matrix(
+        (data_out[perm], indices, indptr), shape=(n, 2 * m), dtype=np.complex128
+    )
+    perm, indices, indptr = b_pattern
+    B = sc.sparse.csr_matrix((data[perm], indices, indptr), shape=(2 * m, n), dtype=np.complex128)
     return BT, B
 
 
@@ -437,12 +515,25 @@ def construct_weight_matrix(graph, with_k=True):
         with_k (bool): multiplies or not the laplacian by k
     """
     data_tmp = 1.0 / (np.exp(2.0j * graph.graph["lengths"] * graph.graph["ks"]) - 1.0)
-    if (data_tmp > 1e5).any():
+    # ``data_tmp`` is complex, and numpy's ``>`` on complex compares the real
+    # part, so the old ``(data_tmp > 1e5)`` missed a blown-up entry unless it
+    # happened to be large *and positive real* -- exactly two thirds of the
+    # cases. This guard exists to catch an edge sitting on the pole
+    # ``k_e l_e in pi*Z``, where the entry is large in modulus and of any phase.
+    if (np.abs(data_tmp) > 1e5).any():
         L.info("Large values in Winv, it may not work!")
     if with_k:
         data_tmp *= graph.graph["ks"]
 
-    return sc.sparse.diags(np.repeat(data_tmp, 2), format="csc", dtype=np.complex128)
+    # A diagonal matrix in CSC is trivially its own pattern; going through
+    # ``sc.sparse.diags`` builds a DIA matrix and converts it on every call.
+    diagonal = np.repeat(data_tmp, 2)
+    size = diagonal.shape[0]
+    return sc.sparse.csc_matrix(
+        (diagonal, np.arange(size), np.arange(size + 1)),
+        shape=(size, size),
+        dtype=np.complex128,
+    )
 
 
 def set_inner_edges(graph, params=None, outer_edges=None):
@@ -580,6 +671,12 @@ def laplacian_quality(laplacian, method="eigenvalue", rng=None):
         return np.exp(np.real(logdet / laplacian.shape[0]))
 
     if method == "singularvalue":
+        # ``svds(which="SM")`` converges very slowly on these matrices: measured
+        # 109 ms versus 0.267 ms for a dense SVD of the same 61-node laplacian,
+        # a 410x penalty. Take the dense route while the matrix is small enough
+        # for it to be the cheaper option.
+        if laplacian.shape[0] <= DENSE_SVD_MAX:
+            return np.linalg.svd(laplacian.toarray(), compute_uv=False)[-1]
         return sc.sparse.linalg.svds(
             laplacian,
             k=1,

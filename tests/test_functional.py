@@ -158,7 +158,15 @@ def test_full_salt_newton_multimode_two_ring():
         "gamma_perp": 0.12,
         "k_min": 3.45,
         "k_max": 3.66,
-        "alpha_min": -0.05,
+        # A passive open cavity has alpha > 0; a negative alpha_min admits
+        # amplifying "modes" that do not exist. The floor also excludes the
+        # near-trapped, very high-Q modes (alpha ~ 1e-9) that this graph
+        # supports: they lase at essentially zero pump, where the
+        # near-threshold model (which divides by alpha) says nothing, and one
+        # of them would otherwise dominate and clamp the gain for everything
+        # else. Restricting to the comparable-Q leaky cluster is what makes
+        # this a multimode test.
+        "alpha_min": 5e-4,
         "alpha_max": 0.15,
         "n_workers": 1,
         "n_modes_max": 10,
@@ -232,7 +240,15 @@ def test_full_salt_newton_multimode_chaotic_ring():
         "gamma_perp": 0.10,
         "k_min": 2.55,
         "k_max": 3.25,
-        "alpha_min": -0.05,
+        # A passive open cavity has alpha > 0; a negative alpha_min admits
+        # amplifying "modes" that do not exist. The floor also excludes the
+        # near-trapped, very high-Q modes (alpha ~ 1e-9) that this graph
+        # supports: they lase at essentially zero pump, where the
+        # near-threshold model (which divides by alpha) says nothing, and one
+        # of them would otherwise dominate and clamp the gain for everything
+        # else. Restricting to the comparable-Q leaky cluster is what makes
+        # this a multimode test.
+        "alpha_min": 5e-4,
         "alpha_max": 0.25,
         "n_workers": 1,
         "n_modes_max": 40,

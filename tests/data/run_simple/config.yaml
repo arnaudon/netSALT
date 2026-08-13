@@ -14,6 +14,9 @@ k_a: 15.0
 gamma_perp: 3.0
 
 n_workers: 1
+# Keep the dense quality grid so the reference fixture (out/qualities.h5) is
+# reproduced; the default now skips it on the contour search path.
+with_scan: true
 k_n: 100
 k_min: 12
 k_max: 19

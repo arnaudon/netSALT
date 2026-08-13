@@ -93,7 +93,11 @@ PARAMS = {
     "gamma_perp": 0.10,
     "k_min": 2.55,
     "k_max": 3.25,
-    "alpha_min": -0.05,
+    # A passive open cavity has alpha > 0; the floor also excludes the
+    # near-trapped very high-Q modes (alpha ~ 1e-9) this graph supports, which
+    # lase at essentially zero pump where the near-threshold model does not
+    # apply. See tests/test_functional.py for the longer note.
+    "alpha_min": 5e-4,
     "alpha_max": 0.25,
     "n_workers": 1,
     "n_modes_max": 40,

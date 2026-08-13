@@ -123,3 +123,5 @@ examples/**/out/
 examples/line_PRA/graph.json
 examples/line_PRA/index.yaml
 examples/line_PRA/pump.yaml
+# agent worktrees
+.claude/
