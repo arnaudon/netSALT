@@ -18,6 +18,7 @@ with ``outdir`` / ``figdir`` in the config.
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
@@ -107,6 +108,77 @@ def _force(p: NetSaltParams) -> bool:
 
 def _ensure_parent(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+
+
+# --------------------------------------------------------------------------- cache guard
+
+# Keys that cannot change a computed result, so changing them must not
+# invalidate the cache. Everything else is treated as physics.
+_COSMETIC_KEYS = frozenset({"outdir", "figdir", "force", "n_workers", "exts", "with_scan"})
+
+
+def _is_cosmetic(key: str) -> bool:
+    return key in _COSMETIC_KEYS or key.startswith("plot")
+
+
+def _config_fingerprint(p: NetSaltParams) -> dict[str, str]:
+    """Hash every result-affecting config value, one hash per key.
+
+    Per-key rather than one hash of the whole config so the error message can
+    name exactly what changed.
+    """
+    import hashlib
+
+    return {
+        key: hashlib.sha1(repr(value).encode()).hexdigest()  # noqa: S324 - not security
+        for key, value in sorted(p.to_dict().items())
+        if not _is_cosmetic(key)
+    }
+
+
+def check_output_cache(p: NetSaltParams) -> None:
+    """Refuse to reuse cached outputs that a different config produced.
+
+    Every ``step_*`` short-circuits on ``out.exists() and not force``, keyed on
+    the *filename* alone. Editing the physics in a config and re-running in the
+    same directory therefore returned byte-identical stale results with no
+    warning — the worst possible failure mode for a parameter sweep.
+
+    This compares the current result-affecting config against the fingerprint
+    written by the previous run and raises if they differ, naming the changed
+    keys. Pass ``force`` (``--force`` on the CLI) to recompute, or point
+    ``outdir`` / ``figdir`` at a fresh directory to keep both runs.
+    """
+    import json
+
+    outdir = _outdir(p)
+    stamp = outdir / "run_fingerprint.json"
+    current = _config_fingerprint(p)
+
+    if not stamp.exists() and not _force(p) and any(outdir.glob("*.h5")):
+        warnings.warn(
+            f"{outdir}/ already holds step outputs but no run_fingerprint.json, so they "
+            "cannot be checked against this configuration — they were produced before "
+            "this guard existed. Re-run with force=true if the config has changed since.",
+            stacklevel=2,
+        )
+
+    if stamp.exists() and not _force(p):
+        previous = json.loads(stamp.read_text())
+        changed = sorted(
+            key for key in set(previous) | set(current) if previous.get(key) != current.get(key)
+        )
+        if changed:
+            raise ValueError(
+                f"{outdir}/ holds results computed with a different configuration "
+                f"(changed: {', '.join(changed)}). Cached step outputs are keyed on "
+                "filename only, so re-running here would silently reuse them. "
+                "Re-run with force=true (--force) to recompute, or set a fresh "
+                "outdir/figdir to keep both runs."
+            )
+
+    outdir.mkdir(parents=True, exist_ok=True)
+    stamp.write_text(json.dumps(current, indent=1, sort_keys=True))
 
 
 # --------------------------------------------------------------------------- compute steps
@@ -647,6 +719,7 @@ def plot_controllability_fig(p: NetSaltParams, single_mode_matrix):
 
 def compute_passive_modes(p: NetSaltParams):
     """Compute passive modes of a quantum graph and produce the standard plots."""
+    check_output_cache(p)
     qg = step_create_quantum_graph(p)
     qualities = step_scan_frequencies(p, qg)
     passive_modes_df = step_find_passive_modes(p, qg, qualities)
@@ -666,6 +739,7 @@ def compute_lasing_modes(p: NetSaltParams, lasing_modes_id=None):
     :func:`compute_passive_modes` and are only produced when that workflow
     is invoked explicitly.
     """
+    check_output_cache(p)
     if lasing_modes_id is None:
         lasing_modes_id = p.get("lasing_modes_id")
 
@@ -702,6 +776,7 @@ def compute_lasing_modes(p: NetSaltParams, lasing_modes_id=None):
 
 def compute_controllability(p: NetSaltParams):
     """Run single-mode pump optimisation across the top-N passive modes."""
+    check_output_cache(p)
     qg = step_create_quantum_graph(p)
     qualities = step_scan_frequencies(p, qg)
     passive_modes_df = step_find_passive_modes(p, qg, qualities)

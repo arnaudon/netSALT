@@ -153,10 +153,20 @@ dense spectrum.
 | 500 | 7.5 ms | 74 s | 20 min |
 | 2500 | 36 ms | 6.0 min | **98 min** |
 
-(serial CPU; the pool divides it by `n_workers`). This matrix *is* the central
-object for "how does graph structure influence lasing via mode competition" —
-it will be recomputed for every graph in an ensemble. The whole contraction is
-a batched tensor operation; the Python loop is pure overhead.
+These are **serial** CPU seconds; `compute_mode_competition_matrix` divides
+them by `n_workers`, so the production buffon config (`n_workers: 80`,
+`E ≈ 250` after oversampling, `M ≈ 450`) pays roughly 15 s of wall time and the
+cost is invisible.
+
+It stops being invisible the moment the research question changes from "this
+graph" to "this family of graphs". An ensemble sweep parallelises over *graphs*,
+so each graph gets one core and pays the serial number — ~12 min for the buffon
+case above, times a few hundred graphs. Raising the oversampling to resolve
+above-threshold physics (§3.3) multiplies `E` and makes it worse.
+
+The whole contraction is a batched tensor operation over `(mu, nu, edge)`; the
+Python loop is pure interpreter overhead, and this matrix is the central object
+for the mode-competition question.
 
 ### 4.2 Other measured costs
 

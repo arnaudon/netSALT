@@ -895,7 +895,21 @@ def compute_modal_intensities(modes_df, max_pump_intensity, mode_competition_mat
 
 
 def pump_trajectories(modes_df, graph, return_approx=False, quality_method="eigenvalue"):
-    """For a sequence of D0s, find the mode positions of the modes modes."""
+    """Track every mode's position as the pump ``D0`` is raised from 0 to ``D0_max``.
+
+    Modes whose refinement fails at some pump are *frozen*: their last
+    successfully refined position is carried through the remaining pump steps
+    and the pump at which tracking was lost is recorded in the
+    ``tracking_lost_at_D0`` column (``NaN`` for modes tracked all the way).
+
+    Freezing rather than re-seeding matters. The previous behaviour substituted
+    the last good position and kept feeding it to :func:`pump_linear` at the
+    *new* pump, where it is no longer a mode — :func:`mode_on_nodes` then raised
+    ``"Not a mode, as quality is too high"`` from inside the next iteration,
+    killing the whole run with an error pointing at a mode that was fine. On the
+    shipped ``examples/line_PRA`` config, changing only ``gamma_perp`` from 3.0
+    to 1.5 was enough to hit it.
+    """
 
     D0s = np.linspace(
         0,
@@ -907,6 +921,8 @@ def pump_trajectories(modes_df, graph, return_approx=False, quality_method="eige
 
     pumped_modes = [[from_complex(mode) for mode in modes_df["passive"]]]
     pumped_modes_approx = pumped_modes.copy()
+    # D0 at which each mode stopped being trackable; NaN while still tracked.
+    lost_at = np.full(n_modes, np.nan)
     for d in range(len(D0s) - 1):
         L.info(
             "Step %s / %s, computing for D0= %s",
@@ -914,8 +930,9 @@ def pump_trajectories(modes_df, graph, return_approx=False, quality_method="eige
             str(len(D0s) - 1),
             str(D0s[d + 1]),
         )
+        tracked = [m for m in range(n_modes) if np.isnan(lost_at[m])]
         pumped_modes_approx.append(pumped_modes[-1].copy())
-        for m in range(n_modes):
+        for m in tracked:
             pumped_modes_approx[-1][m] = pump_linear(pumped_modes[-1][m], graph, D0s[d], D0s[d + 1])
 
         worker_modes = WorkerModes(
@@ -928,11 +945,24 @@ def pump_trajectories(modes_df, graph, return_approx=False, quality_method="eige
             _scoped_warning_filters(),
             multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool,
         ):
-            pumped_modes.append(list(tqdm(pool.imap(worker_modes, range(n_modes)), total=n_modes)))
-        for i, mode in enumerate(pumped_modes[-1]):
+            refined = list(tqdm(pool.imap(worker_modes, tracked), total=len(tracked)))
+
+        # Frozen modes keep their last position; newly-lost ones join them.
+        pumped_modes.append(pumped_modes[-1].copy())
+        for m, mode in zip(tracked, refined, strict=True):
             if mode is None:
-                L.info("Mode not be updated, consider changing the search parameters.")
-                pumped_modes[-1][i] = pumped_modes[-2][i]
+                lost_at[m] = D0s[d + 1]
+            else:
+                pumped_modes[-1][m] = mode
+
+    n_lost = int(np.count_nonzero(~np.isnan(lost_at)))
+    if n_lost:
+        warnings.warn(
+            f"{n_lost} of {n_modes} modes could not be tracked over the whole pump sweep and "
+            "were frozen at their last refined position; see the 'tracking_lost_at_D0' column. "
+            "Consider a finer D0_steps or a looser quality_threshold.",
+            stacklevel=2,
+        )
 
     if "mode_trajectories" in modes_df:
         del modes_df["mode_trajectories"]
@@ -947,6 +977,7 @@ def pump_trajectories(modes_df, graph, return_approx=False, quality_method="eige
                 to_complex(mode) for mode in pumped_mode_approx
             ]
 
+    modes_df["tracking_lost_at_D0"] = lost_at
     return modes_df
 
 
@@ -967,7 +998,13 @@ def _get_new_D0(arg, graph=None, D0_steps=0.1):
 
 
 def find_threshold_lasing_modes(modes_df, graph, quality_method="eigenvalue"):
-    """Find the threshold lasing modes and associated lasing thresholds."""
+    """Find the threshold lasing modes and associated lasing thresholds.
+
+    Modes whose refinement fails part-way up the pump are dropped from the
+    search with their threshold left at ``inf`` (the existing "never reached
+    threshold" encoding) and reported in a warning, rather than crashing the
+    run — see the comment at the refinement result loop below.
+    """
     stepsize = graph.graph["params"]["search_stepsize"]
     D0_steps = graph.graph["params"]["D0_max"] / graph.graph["params"]["D0_steps"]
     new_modes = modes_df["passive"].to_numpy()
@@ -976,6 +1013,7 @@ def find_threshold_lasing_modes(modes_df, graph, quality_method="eigenvalue"):
     lasing_thresholds = np.inf * np.ones(len(modes_df))
     D0s = np.zeros(len(modes_df))
     current_modes = np.arange(len(modes_df))
+    lost_modes: list[int] = []
     stuck_modes_count = 0
     max_modes = len(current_modes)
     prev_n_modes = 0
@@ -1017,16 +1055,26 @@ def find_threshold_lasing_modes(modes_df, graph, quality_method="eigenvalue"):
         new_modes_tmp = np.zeros([len(modes_df), 2])
 
         with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
-            new_modes_tmp[current_modes] = list(
-                tqdm(pool.imap(worker_modes, current_modes), total=len(current_modes))
-            )
+            refined = list(tqdm(pool.imap(worker_modes, current_modes), total=len(current_modes)))
 
+        # ``refine_mode`` returns None when it fails to converge. Assigning that
+        # straight into the float array raised an opaque numpy "inhomogeneous
+        # shape" ValueError, and the `is None` check below it could never fire
+        # (a row of a float array is never None), so the intended recovery was
+        # dead code. Keep the last known position for a failed mode and stop
+        # tracking it: its threshold stays inf, which is how the rest of the
+        # pipeline already represents "never reached threshold".
         to_delete = []
-        for i, mode_index in enumerate(current_modes):
-            if new_modes_tmp[mode_index] is None:
-                L.info("A mode could not be updated, consider modifying the search parameters.")
-                new_modes_tmp[mode_index] = new_modes[mode_index]
-            elif abs(new_modes_tmp[mode_index][1]) < 1e-6:
+        for i, (mode_index, mode) in enumerate(zip(current_modes, refined, strict=True)):
+            if mode is None:
+                # ``new_modes`` holds complex passive modes on the first pass and
+                # [k, alpha] pairs afterwards; from_complex normalises both.
+                new_modes_tmp[mode_index] = from_complex(new_modes[mode_index])
+                lost_modes.append(int(mode_index))
+                to_delete.append(i)
+                continue
+            new_modes_tmp[mode_index] = mode
+            if abs(new_modes_tmp[mode_index][1]) < 1e-6:
                 to_delete.append(i)
                 threshold_lasing_modes[mode_index] = new_modes_tmp[mode_index]
                 lasing_thresholds[mode_index] = new_D0s[mode_index]
@@ -1037,6 +1085,14 @@ def find_threshold_lasing_modes(modes_df, graph, quality_method="eigenvalue"):
         current_modes = np.delete(current_modes, to_delete)
         D0s = new_D0s.copy()
         new_modes = new_modes_tmp.copy()
+
+    if lost_modes:
+        warnings.warn(
+            f"Refinement failed for mode(s) {sorted(set(lost_modes))} part-way up the pump; "
+            "their lasing threshold is reported as inf. Consider a finer D0_steps or a "
+            "looser quality_threshold.",
+            stacklevel=2,
+        )
 
     modes_df["threshold_lasing_modes"] = [to_complex(mode) for mode in threshold_lasing_modes]
     modes_df["lasing_thresholds"] = lasing_thresholds

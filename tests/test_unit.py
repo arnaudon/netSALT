@@ -1542,3 +1542,178 @@ class TestScanIsOptional:
         params = self._params(mode_search_method="grid", with_scan=False, outdir="does-not-exist")
         with pytest.raises(ValueError, match="needs the quality grid"):
             step_find_passive_modes(params, None, None)
+
+
+class TestOutputCacheGuard:
+    """Cached step outputs are keyed on filename only, so a config edit used to
+    silently reuse results computed with different physics."""
+
+    def _params(self, tmp_path, **kwargs):
+        from netsalt.params import NetSaltParams
+
+        return NetSaltParams.from_dict({"outdir": str(tmp_path), "k_a": 15.0, **kwargs})
+
+    def test_first_run_writes_a_fingerprint(self, tmp_path):
+        from netsalt.pipeline import check_output_cache
+
+        check_output_cache(self._params(tmp_path))
+        assert (tmp_path / "run_fingerprint.json").exists()
+
+    def test_unchanged_config_is_accepted(self, tmp_path):
+        from netsalt.pipeline import check_output_cache
+
+        check_output_cache(self._params(tmp_path))
+        check_output_cache(self._params(tmp_path))  # must not raise
+
+    def test_changed_physics_raises_and_names_the_key(self, tmp_path):
+        from netsalt.pipeline import check_output_cache
+
+        check_output_cache(self._params(tmp_path))
+        with pytest.raises(ValueError, match="gamma_perp"):
+            check_output_cache(self._params(tmp_path, gamma_perp=1.5))
+
+    def test_force_recomputes_and_restamps(self, tmp_path):
+        from netsalt.pipeline import check_output_cache
+
+        check_output_cache(self._params(tmp_path))
+        check_output_cache(self._params(tmp_path, gamma_perp=1.5, force=True))
+        # the new config is now the reference
+        check_output_cache(self._params(tmp_path, gamma_perp=1.5))
+
+    def test_cosmetic_keys_do_not_invalidate(self, tmp_path):
+        from netsalt.pipeline import check_output_cache
+
+        check_output_cache(self._params(tmp_path, n_workers=1))
+        check_output_cache(self._params(tmp_path, n_workers=8, figdir="elsewhere", plot_ext=".png"))
+
+
+# Module-level so the stub pickles into multiprocessing workers.
+from netsalt.modes import WorkerModes as _RealWorkerModes  # noqa: E402
+
+_REFINE_FAILS_FOR = []
+
+
+class _PartlyFailingWorkerModes(_RealWorkerModes):
+    """``WorkerModes`` whose refinement fails for chosen mode ids.
+
+    ``refine_mode`` legitimately returns ``None`` when it cannot converge; this
+    reproduces that on demand without needing a graph where it happens to. Every
+    other mode is refined for real, so the trajectory stays physical. The failing
+    ids are captured in ``__init__`` (parent process) so the instance pickles
+    into the pool workers carrying them.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fail_ids = list(_REFINE_FAILS_FOR)
+
+    def __call__(self, mode_id):
+        if mode_id in self.fail_ids:
+            return None
+        return super().__call__(mode_id)
+
+
+class TestRefinementFailureIsReported:
+    """A mode that cannot be refined must be reported, not crash the run.
+
+    Both pump-tracking loops used to mishandle a ``None`` from ``refine_mode``:
+    ``pump_trajectories`` substituted the stale previous position and then fed
+    it to ``pump_linear`` at the *new* pump, where ``mode_on_nodes`` raised
+    "Not a mode, as quality is too high"; ``find_threshold_lasing_modes``
+    assigned ``None`` into a float array (an opaque numpy ValueError) and its
+    recovery branch was unreachable dead code.
+    """
+
+    def _setup(self, monkeypatch, fail_ids, n_modes=3):
+        import networkx as nx
+
+        import netsalt.modes as modes_module
+        from netsalt.contour import find_modes_contour
+        from netsalt.modes import find_passive_modes
+        from netsalt.physics import (
+            dispersion_relation_pump,
+            set_dielectric_constant,
+            set_dispersion_relation,
+        )
+        from netsalt.quantum_graph import (
+            create_quantum_graph,
+            set_total_length,
+            update_parameters,
+        )
+
+        # Real modes are required: pump_trajectories evaluates each one with
+        # mode_on_nodes, which (correctly) rejects anything that is not a mode.
+        graph = nx.path_graph(5)
+        positions = np.array([[float(i), 0.0] for i in range(5)])
+        params = {
+            "open_model": "open",
+            "c": 1.0,
+            "k_a": 3.0,
+            "gamma_perp": 3.0,
+            "n_workers": 1,
+            "refraction_params": {
+                "method": "uniform",
+                "inner_value": 2.0,
+                "loss": 0.0,
+                "outer_value": 1.0,
+            },
+            "k_min": 1.0,
+            "k_max": 6.0,
+            "alpha_min": 0.0,
+            "alpha_max": 1.0,
+            "quality_threshold": 1e-4,
+            "search_stepsize": 0.01,
+            "max_steps": 1000,
+            "D0_max": 0.05,
+            "D0_steps": 4,
+        }
+        create_quantum_graph(graph, params, positions=positions, noise_level=0.0)
+        set_total_length(graph, 3.0, inner=True)
+        set_dielectric_constant(graph, params)
+        set_dispersion_relation(graph, dispersion_relation_pump)
+        update_parameters(graph, params)
+        graph.graph["params"]["pump"] = np.array(graph.graph["params"]["inner"], dtype=float)
+
+        del find_modes_contour  # imported above only to document the search path
+        modes_df = find_passive_modes(graph, method="contour").head(n_modes).copy()
+        assert len(modes_df) == n_modes, "fixture graph should have enough modes"
+
+        _REFINE_FAILS_FOR[:] = list(fail_ids)
+        monkeypatch.setattr(modes_module, "WorkerModes", _PartlyFailingWorkerModes)
+        return graph, modes_df
+
+    def test_pump_trajectories_freezes_and_records_the_lost_mode(self, monkeypatch):
+        from netsalt.modes import pump_trajectories
+
+        graph, modes_df = self._setup(monkeypatch, fail_ids=[1])
+        with pytest.warns(UserWarning, match="could not be tracked"):
+            out = pump_trajectories(modes_df, graph)
+
+        lost = out["tracking_lost_at_D0"].to_numpy(dtype=float)
+        assert np.isnan(lost[0]) and np.isnan(lost[2]), "tracked modes must not be flagged"
+        assert lost[1] > 0, "the failing mode must record the pump where tracking was lost"
+
+        # The frozen mode keeps its last good position for the rest of the sweep.
+        cols = sorted(
+            (c for c in out.columns if isinstance(c, tuple) and c[0] == "mode_trajectories"),
+            key=lambda c: c[1],
+        )
+        frozen = [out[c].iloc[1] for c in cols]
+        assert frozen[-1] == frozen[-2]
+
+    def test_pump_trajectories_is_unaffected_when_nothing_fails(self, monkeypatch):
+        from netsalt.modes import pump_trajectories
+
+        graph, modes_df = self._setup(monkeypatch, fail_ids=[])
+        out = pump_trajectories(modes_df, graph)
+        assert np.isnan(out["tracking_lost_at_D0"].to_numpy(dtype=float)).all()
+
+    def test_find_threshold_modes_reports_instead_of_raising(self, monkeypatch):
+        from netsalt.modes import find_threshold_lasing_modes
+
+        graph, modes_df = self._setup(monkeypatch, fail_ids=[1])
+        with pytest.warns(UserWarning, match="Refinement failed for mode"):
+            out = find_threshold_lasing_modes(modes_df, graph)
+
+        # The unrefinable mode is reported as never having reached threshold.
+        assert out["lasing_thresholds"].to_numpy()[1] == np.inf
