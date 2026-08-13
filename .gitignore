@@ -114,3 +114,6 @@ venv.bak/
 *.swo
 
 *.png
+
+# agent worktrees
+.claude/

@@ -177,8 +177,34 @@ def step_create_quantum_graph(p: NetSaltParams):
     return quantum_graph
 
 
+def _needs_scan(p: NetSaltParams) -> bool:
+    """Whether the dense ``(k, alpha)`` quality grid has to be computed.
+
+    The grid is ``k_n * alpha_n`` eigensolves — for the buffon configs that is
+    8000 x 500 = 4M of them, by far the most expensive step in the pipeline.
+    It is *required* only by ``mode_search_method="grid"``; the default contour
+    search ignores it entirely (see :func:`netsalt.find_passive_modes`), so
+    everything it buys there is the quality-field background of the
+    ``scan_*`` figures.
+
+    Set ``with_scan: true`` in the config to compute it anyway and keep those
+    figures; ``with_scan: false`` skips it even on the grid path (which then
+    fails loudly rather than silently searching an empty field).
+    """
+    explicit = p.get("with_scan")
+    if explicit is not None:
+        return bool(explicit)
+    return (p.get("mode_search_method") or "contour") == "grid"
+
+
 def step_scan_frequencies(p: NetSaltParams, qg):
-    """Scan the (k, alpha) grid; saves the qualities array as HDF5."""
+    """Scan the (k, alpha) grid; saves the qualities array as HDF5.
+
+    Returns ``None`` when the scan is not needed (see :func:`_needs_scan`);
+    the scan-based plot steps skip themselves on ``None``.
+    """
+    if not _needs_scan(p):
+        return None
     out = _outdir(p) / "qualities.h5"
     if out.exists() and not _force(p):
         return load_qualities(str(out))
@@ -198,6 +224,11 @@ def step_find_passive_modes(p: NetSaltParams, qg, qualities):
 
     method = p.get("mode_search_method") or "contour"
     if method == "grid":
+        if qualities is None:
+            raise ValueError(
+                "mode_search_method='grid' needs the quality grid, but the scan was "
+                "skipped. Remove 'with_scan: false' from the config."
+            )
         modes_df = find_passive_modes(
             qg,
             qualities,
@@ -414,6 +445,8 @@ def plot_quantum_graph_fig(p: NetSaltParams, qg):
 
 
 def plot_scan_fig(p: NetSaltParams, qg, qualities):
+    if qualities is None:  # scan skipped, see _needs_scan
+        return None
     out = _figdir(p) / "scan_frequencies.pdf"
     if out.exists() and not _force(p):
         return out
@@ -443,6 +476,8 @@ def plot_passive_modes_fig(p: NetSaltParams, qg, passive_modes_df):
 
 
 def plot_scan_with_modes_fig(p: NetSaltParams, qg, qualities, passive_modes_df):
+    if qualities is None:  # scan skipped, see _needs_scan
+        return None
     out = _figdir(p) / "scan_frequencies_with_modes.pdf"
     if out.exists() and not _force(p):
         return out
@@ -455,6 +490,8 @@ def plot_scan_with_modes_fig(p: NetSaltParams, qg, qualities, passive_modes_df):
 def plot_scan_with_mode_trajectories_fig(
     p: NetSaltParams, qg, qualities, trajectories_df, lasing_modes_id
 ):
+    if qualities is None:  # scan skipped, see _needs_scan
+        return None
     out = _figdir(p) / _apply_lasing_ids("mode_trajectories.pdf", lasing_modes_id)
     if out.exists() and not _force(p):
         return out
@@ -468,6 +505,8 @@ def plot_scan_with_mode_trajectories_fig(
 def plot_scan_with_threshold_modes_fig(
     p: NetSaltParams, qg, qualities, threshold_modes_df, lasing_modes_id
 ):
+    if qualities is None:  # scan skipped, see _needs_scan
+        return None
     out = _figdir(p) / _apply_lasing_ids("threshold_modes.pdf", lasing_modes_id)
     if out.exists() and not _force(p):
         return out

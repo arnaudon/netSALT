@@ -1501,3 +1501,44 @@ class TestPlotPumpTraj:
         # |imag| minimal in the middle column -> +1 stays in range.
         df = self._modes_df([1.0, 0.0, 1.0])
         plot_pump_traj(df)
+
+
+class TestScanIsOptional:
+    """The dense (k, alpha) quality grid is the most expensive pipeline step
+    and the default contour mode search does not read it (see
+    ``netsalt.pipeline._needs_scan``)."""
+
+    def _params(self, **kwargs):
+        from netsalt.params import NetSaltParams
+
+        return NetSaltParams.from_dict(kwargs)
+
+    def test_skipped_by_default_on_the_contour_path(self):
+        from netsalt.pipeline import _needs_scan
+
+        assert _needs_scan(self._params()) is False
+        assert _needs_scan(self._params(mode_search_method="contour")) is False
+
+    def test_required_by_the_grid_path(self):
+        from netsalt.pipeline import _needs_scan
+
+        assert _needs_scan(self._params(mode_search_method="grid")) is True
+
+    def test_with_scan_overrides_both_ways(self):
+        from netsalt.pipeline import _needs_scan
+
+        assert _needs_scan(self._params(with_scan=True)) is True
+        assert _needs_scan(self._params(mode_search_method="grid", with_scan=False)) is False
+
+    def test_step_returns_none_when_skipped(self):
+        from netsalt.pipeline import step_scan_frequencies
+
+        # qg is never touched when the scan is skipped, so None is a fine stand-in.
+        assert step_scan_frequencies(self._params(), None) is None
+
+    def test_grid_path_fails_loudly_without_the_grid(self):
+        from netsalt.pipeline import step_find_passive_modes
+
+        params = self._params(mode_search_method="grid", with_scan=False, outdir="does-not-exist")
+        with pytest.raises(ValueError, match="needs the quality grid"):
+            step_find_passive_modes(params, None, None)

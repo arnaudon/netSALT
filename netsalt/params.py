@@ -102,6 +102,11 @@ class NetSaltParams(BaseModel):
 
     # --- Infrastructure ----------------------------------------------------
     n_workers: int | None = None
+    # Force the dense (k, alpha) quality-grid scan on or off. Unset means
+    # "compute it only when mode_search_method='grid' needs it" — see
+    # netsalt.pipeline._needs_scan. Set True to keep the scan_* figures on the
+    # contour path, at the cost of k_n * alpha_n eigensolves.
+    with_scan: bool | None = None
 
     # --- Plotting ----------------------------------------------------------
     plot_edgesize: float | None = None
