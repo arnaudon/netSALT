@@ -82,6 +82,8 @@ def compare(label, example_dir, builder_name, method):
         # script is about; issue #45 covers it.
         warnings.simplefilter("ignore")
         graph = load_builder(example_dir, builder_name)()
+        if isinstance(graph, tuple):
+            graph = graph[0]  # some builders also return their node bookkeeping
         n_nodes, n_edges = len(graph), len(graph.edges)
         tdf = threshold_modes(graph, method=method)
     thresholds = np.asarray(tdf["lasing_thresholds"]).ravel()
