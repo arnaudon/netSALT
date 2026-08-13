@@ -2022,3 +2022,79 @@ class TestContourSubdivisionDefaults:
         default = find_passive_modes(graph, method="contour")
         assert len(default) > 5 * max(len(single), 1)
         assert len(default) > probe_dim
+
+
+class TestCompetitionConditioning:
+    """Near-degenerate modes have nearly parallel competition rows, so how the
+    intensity *splits* between them is not resolvable -- only their sum. The
+    solver uses ``pinv``, which answers regardless, so the conditioning has to
+    be reported."""
+
+    def _modes_df(self, thresholds):
+        import pandas as pd
+
+        index = pd.MultiIndex(levels=[[], []], codes=[[], []], names=["data", "D0"])
+        modes_df = pd.DataFrame(columns=index)
+        modes_df["lasing_thresholds"] = thresholds
+        return modes_df
+
+    def test_conditioning_of_a_well_separated_matrix_is_small(self):
+        from netsalt.modes import competition_conditioning
+
+        matrix = np.eye(3) + 0.1 * np.ones((3, 3))
+        assert competition_conditioning(matrix, [0, 1, 2]) < 10
+
+    def test_conditioning_detects_a_near_degenerate_pair(self):
+        from netsalt.modes import competition_conditioning
+
+        # Two modes with almost identical competition rows.
+        matrix = np.array([[1.0, 0.5, 0.2], [0.5 + 1e-12, 1.0, 0.2], [0.2, 0.2, 1.0]])
+        matrix[1] = matrix[0] + 1e-12
+        assert competition_conditioning(matrix, [0, 1, 2]) > 1e8
+
+    def test_empty_active_set_is_well_conditioned(self):
+        from netsalt.modes import competition_conditioning
+
+        assert competition_conditioning(np.eye(2), []) == 1.0
+
+    def test_sweep_records_the_worst_conditioning(self):
+        from netsalt.modes import compute_modal_intensities
+
+        matrix = np.eye(3) + 0.1 * np.ones((3, 3))
+        out = compute_modal_intensities(self._modes_df([0.1, 0.2, 0.3]), 1.0, matrix)
+        assert out.attrs["competition_condition_max"] >= 1.0
+
+    def test_sweep_warns_when_the_outcome_is_unresolved(self):
+        """A near-degenerate pair is typically never *co*-active -- the sweep
+        picks one and suppresses the other -- so the warning has to key off the
+        candidate set, not just the modes that end up lasing together."""
+        from netsalt.modes import compute_modal_intensities
+
+        rows = np.array([1.0, 0.5, 0.2])
+        matrix = np.vstack([rows, rows + 1e-13, [0.2, 0.2, 1.0]])
+        with pytest.warns(UserWarning, match="not resolved"):
+            out = compute_modal_intensities(self._modes_df([0.1, 0.11, 0.3]), 1.0, matrix)
+        # the pathology is in the candidate set; the active sets stay benign
+        assert out.attrs["competition_condition_candidates"] > 1e8
+        assert out.attrs["competition_condition_max"] < 1e8
+
+    def test_no_warning_on_a_well_conditioned_sweep(self):
+        import warnings as _warnings
+
+        from netsalt.modes import compute_modal_intensities
+
+        matrix = np.eye(3) + 0.1 * np.ones((3, 3))
+        with _warnings.catch_warnings(record=True) as caught:
+            _warnings.simplefilter("always")
+            compute_modal_intensities(self._modes_df([0.1, 0.2, 0.3]), 1.0, matrix)
+        assert not [c for c in caught if "not resolved" in str(c.message)]
+
+    def test_infinite_thresholds_are_excluded_from_the_candidate_set(self):
+        from netsalt.modes import compute_modal_intensities
+
+        matrix = np.eye(3) + 0.1 * np.ones((3, 3))
+        out = compute_modal_intensities(self._modes_df([0.1, 0.2, np.inf]), 1.0, matrix)
+        # only two candidates, so the candidate conditioning is the 2x2 one
+        assert out.attrs["competition_condition_candidates"] == pytest.approx(
+            np.linalg.cond(matrix[np.ix_([0, 1], [0, 1])])
+        )

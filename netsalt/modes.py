@@ -988,9 +988,52 @@ def _find_next_lasing_mode(
     return next_lasing_mode_id, next_lasing_threshold
 
 
+#: Condition number of the active competition submatrix above which the split of
+#: intensity between modes is reported as unresolved. The solve inverts that
+#: submatrix, so its conditioning is exactly the amplification factor from
+#: threshold/competition errors to per-mode intensities. 1e8 leaves ~8 digits of
+#: double precision, i.e. the per-mode split is meaningless beyond it even though
+#: the *total* stays well determined.
+COMPETITION_CONDITION_WARN = 1e8
+
+
+def competition_conditioning(mode_competition_matrix, lasing_mode_ids):
+    """Condition number of the competition submatrix over the given modes.
+
+    Near-degenerate modes -- closer than the gain linewidth -- have nearly
+    parallel competition rows, so the submatrix is ill-conditioned. Both places
+    the sweep inverts it are then unreliable: the intensity *split* between
+    those modes (only their sum is determined) and, upstream of that, *which* of
+    them lases at all, since :func:`_find_next_lasing_mode` picks the winner
+    from the same inverse. The solver uses ``pinv``, which returns an answer
+    regardless; this is the number that says whether to believe it.
+    """
+    if not len(lasing_mode_ids):
+        return 1.0
+    submatrix = mode_competition_matrix[np.ix_(lasing_mode_ids, lasing_mode_ids)]
+    return float(np.linalg.cond(submatrix))
+
+
 def compute_modal_intensities(modes_df, max_pump_intensity, mode_competition_matrix):
-    """Compute the modal intensities of the modes up to D0, with D0_steps."""
+    """Compute the modal intensities of the modes up to D0, with D0_steps.
+
+    The per-mode intensities come from inverting the competition submatrix over
+    the currently-lasing modes. When that submatrix is ill-conditioned (a
+    near-degenerate mode pair), the split between those modes is not resolvable
+    and a warning fires; the worst conditioning seen over the sweep is recorded
+    in ``modes_df.attrs["competition_condition_max"]``. See
+    :func:`competition_conditioning`.
+    """
     lasing_thresholds = np.asarray(modes_df["lasing_thresholds"]).ravel()
+
+    # Conditioning over every candidate (finite-threshold) mode, not just the
+    # active set. A near-degenerate pair is usually never *co*-active -- the
+    # sweep picks one and suppresses the other -- so watching only the active
+    # set misses the pathology entirely. What is unresolved there is which of
+    # them won.
+    candidate_ids = [int(i) for i in np.where(np.isfinite(lasing_thresholds))[0]]
+    candidate_condition = competition_conditioning(mode_competition_matrix, candidate_ids)
+    worst_condition = 1.0
 
     next_lasing_mode_id = int(np.argmin(lasing_thresholds))
     next_lasing_threshold = lasing_thresholds[next_lasing_mode_id]
@@ -1009,6 +1052,9 @@ def compute_modal_intensities(modes_df, max_pump_intensity, mode_competition_mat
         L.debug("Current pump intensity %s", pump_intensity)
 
         # 1) compute the current mode intensities
+        worst_condition = max(
+            worst_condition, competition_conditioning(mode_competition_matrix, lasing_mode_ids)
+        )
         mode_competition_matrix_inv = np.linalg.pinv(
             mode_competition_matrix[np.ix_(lasing_mode_ids, lasing_mode_ids)]
         )
@@ -1081,6 +1127,19 @@ def compute_modal_intensities(modes_df, max_pump_intensity, mode_competition_mat
         modes_df["modal_intensities", np.around(pump_intensity, 8)] = modal_intensities[
             pump_intensity
         ]
+    modes_df.attrs["competition_condition_max"] = worst_condition
+    modes_df.attrs["competition_condition_candidates"] = candidate_condition
+    worst = max(worst_condition, candidate_condition)
+    if worst > COMPETITION_CONDITION_WARN:
+        warnings.warn(
+            f"The mode-competition matrix reached condition number {worst:.2e} "
+            f"(candidate set {candidate_condition:.2e}, worst active set {worst_condition:.2e}), "
+            "so the per-mode result is not resolved: which of the near-degenerate modes lases, "
+            "and how intensity splits between co-lasing ones, are both set by differences below "
+            "the numerical noise floor. Their total is still well determined. Treat the "
+            "per-mode intensities as indicative only.",
+            stacklevel=2,
+        )
     L.info(
         "%s lasing modes out of %s",
         len(np.where(modal_intensities.to_numpy()[:, -1] > 0)[0]),
