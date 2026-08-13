@@ -2098,3 +2098,87 @@ class TestCompetitionConditioning:
         assert out.attrs["competition_condition_candidates"] == pytest.approx(
             np.linalg.cond(matrix[np.ix_([0, 1], [0, 1])])
         )
+
+
+class TestLaplacianPatternCache:
+    """``construct_incidence_matrix`` caches the CSR pattern rather than
+    rebuilding it from COO triplets every call. The quantum incidence matrices
+    have one entry per (bond, node) pair, so the COO path is a pure reordering
+    and the cached result must be *bit*-identical, not merely close."""
+
+    def _graph(self, n_edges=20):
+        from netsalt.quantum_graph import set_wavenumber
+
+        graph = make_line_graph(n_edges=n_edges, dielectric=4.0)
+        set_wavenumber(graph, 2.0 + 0.05j)
+        return graph
+
+    def _coo_reference(self, graph):
+        """Rebuild B / BT the old way, straight from triplets."""
+        import scipy as sc
+
+        from netsalt.quantum_graph import _incidence_topology
+
+        topo = graph.graph.get("_incidence_topology") or _incidence_topology(graph)
+        m, n = topo["m"], topo["n"]
+        row, col = topo["row"], topo["col"]
+        expl = np.exp(1.0j * graph.graph["lengths"] * graph.graph["ks"])
+        data = np.dstack([-np.ones(m), expl, expl, -np.ones(m)])[0].flatten()
+        data_out = data.copy()
+        if graph.graph["params"]["open_model"] == "open":
+            mask = topo["open_mask"]
+            data_out[1::4][mask] = 0
+            data_out[2::4][mask] = 0
+        BT = sc.sparse.csr_matrix((data_out, (col, row)), shape=(n, 2 * m), dtype=np.complex128)
+        B = sc.sparse.csr_matrix((data, (row, col)), shape=(2 * m, n), dtype=np.complex128)
+        return BT, B
+
+    def test_cached_incidence_is_bit_identical_to_the_coo_build(self):
+        from netsalt.quantum_graph import construct_incidence_matrix
+
+        graph = self._graph()
+        BT, B = construct_incidence_matrix(graph)
+        BT_ref, B_ref = self._coo_reference(graph)
+        assert np.array_equal(BT.toarray(), BT_ref.toarray())
+        assert np.array_equal(B.toarray(), B_ref.toarray())
+
+    def test_cached_laplacian_is_bit_identical(self):
+        from netsalt.quantum_graph import construct_laplacian
+
+        graph = self._graph()
+        first = construct_laplacian(2.0 + 0.05j, graph).toarray()
+        # second call goes through the cache populated by the first
+        second = construct_laplacian(2.0 + 0.05j, graph).toarray()
+        assert np.array_equal(first, second)
+
+    def test_weight_matrix_matches_scipy_diags(self):
+        import scipy as sc
+
+        from netsalt.quantum_graph import construct_weight_matrix
+
+        graph = self._graph()
+        weights = construct_weight_matrix(graph)
+        data = 1.0 / (np.exp(2.0j * graph.graph["lengths"] * graph.graph["ks"]) - 1.0)
+        data *= graph.graph["ks"]
+        reference = sc.sparse.diags(np.repeat(data, 2), format="csc", dtype=np.complex128)
+        assert np.array_equal(weights.toarray(), reference.toarray())
+
+    def test_pattern_falls_back_when_duplicates_exist(self):
+        """A self-loop puts two entries on the same (row, col); the cache must
+        decline rather than silently drop one."""
+        from netsalt.quantum_graph import _csr_pattern
+
+        rows = np.array([0, 0, 1])
+        cols = np.array([0, 0, 1])
+        assert _csr_pattern(rows, cols, 2) is None
+        assert _csr_pattern(np.array([0, 1]), np.array([0, 1]), 2) is not None
+
+    def test_cache_invalidates_when_the_edge_count_changes(self):
+        from netsalt.quantum_graph import construct_incidence_matrix
+
+        small = self._graph(n_edges=5)
+        construct_incidence_matrix(small)
+        big = self._graph(n_edges=8)
+        big.graph["_incidence_topology"] = small.graph["_incidence_topology"]
+        _BT, B = construct_incidence_matrix(big)
+        assert B.shape == (2 * 8, len(big))

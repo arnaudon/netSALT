@@ -358,6 +358,25 @@ def graph_with_pump(graph, D0):
     return graph_with_params(graph, D0=D0)
 
 
+def _csr_pattern(rows, cols, n_rows):
+    """Return ``(perm, indices, indptr)`` reproducing ``csr_matrix((data, (rows, cols)))``.
+
+    With them, ``csr_matrix((data[perm], indices, indptr))`` is *bit-identical* to
+    the COO construction, because the COO path is a pure reordering here: the
+    quantum incidence matrices have one entry per (bond, node) pair, so there
+    are no duplicates to sum. Returns None if duplicates do exist (a self-loop),
+    so the caller falls back to the COO path rather than silently dropping them.
+    """
+    order = np.lexsort((cols, rows))
+    sorted_rows, sorted_cols = rows[order], cols[order]
+    duplicated = np.any((np.diff(sorted_rows) == 0) & (np.diff(sorted_cols) == 0))
+    if duplicated:
+        return None
+    indptr = np.zeros(n_rows + 1, dtype=np.int64)
+    np.cumsum(np.bincount(rows, minlength=n_rows), out=indptr[1:])
+    return order, sorted_cols, indptr
+
+
 def _incidence_topology(graph):
     """Precompute the k-independent arrays used by ``construct_incidence_matrix``.
 
@@ -381,6 +400,14 @@ def _incidence_topology(graph):
         "m": m,
         "n": len(graph.nodes),
     }
+    # CSR patterns for B and B^T. Building a csr_matrix from COO triplets on
+    # every call re-sorts the indices and re-runs scipy's index-dtype and format
+    # checks, which is most of what construct_laplacian costs at these sizes
+    # (the cost is nearly flat in the graph size, i.e. pure bookkeeping). The
+    # pattern depends only on the topology, so it is cached here and each call
+    # becomes a permutation of the data array.
+    topology["b_pattern"] = _csr_pattern(row, col, 2 * m)
+    topology["bt_pattern"] = _csr_pattern(col, row, len(graph.nodes))
     graph.graph["_incidence_topology"] = topology
     return topology
 
@@ -414,8 +441,18 @@ def construct_incidence_matrix(graph):
         data[2::4] = 0
         data[3::4] = 0
 
-    BT = sc.sparse.csr_matrix((data_out, (col, row)), shape=(n, 2 * m), dtype=np.complex128)
-    B = sc.sparse.csr_matrix((data, (row, col)), shape=(2 * m, n), dtype=np.complex128)
+    b_pattern, bt_pattern = topo["b_pattern"], topo["bt_pattern"]
+    if b_pattern is None or bt_pattern is None:  # self-loops: no cached pattern
+        BT = sc.sparse.csr_matrix((data_out, (col, row)), shape=(n, 2 * m), dtype=np.complex128)
+        B = sc.sparse.csr_matrix((data, (row, col)), shape=(2 * m, n), dtype=np.complex128)
+        return BT, B
+
+    perm, indices, indptr = bt_pattern
+    BT = sc.sparse.csr_matrix(
+        (data_out[perm], indices, indptr), shape=(n, 2 * m), dtype=np.complex128
+    )
+    perm, indices, indptr = b_pattern
+    B = sc.sparse.csr_matrix((data[perm], indices, indptr), shape=(2 * m, n), dtype=np.complex128)
     return BT, B
 
 
@@ -434,7 +471,15 @@ def construct_weight_matrix(graph, with_k=True):
     if with_k:
         data_tmp *= graph.graph["ks"]
 
-    return sc.sparse.diags(np.repeat(data_tmp, 2), format="csc", dtype=np.complex128)
+    # A diagonal matrix in CSC is trivially its own pattern; going through
+    # ``sc.sparse.diags`` builds a DIA matrix and converts it on every call.
+    diagonal = np.repeat(data_tmp, 2)
+    size = diagonal.shape[0]
+    return sc.sparse.csc_matrix(
+        (diagonal, np.arange(size), np.arange(size + 1)),
+        shape=(size, size),
+        dtype=np.complex128,
+    )
 
 
 def set_inner_edges(graph, params=None, outer_edges=None):
