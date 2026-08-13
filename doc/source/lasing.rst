@@ -375,7 +375,7 @@ graphs they only track ``linear``.)
     ``L_sat`` (:func:`~netsalt.physics.dispersion_relation_pump_saturated`) is
     singular at each real ``k_μ``. Two ingredients make it robust:
 
-    * **Frozen-field trust-region solve** (:func:`~netsalt.modes._solve_active_set`)
+    * **Frozen-field trust-region solve** (:func:`~netsalt.solve_salt_fixed_set`)
       -- for a fixed active set the saturated background fields are frozen while a
       bounded trust-region least-squares solves all ``(k_μ, a_μ)``; the fields are
       then refreshed and the step repeated. Freezing the field makes each residual a

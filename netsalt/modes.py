@@ -2031,6 +2031,12 @@ def _full_salt_newton_impl(
     )
     modes_df.attrs["salt_diagnostics"] = diagnostics
     modes_df.attrs["salt_unit_scale"] = dict(unit_scale)
+    # What the within-edge hole burning was actually resolved at. On a large
+    # graph ``oversample_node_cap`` binds and silently reduces the resolution
+    # below ``oversample_resolution``, so record what was achieved rather than
+    # what was asked for (issue #52).
+    modes_df.attrs["salt_work_nodes"] = len(work_graph)
+    modes_df.attrs["salt_oversample_size"] = float(oversample_size) if oversample_size else 0.0
     return modes_df
 
 

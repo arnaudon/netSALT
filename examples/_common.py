@@ -300,9 +300,17 @@ def mode_profile_figure(
         start = (
             [max(float(a0.get(i, 1.0)), 1e-3) for i in ids] if a0 is not None else [1.0] * len(ids)
         )
-        modes, fields, amps, _ = _m._solve_active_set(
-            work, modes0, fields0, start, float(d0_max), pump, pump_mask, 30, 42
+        # The public fixed-active-set solve: we already know which modes lase
+        # here, so no discovery layer is wanted.
+        solution = _m.solve_salt_fixed_set(
+            work, modes0, start, fields0, float(d0_max), pump, pump_mask, seed=42
         )
+        modes, fields, amps = solution.ks, solution.fields, solution.amplitudes
+        if solution.residuals.size and solution.residuals.max() > 1e-3:
+            print(
+                f"  warning: saturated profiles have SALT residual up to "
+                f"{solution.residuals.max():.2e}"
+            )
     finally:
         _qg.DENSE_EIG_MAX = saved
 
