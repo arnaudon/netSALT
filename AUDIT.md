@@ -564,6 +564,17 @@ consistency check §6 asked for, and it passes.
   "~12 s on the production buffon" does not survive the contour fix and the
   restructure. Issues #53 and #52.
 
+**The YAML/CLI path works, and the diagnostics survive caching.** Checked
+end-to-end on `examples/line_PRA` with `intensity_method: full_salt_newton`:
+`python -m netsalt lasing config.yaml` runs the whole flow, writes
+`modal_intensities_1.h5` plus its `_attrs.json` sidecar, and a second
+invocation returns the cached result byte-identically in 2.3 s with the
+diagnostics intact. That graph converges at 7 of 8 pumps (worst residual
+2.2e-6, at the first lasing pump) with a within-edge resolution error of
+0.76 % — and its `salt_unit_scale` is 0.99–1.008 rather than the ladder's
+0.96–0.98, which is the independent confirmation that the unit-scale deficit
+is the discretisation error and not a convention mismatch.
+
 **Revised verdict for the above-threshold layer:** research-grade on graphs up
 to ~45 edges at up to ~2× threshold, where it is validated against both the
 linear model and Ge–Chong–Stone Fig. 6. Not yet usable at production size or
