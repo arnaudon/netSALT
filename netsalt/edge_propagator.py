@@ -53,7 +53,12 @@ from collections.abc import Callable
 
 import numpy as np
 
-__all__ = ["edge_transfer_matrix", "propagator_constant_eps"]
+__all__ = [
+    "edge_field_samples",
+    "edge_step_propagators",
+    "edge_transfer_matrix",
+    "propagator_constant_eps",
+]
 
 #: Gauss-Legendre abscissae on [0, 1] for the two-point rule, used by the
 #: fourth-order Magnus commutator term.
@@ -171,3 +176,79 @@ def edge_transfer_matrix(
         omega = 0.5 * h * (a_1 + a_2) - (np.sqrt(3.0) / 12.0) * h * h * commutator
         total = _exp_traceless_2x2(omega) @ total
     return total
+
+
+def edge_step_propagators(
+    k: complex,
+    length: float,
+    eps: Callable[[np.ndarray], np.ndarray] | complex,
+    n_steps: int = 64,
+    method: str = "magnus4",
+) -> list[np.ndarray]:
+    """Per-sub-interval propagators, in order along the edge.
+
+    :func:`edge_transfer_matrix` is their ordered product. They are kept
+    separately here because the SALT iteration needs the field *inside* the
+    edge -- the hole-burning profile is built from ``|E(x)|**2`` -- and
+    re-propagating from scratch to get it would double the work.
+
+    A constant ``eps`` still yields ``n_steps`` equal factors rather than one,
+    so that :func:`edge_field_samples` returns a usable grid either way.
+    """
+    if n_steps < 1:
+        raise ValueError(f"n_steps must be at least 1, got {n_steps}")
+    if method not in ("magnus2", "magnus4"):
+        raise ValueError(f"Unknown method {method!r}; expected 'magnus2' or 'magnus4'.")
+
+    h = length / n_steps
+    starts = np.arange(n_steps) * h
+    if not callable(eps):
+        q = k * np.sqrt(complex(eps))
+        return [propagator_constant_eps(q, h)] * n_steps
+
+    if method == "magnus2":
+        values = np.asarray(eps(starts + 0.5 * h), dtype=complex)
+        return [_exp_traceless_2x2(h * _system_matrix(k, value)) for value in values]
+
+    eps_1 = np.asarray(eps(starts + _C1 * h), dtype=complex)
+    eps_2 = np.asarray(eps(starts + _C2 * h), dtype=complex)
+    out = []
+    for value_1, value_2 in zip(eps_1, eps_2, strict=True):
+        a_1 = _system_matrix(k, value_1)
+        a_2 = _system_matrix(k, value_2)
+        omega = 0.5 * h * (a_1 + a_2) - (np.sqrt(3.0) / 12.0) * h * h * (a_1 @ a_2 - a_2 @ a_1)
+        out.append(_exp_traceless_2x2(omega))
+    return out
+
+
+def edge_field_samples(
+    k: complex,
+    length: float,
+    eps: Callable[[np.ndarray], np.ndarray] | complex,
+    psi_start: complex,
+    dpsi_start: complex,
+    n_steps: int = 64,
+    method: str = "magnus4",
+) -> tuple[np.ndarray, np.ndarray]:
+    r"""Field along one edge, given :math:`(\psi, \psi')` at its start.
+
+    Args:
+        k, length, eps, n_steps, method: as :func:`edge_transfer_matrix`.
+        psi_start: :math:`\psi(0)`.
+        dpsi_start: :math:`\psi'(0)`.
+
+    Returns:
+        ``(positions, psi)``, both of length ``n_steps + 1``, sampled at the
+        sub-interval boundaries including both endpoints. This is what the
+        saturated permittivity is evaluated from, so its resolution is the
+        within-edge resolution -- and, unlike ``oversample_graph``, it costs
+        nothing in the size of the eigenproblem.
+    """
+    steps = edge_step_propagators(k, length, eps, n_steps=n_steps, method=method)
+    state = np.array([complex(psi_start), complex(dpsi_start)], dtype=complex)
+    psi = np.empty(len(steps) + 1, dtype=complex)
+    psi[0] = state[0]
+    for i, step in enumerate(steps):
+        state = step @ state
+        psi[i + 1] = state[0]
+    return np.linspace(0.0, length, len(steps) + 1), psi

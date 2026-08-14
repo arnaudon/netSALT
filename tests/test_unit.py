@@ -3400,3 +3400,49 @@ class TestVaryingLaplacian:
         graph = self._graph("closed")
         with pytest.raises(ValueError, match="entries"):
             construct_laplacian_varying(2.3, graph, [None])
+
+
+class TestEdgeFieldSamples:
+    """Field sampled inside an edge, which is what the hole-burning profile needs."""
+
+    @staticmethod
+    def _rippled(eps0=2.25, ripple=0.04, q0=16.05):
+        return lambda x: eps0 / (1.0 + ripple * np.cos(q0 * np.asarray(x)) ** 2)
+
+    def test_step_propagators_multiply_to_the_transfer_matrix(self):
+        from netsalt.edge_propagator import edge_step_propagators, edge_transfer_matrix
+
+        k, length, eps, n = 10.7, 11.0, self._rippled(), 128
+        steps = edge_step_propagators(k, length, eps, n_steps=n)
+        assert len(steps) == n
+        total = np.eye(2, dtype=complex)
+        for step in steps:
+            total = step @ total
+        assert np.allclose(total, edge_transfer_matrix(k, length, eps, n_steps=n))
+
+    def test_constant_eps_field_is_the_analytic_solution(self):
+        """psi(0)=1, psi'(0)=0 gives cos(qx) exactly."""
+        from netsalt.edge_propagator import edge_field_samples
+
+        k, eps, length = 3.0, 4.0, 2.0
+        q = k * np.sqrt(eps)
+        x, psi = edge_field_samples(k, length, eps, 1.0, 0.0, n_steps=64)
+        assert np.allclose(psi, np.cos(q * x), atol=1e-10)
+
+    def test_endpoints_match_the_transfer_matrix(self):
+        from netsalt.edge_propagator import edge_field_samples, edge_transfer_matrix
+
+        k, length, eps = 10.7, 11.0, self._rippled()
+        psi0, dpsi0 = 0.3 + 0.2j, -1.1 + 0.4j
+        x, psi = edge_field_samples(k, length, eps, psi0, dpsi0, n_steps=256)
+        transfer = edge_transfer_matrix(k, length, eps, n_steps=256)
+        assert psi[0] == pytest.approx(psi0)
+        assert psi[-1] == pytest.approx((transfer @ np.array([psi0, dpsi0]))[0])
+        assert x[0] == 0.0 and x[-1] == pytest.approx(length)
+
+    def test_sample_count_follows_n_steps(self):
+        from netsalt.edge_propagator import edge_field_samples
+
+        for n in (1, 8, 64):
+            x, psi = edge_field_samples(10.7, 11.0, self._rippled(), 1.0, 0.0, n_steps=n)
+            assert len(x) == len(psi) == n + 1
