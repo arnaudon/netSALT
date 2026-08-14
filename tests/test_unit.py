@@ -2995,3 +2995,83 @@ class TestModeRankingIsSharedByBothSearches:
 
         modes_df = _rank_and_cap_modes(self._graph(), np.empty((0, 2)))
         assert len(modes_df) == 0
+
+
+class TestModesAttrsSurviveHDF5:
+    """pandas does not persist ``DataFrame.attrs`` to HDF5, so the solver
+    diagnostics were present on a fresh run and silently gone on a cached one --
+    and the pipeline reloads every step it has already computed. For a solver
+    whose contract is 'report, do not correct', losing the report on the second
+    run is the failure that matters."""
+
+    def _modes_df(self):
+        index = pd.MultiIndex(levels=[[], []], codes=[[], []], names=["data", "D0"])
+        modes_df = pd.DataFrame(columns=index)
+        modes_df["lasing_thresholds"] = [0.1, 0.2]
+        modes_df["modal_intensities", 0.5] = [1.0, 2.0]
+        modes_df.attrs["salt_diagnostics"] = pd.DataFrame(
+            {
+                "D0": [0.5, 0.7],
+                "n_active": [1, 2],
+                "active": [(3,), (3, 4)],
+                "dropped": [(), (5,)],
+                "converged": [True, False],
+                "max_residual": [1e-7, 2e-7],
+            }
+        )
+        modes_df.attrs["salt_unit_scale"] = {0: 0.97, 3: 0.98}
+        modes_df.attrs["salt_resolution_error"] = 0.031
+        modes_df.attrs["salt_work_nodes"] = 758
+        return modes_df
+
+    def test_scalar_attrs_round_trip(self, tmp_path):
+        from netsalt.io import load_modes, save_modes
+
+        path = str(tmp_path / "m.h5")
+        save_modes(self._modes_df(), filename=path)
+        back = load_modes(path)
+        assert back.attrs["salt_resolution_error"] == pytest.approx(0.031)
+        assert back.attrs["salt_work_nodes"] == 758
+
+    def test_integer_keyed_dict_keeps_integer_keys(self, tmp_path):
+        """json turns dict keys into strings; salt_unit_scale is keyed by mode id."""
+        from netsalt.io import load_modes, save_modes
+
+        path = str(tmp_path / "m.h5")
+        save_modes(self._modes_df(), filename=path)
+        scale = load_modes(path).attrs["salt_unit_scale"]
+        assert scale == {0: 0.97, 3: 0.98}
+        assert all(isinstance(k, int) for k in scale)
+
+    def test_diagnostics_frame_round_trips_with_tuple_columns(self, tmp_path):
+        from netsalt.io import load_modes, save_modes
+
+        path = str(tmp_path / "m.h5")
+        save_modes(self._modes_df(), filename=path)
+        diagnostics = load_modes(path).attrs["salt_diagnostics"]
+        assert list(diagnostics["active"]) == [(3,), (3, 4)]
+        assert list(diagnostics["dropped"]) == [(), (5,)]
+        assert list(diagnostics["converged"]) == [True, False]
+        assert diagnostics["max_residual"].tolist() == pytest.approx([1e-7, 2e-7])
+
+    def test_data_columns_are_untouched(self, tmp_path):
+        from netsalt.io import load_modes, save_modes
+
+        path = str(tmp_path / "m.h5")
+        original = self._modes_df()
+        save_modes(original, filename=path)
+        back = load_modes(path)
+        assert list(back.columns) == list(original.columns)
+        assert back["lasing_thresholds"].tolist() == pytest.approx([0.1, 0.2])
+
+    def test_file_without_attrs_still_loads(self, tmp_path):
+        """Files written before this existed have no extra keys."""
+        from netsalt.io import load_modes, save_modes
+
+        path = str(tmp_path / "m.h5")
+        plain = self._modes_df()
+        plain.attrs.clear()
+        save_modes(plain, filename=path)
+        back = load_modes(path)
+        assert back.attrs == {}
+        assert back["lasing_thresholds"].tolist() == pytest.approx([0.1, 0.2])
