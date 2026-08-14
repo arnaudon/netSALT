@@ -3188,3 +3188,87 @@ class TestOversampleAliasingWarning:
         # the figure quoted must exceed the cap it is being compared against
         needed = int(re.search(r"would need (\d+) nodes", message).group(1))
         assert needed > 3000
+
+
+class TestEdgePropagator:
+    """The variable-permittivity edge propagator (issue #52).
+
+    The properties that matter are: it reproduces the closed form exactly when
+    eps is constant (so it can replace it without changing passive behaviour),
+    second-order Magnus *is* the piecewise-constant scheme oversampling uses,
+    and fourth order converges as h^4 so it needs far fewer sub-intervals.
+    """
+
+    @staticmethod
+    def _rippled(eps0=2.25, ripple=0.04, q0=16.05):
+        return lambda x: eps0 / (1.0 + ripple * np.cos(q0 * np.asarray(x)) ** 2)
+
+    def test_constant_eps_matches_the_closed_form_exactly(self):
+        from netsalt.edge_propagator import edge_transfer_matrix, propagator_constant_eps
+
+        k, eps, length = 10.7, 2.25, 11.0
+        closed = propagator_constant_eps(k * np.sqrt(eps), length)
+        for method in ("magnus2", "magnus4"):
+            got = edge_transfer_matrix(
+                k,
+                length,
+                lambda x, e=eps: np.full_like(np.asarray(x, dtype=float), e),
+                n_steps=32,
+                method=method,
+            )
+            assert np.allclose(got, closed, rtol=1e-11, atol=1e-11), method
+
+    def test_scalar_eps_bypasses_discretisation(self):
+        from netsalt.edge_propagator import edge_transfer_matrix, propagator_constant_eps
+
+        k, eps, length = 3.0, 4.0, 2.0
+        got = edge_transfer_matrix(k, length, eps, n_steps=1)
+        assert np.allclose(got, propagator_constant_eps(k * np.sqrt(eps), length))
+
+    def test_propagator_is_unimodular_for_real_eps(self):
+        """Wronskian conservation: det = 1 for any lossless profile."""
+        from netsalt.edge_propagator import edge_transfer_matrix
+
+        got = edge_transfer_matrix(10.7, 11.0, self._rippled(), n_steps=256)
+        assert np.linalg.det(got) == pytest.approx(1.0, abs=1e-10)
+
+    def test_magnus2_is_the_piecewise_constant_scheme(self):
+        """Oversampling freezes eps per sub-edge; that is 2nd-order Magnus."""
+        from netsalt.edge_propagator import edge_transfer_matrix, propagator_constant_eps
+
+        k, length, n_steps = 10.7, 11.0, 128
+        eps = self._rippled()
+        h = length / n_steps
+        piecewise = np.eye(2, dtype=complex)
+        for i in range(n_steps):
+            q = k * np.sqrt(complex(eps(np.array([(i + 0.5) * h]))[0]))
+            piecewise = propagator_constant_eps(q, h) @ piecewise
+        magnus = edge_transfer_matrix(k, length, eps, n_steps=n_steps, method="magnus2")
+        assert np.allclose(magnus, piecewise, rtol=1e-10, atol=1e-10)
+
+    def test_fourth_order_converges_faster_than_second(self):
+        from netsalt.edge_propagator import edge_transfer_matrix
+
+        k, length, eps = 10.7, 11.0, self._rippled()
+        reference = edge_transfer_matrix(k, length, eps, n_steps=40000, method="magnus4")
+        scale = np.linalg.norm(reference)
+
+        def error(n, method):
+            got = edge_transfer_matrix(k, length, eps, n_steps=n, method=method)
+            return np.linalg.norm(got - reference) / scale
+
+        # observed order over a doubling, well inside the asymptotic regime
+        e2 = [error(n, "magnus2") for n in (800, 1600)]
+        e4 = [error(n, "magnus4") for n in (800, 1600)]
+        assert np.log2(e2[0] / e2[1]) == pytest.approx(2.0, abs=0.4)
+        assert np.log2(e4[0] / e4[1]) == pytest.approx(4.0, abs=0.4)
+        # and it is the reason this is worth doing at all
+        assert e4[1] < e2[1] / 100.0
+
+    def test_rejects_bad_arguments(self):
+        from netsalt.edge_propagator import edge_transfer_matrix
+
+        with pytest.raises(ValueError, match="n_steps"):
+            edge_transfer_matrix(1.0, 1.0, self._rippled(), n_steps=0)
+        with pytest.raises(ValueError, match="magnus"):
+            edge_transfer_matrix(1.0, 1.0, self._rippled(), method="rk4")

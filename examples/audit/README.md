@@ -203,3 +203,42 @@ modes, ~1e-6 on thresholds, 2.7e-7 on lasing frequencies and 1.6e-4 on modal
 intensities (median over 122 pump points), with cross-residuals passing in both
 directions. It also found the `inner`-on-oversampled-graphs bug and quantified
 the default oversampling's +2.8 % intensity bias. See that directory's README.
+
+## `probe_edge_propagator.py`
+
+Groundwork for #52. The reason full SALT cannot reach production size is not a
+badly-chosen node budget: it is that the quantum-graph secular matrix requires
+one permittivity per edge (`1/(exp(2i k_e l_e) - 1)` is the exact solution only
+for constant eps), while spatial hole burning makes eps vary *within* an edge.
+`oversample_graph` restores piecewise-constancy by subdividing, and pays for it
+in the size of the eigenproblem.
+
+A per-edge transfer matrix keeps the eigenproblem at its original size and makes
+the sub-interval count local. This script measures what that count must be, on a
+buffon-like edge (~28 oscillations, 4 % saturation ripple), against a DOP853
+reference at rtol 1e-13:
+
+| sub-intervals | magnus2 (= oversampling) | magnus4 |
+| ---: | ---: | ---: |
+| 200 | 5.152e-02 | 7.785e-03 |
+| 400 | 1.360e-02 | 5.226e-04 |
+| 800 | 3.449e-03 | 3.321e-05 |
+| 1600 | 8.655e-04 | 2.084e-06 |
+| **for 1e-8** | **819200** | **6400** |
+
+Two results:
+
+* **Oversampling is second-order Magnus.** Freezing eps at each sub-edge
+  midpoint and multiplying constant-eps propagators is exactly
+  `exp(h A(x_mid))` for this system — the two agree to round-off, which is what
+  makes the comparison fair. It also means the current scheme is O(h^2) and
+  cannot be improved by tuning the budget.
+* **Fourth order needs 128x fewer sub-intervals** for the same accuracy, on top
+  of moving the count out of the matrix.
+
+`netsalt/edge_propagator.py` provides the propagator
+(`edge_transfer_matrix`, `propagator_constant_eps`). It reproduces the closed
+form exactly for constant eps, so it can replace it without changing passive
+behaviour. Wiring it into `construct_incidence_matrix` / `construct_weight_matrix`
+— which is where the open and directed boundary models have to be handled — is
+the follow-up.
