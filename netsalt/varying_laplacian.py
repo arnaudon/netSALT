@@ -116,6 +116,13 @@ def construct_laplacian_varying(
             enter the matrix, which is the point.
         method: passed to :func:`~netsalt.edge_propagator.edge_transfer_matrix`.
 
+    Note:
+        Varying edges are propagated at ``k / c``, matching the dispersion
+        relations' ``q = k sqrt(eps) / c`` (see
+        :func:`~netsalt.physics.dispersion_relation_pump`). Passing ``k``
+        directly would silently disagree with the constant-eps edges whenever
+        ``params["c"] != 1``.
+
     Returns:
         The ``n x n`` secular matrix as a sparse CSC matrix, matching
         :func:`~netsalt.quantum_graph.construct_laplacian` exactly when every
@@ -146,6 +153,8 @@ def construct_laplacian_varying(
 
     lengths = np.asarray(graph.graph["lengths"], dtype=float)
     ks = np.asarray(graph.graph["ks"])
+    # q = k sqrt(eps) / c, so the propagator's vacuum wavenumber is k / c.
+    k_over_c = wavenumber / float(params.get("c", 1.0) or 1.0)
     degrees = dict(graph.degree())
     outer_edges = params.get("outer_edges") if open_model == "custom" else None
 
@@ -180,7 +189,7 @@ def construct_laplacian_varying(
             block = edge_dtn_block(propagator_constant_eps(ks[edge_index], length))
         else:
             transfer = edge_transfer_matrix(
-                wavenumber, length, profile, n_steps=n_steps, method=method
+                k_over_c, length, profile, n_steps=n_steps, method=method
             )
             block = edge_dtn_block(transfer)
 

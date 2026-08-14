@@ -12,6 +12,7 @@ import networkx as nx
 import numpy as np
 import pandas as pd
 import pytest
+from scipy.integrate import simpson
 
 from netsalt.algorithm import clean_duplicate_modes
 from netsalt.pump import pump_cost
@@ -3446,3 +3447,186 @@ class TestEdgeFieldSamples:
         for n in (1, 8, 64):
             x, psi = edge_field_samples(10.7, 11.0, self._rippled(), 1.0, 0.0, n_steps=n)
             assert len(x) == len(psi) == n + 1
+
+
+class TestVaryingLaplacianSpeedOfLight:
+    """`q = k sqrt(eps) / c`, so varying edges must be propagated at `k / c`.
+
+    Every other test here uses `c = 1`, where the bug is invisible.
+    """
+
+    @staticmethod
+    def _graph(c):
+        import networkx as nx
+
+        import netsalt
+        from netsalt.physics import dispersion_relation_dielectric
+        from netsalt.quantum_graph import create_quantum_graph, set_total_length
+
+        g = nx.cycle_graph(5)
+        positions = np.array(
+            [[np.cos(2 * np.pi * i / 5), np.sin(2 * np.pi * i / 5)] for i in range(5)]
+        )
+        params = {
+            "open_model": "closed",
+            "c": c,
+            "dielectric_params": {
+                "method": "uniform",
+                "inner_value": 4.0,
+                "loss": 0.0,
+                "outer_value": 1.0,
+            },
+        }
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            create_quantum_graph(g, params, positions=positions, noise_level=0.0)
+        set_total_length(g, 3.0)
+        netsalt.set_dielectric_constant(g, g.graph["params"])
+        netsalt.set_dispersion_relation(g, dispersion_relation_dielectric)
+        return g
+
+    @pytest.mark.parametrize("c", [1.0, 2.5, 0.4])
+    def test_constant_profile_matches_closed_form_for_any_c(self, c):
+        from netsalt.quantum_graph import construct_laplacian
+        from netsalt.varying_laplacian import construct_laplacian_varying
+
+        graph = self._graph(c)
+        k = 2.3
+        eps = float(np.real(graph.graph["params"]["dielectric_constant"][0]))
+        profiles = [
+            (lambda x, e=eps: np.full_like(np.asarray(x, dtype=float), e)) for _ in graph.edges
+        ]
+        reference = np.asarray(construct_laplacian(k, graph).todense())
+        got = np.asarray(construct_laplacian_varying(k, graph, profiles, n_steps=64).todense())
+        assert np.max(np.abs(got - reference)) < 1e-9
+
+
+class TestSaltVarying:
+    """SALT carried on the per-edge-DtN operator (issues #52, #53).
+
+    What is pinned here is the reduction and the normalisation convention. The
+    saturated *solve* is not covered: comparing the two paths at an arbitrary
+    (D0, a) is not a valid test, because such a state is not a SALT solution and
+    |lambda_1| never approaches zero -- the argmin of a non-vanishing residual is
+    not a physical quantity, and the two discretisations have no reason to agree
+    on it. A meaningful saturated comparison needs a self-consistent solution.
+    """
+
+    @staticmethod
+    def _graph(n_inner=5):
+        import networkx as nx
+
+        import netsalt
+        from netsalt.physics import dispersion_relation_pump
+        from netsalt.quantum_graph import create_quantum_graph, set_total_length
+
+        n_edges = n_inner + 2
+        g = nx.path_graph(n_edges + 1)
+        pos = np.array([[float(i), 0.0] for i in range(n_edges + 1)])
+        params = {
+            "open_model": "open",
+            "c": 1.0,
+            "k_a": 10.0,
+            "gamma_perp": 3.0,
+            "dielectric_params": {
+                "method": "uniform",
+                "inner_value": 9.0,
+                "loss": 0.0,
+                "outer_value": 1.0,
+            },
+        }
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            create_quantum_graph(g, params, positions=pos, noise_level=0.0)
+        set_total_length(g, 1.0, inner=True)
+        netsalt.set_dielectric_constant(g, g.graph["params"])
+        netsalt.set_dispersion_relation(g, dispersion_relation_pump)
+        pump = np.array([0.0 if not g[u][v]["inner"] else 1.0 for u, v in g.edges])
+        g.graph["params"]["pump"] = pump
+        return g, pump
+
+    def test_zero_amplitude_matches_the_existing_residual(self):
+        """Saturation off: both paths must be the same operator, exactly."""
+        from netsalt.modes import salt_residuals
+        from netsalt.salt_varying import (
+            edge_field_profiles,
+            node_solution_varying,
+            salt_residuals_varying,
+        )
+
+        graph, pump = self._graph()
+        k, D0 = 10.2, 0.05
+        _, psi = node_solution_varying(k, graph, None, n_steps=32)
+        profiles = edge_field_profiles(k, graph, psi, None, n_steps=32, pump=pump)
+        zero = [np.zeros_like(p) for p in profiles]
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            varying = salt_residuals_varying(graph, [k], [0.0], [zero], D0, pump, n_steps=32)
+            existing = salt_residuals(graph, [k], [0.0], [np.zeros(len(graph.edges))], D0, pump)
+        assert varying[0] == pytest.approx(existing[0], rel=1e-10)
+
+    def test_normalisation_matches_the_existing_convention(self):
+        """Per-edge mean of the within-edge profile == the existing per-edge value.
+
+        The existing path divides |E|^2 by an *unconjugated* pump norm
+        (`_graph_norm` contracts with `.T`); using int|psi|^2 instead leaves a
+        constant ~2 % offset, which this pins down.
+        """
+        from netsalt.modes import _get_mask_matrices, _single_mode_field_intensity
+        from netsalt.salt_varying import edge_field_profiles, node_solution_varying
+
+        graph, pump = self._graph()
+        k = 10.2
+        mask = _get_mask_matrices(graph.graph["params"])[1]
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            existing = np.abs(_single_mode_field_intensity(graph, [k, 1e-7], mask))
+        _, psi = node_solution_varying(k, graph, None, n_steps=512)
+        profiles = edge_field_profiles(k, graph, psi, None, n_steps=512, pump=pump)
+        lengths = np.asarray(graph.graph["lengths"], dtype=float)
+        mine = np.array(
+            [
+                np.trapezoid(p, dx=L / (len(p) - 1)) / L
+                for p, L in zip(profiles, lengths, strict=True)
+            ]
+        )
+        assert np.allclose(mine, existing, rtol=2e-5)
+
+    def test_field_profile_converges_with_resolution(self):
+        """The profile must converge, and fast -- a rate check, not an equality.
+
+        Asserting two resolutions are equal to a fixed tolerance conflates the
+        field's accuracy with the quadrature used to summarise it. What matters
+        is that refining converges, at better than second order now that the
+        pump norm uses Simpson rather than trapezoid.
+        """
+        from netsalt.salt_varying import edge_field_profiles, node_solution_varying
+
+        graph, pump = self._graph()
+        k = 10.2
+        lengths = np.asarray(graph.graph["lengths"], dtype=float)
+
+        def means(n_steps):
+            _, psi = node_solution_varying(k, graph, None, n_steps=n_steps)
+            profiles = edge_field_profiles(k, graph, psi, None, n_steps=n_steps, pump=pump)
+            return np.array(
+                [
+                    simpson(p, dx=L / (len(p) - 1)) / L
+                    for p, L in zip(profiles, lengths, strict=True)
+                ]
+            )
+
+        coarse, mid, fine = means(64), means(128), means(256)
+        first = np.max(np.abs(coarse - fine))
+        second = np.max(np.abs(mid - fine))
+        assert second < first / 4.0  # at least fourth order over the doubling
+
+    def test_unpumped_edges_get_no_profile(self):
+        """Leads carry no pump, so their eps is exactly constant -- no discretisation."""
+        from netsalt.salt_varying import saturated_eps_profiles
+
+        graph, pump = self._graph()
+        fields = [[np.ones(9) for _ in graph.edges]]
+        profiles = saturated_eps_profiles(graph, [10.2], [0.5], fields, 0.05, pump)
+        for edge_index, profile in enumerate(profiles):
+            assert (profile is None) == (pump[edge_index] <= 0.0)
