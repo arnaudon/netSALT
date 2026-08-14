@@ -631,3 +631,46 @@ far above threshold. The blocking item is the within-edge resolution (#52) —
 until the oversampling is set from `k_max` and edge length rather than a flat
 node budget, the residual on a large graph cannot get small and the cost
 figures cannot be re-measured meaningfully.
+
+
+---
+
+## 9. Update — the within-edge resolution wall (issues #52, #53)
+
+§8 concluded that full SALT was unusable at production size, and attributed it to
+a flat oversampling node budget. That diagnosis was **wrong**, and the correction
+matters because it changes what the fix is.
+
+`construct_weight_matrix` uses one `k_e` per edge, and
+`1/(exp(2i k_e l_e) - 1)` is the exact edge solution *only for constant epsilon*
+— it is what makes the quantum-graph secular matrix exact. Spatial hole burning
+makes epsilon vary *within* an edge, breaking that assumption outright.
+`oversample_graph` restores piecewise-constancy by subdividing, and pays for it
+in the size of the **eigenproblem**. On the buffon that is ~76600 nodes against
+243 edges, so the default cap leaves 0.47 samples per wavelength: aliased, not
+coarse. No budget tuning fixes an O(h^2) scheme sampling below Nyquist.
+
+**The fix is to stop discretising the graph.** `L` is a sum of per-edge 2x2
+Dirichlet-to-Neumann blocks, and the DtN map of a varying-epsilon edge follows
+from its transfer matrix, `D = (1/M12) [[M11, -1], [-1, M22]]`. The matrix then
+stays one node per vertex while the resolution lives in per-edge transfer
+matrices. Landed as `netsalt/edge_propagator.py`,
+`netsalt/varying_laplacian.py` and `netsalt/salt_varying.py`, with:
+
+* exact reduction to `construct_laplacian` (1e-12) on the closed and open models,
+  so it can replace the closed form without touching passive behaviour;
+* oversampling converging **to** the DtN answer at a clean O(h^2) (ratios 3.88,
+  3.99), i.e. the two solve the same problem;
+* fourth-order Magnus needing 6400 sub-intervals for 1e-8 where the
+  piecewise-constant scheme — which *is* second-order Magnus — needs 819200;
+* the production buffon resolved at **18.5 samples per wavelength** (against
+  0.47) in a 208x208 matrix, ~2 s per operator build;
+* pump continuation converging at **15 of 15** pumps to 3x threshold, residuals
+  3e-7..9e-7, amplitude strictly monotone — against the oversampled solver's
+  non-monotone output and 1e-2 residuals.
+
+**Remaining:** the new path is a public API but is not yet what
+`intensity_method: full_salt_newton` runs, and it has not been cross-checked
+against `examples/audit/independent_salt/`. Until both land, #52 and #53 stay
+open — what has changed is that the wall is understood and demonstrably passable,
+not that the shipped default has moved.

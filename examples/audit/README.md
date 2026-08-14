@@ -307,3 +307,29 @@ instead of from the previous solution makes the solver land on *different*
 modes (`k` jumping 11.4 -> 10.4 -> 9.5) — each a genuine root at residual
 < 1e-6, but not the same branch. Carrying the solution forward is what keeps it
 on one.
+
+## `probe_buffon_varying.py`
+
+The production buffon on the per-edge-DtN operator — the check that answers #52.
+
+Oversampling needs ~76600 nodes to reach lambda/12 here; the default cap of 3000
+gives **0.47 samples per wavelength**, four times below Nyquist, so the
+within-edge field is aliased rather than merely coarse. With the resolution
+moved into per-edge transfer matrices the matrix stays 208x208:
+
+| n_steps | samples/wavelength | matrix | build | \|lambda\| | delta |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 64 | 2.3 | 208x208 | 0.29s | 1.73132837 | |
+| 128 | 4.6 | 208x208 | 0.54s | 1.73130151 | 2.83e-05 |
+| 256 | 9.2 | 208x208 | 0.99s | 1.73129737 | 1.29e-05 |
+| 512 | 18.5 | 208x208 | 1.95s | 1.73129710 | 6.46e-07 |
+| 1024 | 36.9 | 208x208 | 3.96s | 1.73129709 | 3.34e-08 |
+
+**18.5 samples per wavelength against 0.47**, converged to 6e-7, in a matrix
+368x smaller than the equivalent subdivision, at ~2 s per operator build.
+
+One trap, because it produced a perfect-looking result first: running this at
+**zero amplitude** leaves the saturation denominator at 1, so the profile is
+constant, the propagator is exact at any `n_steps`, and `|lambda|` is identical
+to 1e-12 across the whole sweep — exercising none of the varying machinery. The
+sweep above uses a genuine saturated field.
