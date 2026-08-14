@@ -166,6 +166,30 @@ def load_graph(filename: str = "graph.json", *, allow_pickle: bool = False, as_c
     return graph
 
 
+#: ``modes_df.attrs`` keys holding a dataframe rather than a scalar.
+_MODES_ATTR_FRAME_KEYS = ("salt_diagnostics",)
+
+
+def _attrs_path(filename: str) -> Path:
+    """Sidecar carrying ``modes_df.attrs`` next to the HDF5 file.
+
+    A sidecar rather than a second HDF5 key: ``modal_intensities.h5`` and
+    friends have always held exactly one dataset, and ``pd.read_hdf(path)``
+    without a key raises as soon as there are two. Adding a key would break
+    every existing reader (it broke the functional test's own comparator), so
+    the HDF5 shape is left alone.
+
+    The attrs are stored at all because pandas does not persist
+    ``DataFrame.attrs``: without this the solver diagnostics were present on a
+    fresh run and silently absent on a cached one, and the pipeline reloads
+    every step it has already computed. For a solver whose contract is "report,
+    do not correct", losing the report on the second run is the failure that
+    matters.
+    """
+    path = Path(filename)
+    return path.with_name(path.stem + "_attrs.json")
+
+
 def save_modes(modes_df, filename: str = "results.h5") -> None:
     """Save modes dataframe into hdf5 (fixed format) and a CSV sidecar.
 
@@ -174,16 +198,64 @@ def save_modes(modes_df, filename: str = "results.h5") -> None:
     complex-valued columns, which pytables stores as pickled objects and
     warns about on every write; that warning is harmless here, so it's
     suppressed locally.
+
+    ``modes_df.attrs`` goes to a JSON sidecar; see :func:`_attrs_path`.
     """
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", PerformanceWarning)
         modes_df.to_hdf(filename, key="modes", format="fixed", mode="w")
     modes_df.to_csv(Path(filename).with_suffix(".csv"))
 
+    attrs = dict(getattr(modes_df, "attrs", {}) or {})
+    if not attrs:
+        return
+    payload: dict[str, Any] = {"scalars": {}, "frames": {}}
+    for key, value in attrs.items():
+        if key in _MODES_ATTR_FRAME_KEYS and isinstance(value, pd.DataFrame):
+            frame = value.copy()
+            tuple_columns = [
+                column
+                for column in frame.columns
+                if frame[column].map(lambda v: isinstance(v, tuple)).any()
+            ]
+            for column in tuple_columns:
+                frame[column] = frame[column].map(lambda v: list(v) if isinstance(v, tuple) else v)
+            payload["frames"][key] = {
+                "data": json.loads(frame.to_json(orient="split")),
+                "tuple_columns": tuple_columns,
+            }
+        else:
+            payload["scalars"][key] = value
+    _attrs_path(filename).write_text(json.dumps(payload, default=str))
+
 
 def load_modes(filename: str = "results.h5"):
-    """Return modes dataframe from hdf5."""
-    return pd.read_hdf(filename, "modes")
+    """Return modes dataframe from hdf5, with ``attrs`` restored from the sidecar.
+
+    A file written before the sidecar existed simply has none, and loads exactly
+    as it always did.
+    """
+    modes_df = pd.read_hdf(filename, "modes")
+    path = _attrs_path(filename)
+    if not path.exists():
+        return modes_df
+
+    payload = json.loads(path.read_text())
+    for key, value in payload.get("scalars", {}).items():
+        # json turns dict keys into strings; salt_unit_scale is keyed by mode id.
+        if isinstance(value, dict):
+            value = {
+                (int(k) if isinstance(k, str) and k.lstrip("-").isdigit() else k): v
+                for k, v in value.items()
+            }
+        modes_df.attrs[key] = value
+    for key, stored in payload.get("frames", {}).items():
+        frame = pd.DataFrame(**{k: v for k, v in stored["data"].items() if k != "dtype"})
+        for column in stored.get("tuple_columns", []):
+            if column in frame.columns:
+                frame[column] = frame[column].map(lambda v: tuple(v) if isinstance(v, list) else v)
+        modes_df.attrs[key] = frame
+    return modes_df
 
 
 def save_qualities(qualities, filename: str = "results.h5") -> None:

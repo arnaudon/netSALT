@@ -137,6 +137,39 @@ def dispersion_relation_pump(freq, params=None):
     )
 
 
+def dispersion_relation_pump_saturated(freq, params=None):
+    r"""Saturated pumped dispersion relation (full SALT, issue #42).
+
+    Identical to :func:`dispersion_relation_pump` except the scalar gain term
+    :math:`D_0\,\delta_\mathrm{pump}` is replaced by a per-edge *saturated*
+    effective-pump field ``params["D0_eff"]`` carrying the spatial-hole-burning
+    denominator :math:`1 + \sum_\nu \Gamma_\nu a_\nu |\Psi_\nu|^2`:
+
+    .. math::
+
+        k(\omega) = \frac{\omega}{c} \sqrt{\epsilon + \gamma(\omega)\, D_0^\mathrm{eff}}.
+
+    With ``D0_eff = D0 * pump`` (the unsaturated limit, denominator one) this
+    reduces *exactly* to :func:`dispersion_relation_pump`, so it can be swapped
+    in without changing passive behaviour.
+
+    Args:
+        freq (float): frequency
+        params (dict): parameters, must include ``dielectric_constant``; if
+            ``D0_eff`` (a per-edge array) is absent it falls back to
+            :func:`dispersion_relation_pump`.
+    """
+    if not params:
+        raise ValueError("Please provide dispersion parameters")
+
+    dielectric = np.asarray(params["dielectric_constant"])
+    c = params.get("c", 1.0)
+    if "D0_eff" not in params:
+        return dispersion_relation_pump(freq, params)
+
+    return freq * np.sqrt(dielectric + gamma(freq, params) * np.asarray(params["D0_eff"])) / c
+
+
 def set_dielectric_constant(graph, params, custom_values=None, rng=None):
     """Set dielectric constant in params, from dielectric constant or refraction index.
 

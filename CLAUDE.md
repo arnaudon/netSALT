@@ -20,6 +20,18 @@ mapping.
   - `modes.py` — mode search driver (`scan_frequencies`, `find_modes`,
     `find_threshold_lasing_modes`, `pump_trajectories`,
     `compute_mode_competition_matrix`, `compute_modal_intensities`). Runs
+    `multiprocessing.Pool` over the scan grid. The lasing L–I curves can be
+    computed by two `intensity_method`s (issue #42, see `doc/source/lasing.rst`):
+    `linear` (default, the fast near-threshold competition-matrix model) and
+    `full_salt_newton`
+    (operator-level nonlinear SALT — solves `(k_μ,a_μ)` so `L_sat` is singular at
+    real `k_μ`; reduces to `linear` near threshold and bends the curves above it.
+    Auto-oversamples the within-edge hole burning — the per-edge mean over-clamps;
+    validated against Ge-Chong-Stone PRA 82, 063824 Eq. 28 on `line_PRA`). The
+    oversampling is bounded by `oversample_node_cap` (default 3000), so newton
+    **also runs on the real buffon** (~12 s capped, ~6 min uncapped at λ/4 ≈30k
+    nodes, lasing its co-lasing modes) — raise the cap / `oversample_resolution`
+    for accuracy at higher cost. `linear` is still the cheap first pass for counts.
     `multiprocessing.Pool` over the scan grid.
     `compute_mode_competition_matrix` no longer fans the `M*M` elements out
     over a pool: `_compute_mode_competition_matrix_batched` contracts the
@@ -79,8 +91,11 @@ mapping.
   `compute_lasing_modes` on a line graph and diffs `out/` against
   `tests/data/run_simple/out/` with `dir_content_diff`
 - `examples/` — ready-to-run YAML configs (buffon, ring, wheel, directed,
-  line_PRA, transfer). Buffon variants use `defaults:` to inherit shared
-  base configs.
+  line_PRA, transfer; buffon variants use `defaults:` to inherit shared base
+  configs) plus script-based per-graph solver comparisons (line_fabry_perot,
+  ring_leads, tree, two_ring, chaotic_ring, dense_ring; shared helpers in
+  `examples/_common.py`, figures gitignored and reproduced by each folder's
+  `run.sh`).
 - `doc/` — Sphinx sources, published at https://arnaudon.github.io/netSALT/
 
 ## Running things
@@ -122,29 +137,25 @@ research-grade full-SALT solver, with every claim backed by a reproducer in
 Ranked by impact vs. effort. None of these are required for the code to run;
 they are what an "old code" most needs before further work lands on top.
 
-1. **Test coverage is one functional test.** `tests/test_functional.py` runs
-   the full pipeline and byte-diffs HDF5 output. That catches
-   regressions but gives no signal on *what* broke. Add unit tests for the
-   load-bearing pieces in isolation: `mode_quality`, `to_complex` /
-   `from_complex`, `refine_mode_brownian_ratchet` on a toy graph,
-   `construct_laplacian` / `construct_weight_matrix` on a 3-edge line,
-   `clean_duplicate_modes`, `pump_cost`. Until this exists, any refactor is
-   flying blind.
+1. ~~**Test coverage is one functional test.**~~ **Largely done.** The suite
+   is now 184 tests: `tests/test_unit.py` covers `mode_quality`,
+   `to_complex`/`from_complex`, the matrix builders, `clean_duplicate_modes`,
+   `pump_cost`, the contour defaults, the competition-matrix vectorisation
+   against its scalar oracle, the SALT solver's structure and diagnostics, and
+   the oversampling/`inner` invariants. What is still shallow is multimode
+   physics regression — see issue #54.
 
-2. **Modernise packaging.** `setup.py` still guards against Python < 2.7 and
-   pins `VERSION = "0.2.0"`. Move to `pyproject.toml` (PEP 621), declare
-   `requires-python = ">=3.10"`, drop the 2.7 check. `tox.ini` still targets
-   `py38`/`py39` (both EOL) and `.github/workflows/run-tox.yml` uses
-   `actions/checkout@v2` + `actions/setup-python@v2` (deprecated). Bump CI to
-   `@v4` and to Python 3.10–3.12.
+2. ~~**Modernise packaging.**~~ **Done.** Metadata is in `pyproject.toml`
+   (PEP 621) with `requires-python = ">=3.10"`; `setup.py` is a four-line
+   shim for editable installs on older pip. `tox.ini` targets
+   `py{310,311,312}` and the workflows use `actions/checkout@v4` +
+   `actions/setup-python@v5` + `astral-sh/setup-uv@v5`.
 
-3. **`warnings.filterwarnings("ignore")` at module import in `modes.py:27`.**
-   This silences *every* warning for *every* consumer of the library. Worse,
-   line 28 promotes `np.ComplexWarning` to an error — and `np.ComplexWarning`
-   was removed in NumPy 1.25 (it now lives at `numpy.exceptions.ComplexWarning`).
-   On a modern NumPy, importing `netsalt.modes` raises `AttributeError`. Fix
-   both: scope the filter to the narrowest block that needs it, and use the
-   new path (or `warnings.catch_warnings`).
+3. ~~**`warnings.filterwarnings("ignore")` at module import.**~~ **Done.**
+   No module-level filter remains anywhere in the package (the suppressions
+   that are still needed are scoped to the block that needs them), and
+   `ComplexWarning` is imported from `numpy.exceptions` with a fallback to
+   the pre-1.25 location.
 
 4. ~~**`pickle` for graph I/O.**~~ **Done.** `save_graph` / `load_graph`
    now default to JSON (node-link format) with a custom encoder for numpy
@@ -181,10 +192,9 @@ they are what an "old code" most needs before further work lands on top.
    still mutate `self.params` in place — that's fine because pydantic
    validates each assignment, but a follow-up could remove the mutation.
 
-7. **`raise Exception(...)` in `physics.py`.** `dispersion_relation_linear`,
-   `_resistance`, `_dielectric` all raise the bare `Exception` class with
-   typo'd messages ("Please correct provide…"). Use `ValueError` (or a
-   module-specific exception) and fix the strings — these are user-facing.
+7. ~~**`raise Exception(...)` in `physics.py`.**~~ **Done.** No bare
+   `Exception` is raised anywhere in the package; these are `ValueError`
+   with the typo'd messages rewritten.
 
 8. ~~**`pandas.to_hdf` without `format=` / `mode=`.**~~ **Done.**
    `save_modes` pins `format="fixed", mode="w"`; `save_qualities` pins
@@ -234,6 +244,27 @@ they are what an "old code" most needs before further work lands on top.
 - Compute-core tests are still fairly shallow. Adding a test for
   ``compute_mode_competition_matrix`` and ``find_threshold_lasing_modes``
   on a tiny analytic graph would give more regression coverage.
+- ~~**Full SALT beyond the linearised competition matrix (issue #42).**~~
+  **Landed.** The operator-level ``full_salt_newton`` solver was added next to
+  the original ``linear`` model: it
+  solves the real nonlinear SALT eigenproblem (saturated dispersion
+  ``dispersion_relation_pump_saturated`` + a frozen-field trust-region ``(k,a)``
+  solve with a self-consistent active set). All reduce to ``linear`` near
+  threshold. ``full_salt_newton`` is **validated against Ge-Chong-Stone PRA 82,
+  063824 (Eq. 28)** on ``line_PRA``: both lase two modes, intensities matching to a
+  few % near threshold, with the full-SALT bend-over above it. Crucial gotcha: the
+  operator-level hole burning must **resolve the within-edge field** — the per-edge
+  mean over-clamps and spuriously suppresses co-lasing modes (it lased one mode on
+  ``line_PRA`` until ``oversample_size`` auto-defaulted to a wavelength-resolving
+  size, ``_auto_oversample_size``). ``benchmark/bench_salt.py`` compares the
+  solvers. **Scaling/speed (landed):** the cost is the eigensolve, and oversampling
+  scales fine via ARPACK — the bottleneck was the dense-eigensolve threshold.
+  ``DENSE_EIG_MAX`` was lowered 256 → 50 (the measured dense/ARPACK crossover; dense
+  is O(N³), ARPACK ~flat in N on the banded laplacian), and the inner trust-region
+  solve was stopped from over-converging against the frozen field (tol 1e-6,
+  fewer field refreshes). line_PRA newton 47s → 14s, byte-identical. Optional
+  future refinements: an analytic coherent within-edge hole-burning integral (to
+  drop oversampling entirely) and a Jacobian-free amplitude update.
 
 ## Git / branch policy for this repo
 

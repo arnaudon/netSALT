@@ -43,6 +43,7 @@ from .io import (
 )
 from .modes import (
     compute_modal_intensities,
+    compute_modal_intensities_full_salt_newton,
     compute_mode_competition_matrix,
     find_passive_modes,
     find_threshold_lasing_modes,
@@ -464,16 +465,25 @@ def step_compute_mode_competition_matrix(
 
     qg = _attach_pump_to_graph(p, qg, pump)
     matrix = compute_mode_competition_matrix(qg, threshold_modes_df)
+    # format/mode pinned for the same reason as netsalt.io.save_modes: the
+    # pandas defaults are settable globally (io.hdf.default_format) and mode
+    # defaults to append, so an unpinned write silently changes behaviour with
+    # the environment. This file holds exactly one key.
     pd.DataFrame(data=matrix, index=None, columns=None).to_hdf(
-        str(out), key="mode_competition_matrix"
+        str(out), key="mode_competition_matrix", format="fixed", mode="w"
     )
     return matrix
 
 
 def step_compute_modal_intensities(
-    p: NetSaltParams, threshold_modes_df, competition_matrix, lasing_modes_id
+    p: NetSaltParams, qg, threshold_modes_df, competition_matrix, pump, lasing_modes_id
 ):
-    """Compute modal intensities over the pump-strength sweep."""
+    """Compute modal intensities over the pump-strength sweep.
+
+    Dispatches on ``params["intensity_method"]`` (default ``"linear"``). The
+    ``full_salt_newton`` solver needs the pumped graph, so it is reattached
+    here; the ``linear`` path is unchanged and ignores it.
+    """
     out = _outdir(p) / _apply_lasing_ids("modal_intensities.h5", lasing_modes_id)
     if out.exists() and not _force(p):
         return load_modes(str(out))
@@ -482,7 +492,30 @@ def step_compute_modal_intensities(
     D0_max = p.get("intensities_D0_max")
     if D0_max is None:
         D0_max = p.get("D0_max", 0.1)
-    modes_df = compute_modal_intensities(threshold_modes_df, D0_max, competition_matrix)
+
+    method = p.get("intensity_method") or "linear"
+    if method != "linear":
+        # the pump-dependent solvers evaluate profiles on the pumped graph
+        qg = _attach_pump_to_graph(p, qg, pump)
+    if method == "linear":
+        modes_df = compute_modal_intensities(threshold_modes_df, D0_max, competition_matrix)
+    elif method == "full_salt_newton":
+        modes_df = compute_modal_intensities_full_salt_newton(
+            qg,
+            threshold_modes_df,
+            D0_max,
+            D0_steps=p.get("salt_D0_steps", 30),
+            tol=p.get("intensity_tol", 1e-8),
+            oversample_size=p.get("intensity_oversample_size"),
+            inner_max_iter=p.get("intensity_max_iter", 25),
+            inner_damping=p.get("intensity_damping", 0.8),
+            oversample_resolution=p.get("intensity_oversample_resolution", 12),
+            oversample_node_cap=p.get("intensity_oversample_node_cap", 3000),
+        )
+    else:  # pragma: no cover - guarded by the NetSaltParams Literal
+        raise ValueError(
+            f"Unknown intensity_method {method!r}; expected 'linear' or 'full_salt_newton'."
+        )
     save_modes(modes_df, filename=str(out))
     return modes_df
 
@@ -777,7 +810,7 @@ def compute_lasing_modes(p: NetSaltParams, lasing_modes_id=None):
     plot_mode_competition_matrix_fig(p, competition, lasing_modes_id)
 
     intensities_df = step_compute_modal_intensities(
-        p, threshold_modes_df, competition, lasing_modes_id
+        p, qg, threshold_modes_df, competition, pump, lasing_modes_id
     )
     plot_ll_curve_fig(p, qg, intensities_df, lasing_modes_id)
     plot_stem_spectra_fig(p, qg, intensities_df, lasing_modes_id)
@@ -812,7 +845,9 @@ def compute_controllability(p: NetSaltParams):
             trajectories_df = step_compute_mode_trajectories(p, qg, passive_modes_df, pump, ids)
         threshold_modes_df = step_find_threshold_modes(p, qg, trajectories_df, pump, ids)
         competition = step_compute_mode_competition_matrix(p, qg, threshold_modes_df, pump, ids)
-        intensities_df = step_compute_modal_intensities(p, threshold_modes_df, competition, ids)
+        intensities_df = step_compute_modal_intensities(
+            p, qg, threshold_modes_df, competition, pump, ids
+        )
         plot_ll_curve_fig(p, qg, intensities_df, ids)
 
         spectra = intensities_df[

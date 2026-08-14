@@ -1,0 +1,19 @@
+defaults: ../_base.yaml
+
+# Same two-mode buffon as ../buffon_2modes (pump optimised to lase modes 1, 5),
+# but solved with the operator-level full_salt_newton instead of linear.
+#
+# Expect this to be slow, and read the diagnostics before trusting the result.
+# On the full buffon graph the solver takes ~1100 s for 10 modes over 8 pumps at
+# the default cap of 3000, converges at 1 of 8 pumps, and reports a 33%
+# within-edge resolution error; see issues #52 and #53 and AUDIT.md §8. The
+# cap below buys resolution back at proportionally more cost. Restricting the
+# active set to two modes, as here, is what makes it tractable at all.
+plot_passive_edge_size: 100.0
+plot_passive_n_modes: 12
+
+lasing_modes_id: [1, 5]
+
+intensity_method: full_salt_newton
+salt_D0_steps: 10
+intensity_oversample_node_cap: 30000   # ~lambda/4 on this graph; default 3000 is faster/coarser

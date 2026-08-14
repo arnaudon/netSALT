@@ -22,6 +22,20 @@ from .utils import to_complex
 
 L = logging.getLogger(__name__)
 
+# Quantum-graph laplacians at or below this dimension use a direct dense
+# eigensolve instead of ARPACK shift-invert: ``eigs(sigma=0)`` carries a fixed
+# per-call overhead (a sparse LU factorisation + Arnoldi restart, ~2.5 ms) that
+# only dominates for small graphs, where ``np.linalg.eig`` on the dense matrix is
+# faster and returns the same nearest-zero eigenpair. Above the crossover (~50
+# nodes, measured) ARPACK wins decisively: it is ~flat in N on the banded
+# quantum-graph laplacian (~2.5 ms at N=60, ~6 ms at N=1000), whereas dense is
+# O(N^3) (~24 ms at N=120, ~160 ms at N=250). Kept high (256) here for robust
+# *mode finding* on dense-spectrum 2D graphs (e.g. buffon): the grid scan probes
+# many near-singular k, where ARPACK shift-invert (sigma=0, an LU of a near-singular
+# matrix) is slow/unstable, while dense is robust. ``full_salt_newton`` lowers it
+# *locally* (NEWTON_DENSE_EIG_MAX) for its own banded, oversampled saturated solves,
+# where ARPACK is both fast (~flat in N) and stable (isolated lasing modes).
+DENSE_EIG_MAX = 256
 # Above this dimension ``laplacian_quality(method="singularvalue")`` falls back to
 # the sparse ``svds`` path. Below it, a dense SVD is far cheaper: ``svds(which="SM")``
 # converges very slowly on quantum-graph laplacians (measured 109 ms vs 0.267 ms at
@@ -258,11 +272,24 @@ def oversample_graph(graph, edge_size):
 
     The input graph is deep-copied before any mutation: ``_set_pump_on_graph``
     writes per-edge ``pump`` attributes, and the post-copy
-    ``_set_pump_on_params`` / ``set_inner_edges`` calls rewrite
-    ``params['pump']`` and ``params['inner']`` to the oversampled-edge
-    count. Without the deep copy these mutations leak back to the caller
-    via ``graph.graph["params"]`` (a shared reference) and break any
+    ``_set_pump_on_params`` call rewrites ``params['pump']`` to the
+    oversampled-edge count. Without the deep copy these mutations leak back to
+    the caller via ``graph.graph["params"]`` (a shared reference) and break any
     subsequent ``compute_mode_*`` call that re-reads those arrays.
+
+    Each sub-edge **inherits** its parent's ``inner`` flag and ``edgelabel``
+    rather than having them re-derived. Re-deriving is wrong here:
+    :func:`set_inner_edges` calls an edge outer when one of its endpoints has
+    degree 1, which after subdivision is true only of the single sub-edge
+    touching the terminal node — so most of an open graph's vacuum leads would
+    be relabelled *inner*. On the shipped Fabry-Perot line that moves the
+    "inner" length from the cavity's 0.5 to 0.589, an 18% error in every
+    integral normalised over the cavity (``_newton_onset_unit_scale`` is one).
+    netsalt's own hole-burning path masks with ``pump * inner`` and so was
+    insulated, but the flag is public and consumers read it.
+
+    Inheriting ``edgelabel`` also keeps the sub-edge → parent-edge map, which
+    is the only way to fold a work-graph quantity back onto the original graph.
 
     Args:
         graph (graph): quantum graph (left untouched)
@@ -277,6 +304,8 @@ def oversample_graph(graph, edge_size):
         if n_nodes > 1:
             dielectric_constant = graph[u][v].get("dielectric_constant", None)
             pump = graph[u][v]["pump"]
+            inner = graph[u][v].get("inner", True)
+            edgelabel = graph[u][v].get("edgelabel", ei)
             oversampled_graph.remove_edge(u, v)
 
             for node_index in range(n_nodes - 1):
@@ -299,7 +328,8 @@ def oversample_graph(graph, edge_size):
                     last,
                     dielectric_constant=dielectric_constant,
                     pump=pump,
-                    edgelabel=ei,
+                    inner=inner,
+                    edgelabel=edgelabel,
                 )
 
             oversampled_graph.add_edge(
@@ -307,13 +337,17 @@ def oversample_graph(graph, edge_size):
                 v,
                 dielectric_constant=dielectric_constant,
                 pump=pump,
-                edgelabel=ei,
+                inner=inner,
+                edgelabel=edgelabel,
             )
 
     oversampled_graph = nx.convert_node_labels_to_integers(oversampled_graph)
     _set_edge_lengths(oversampled_graph)
     params = oversampled_graph.graph["params"]
-    set_inner_edges(oversampled_graph, params)
+    params["inner"] = [bool(oversampled_graph[u][v]["inner"]) for u, v in oversampled_graph.edges]
+    oversampled_graph.graph["edgelabel"] = np.array(
+        [oversampled_graph[u][v]["edgelabel"] for u, v in oversampled_graph.edges]
+    )
     update_params_dielectric_constant(oversampled_graph, params)
     _set_pump_on_params(oversampled_graph, params)
     update_parameters(oversampled_graph, params, force=True)
@@ -599,6 +633,21 @@ def laplacian_quality(laplacian, method="eigenvalue", rng=None):
             starting vector. If None, a fresh generator with fresh entropy is
             created. Pass a seeded generator for reproducibility.
     """
+    # Dense fast path for small matrices (see DENSE_EIG_MAX): the nearest-zero
+    # eigenvalue is the smallest-magnitude one, identical to ``eigs(sigma=0)`` but
+    # without ARPACK's per-call overhead. ``rng`` is irrelevant here (no ARPACK
+    # start vector), keeping the result deterministic.
+    if method in ("eigenvalue", "complex_eigenvalue") and laplacian.shape[0] <= DENSE_EIG_MAX:
+        dense = laplacian.toarray()
+        # a root-finder can probe a ``k`` whose operator overflows to inf/NaN;
+        # ``np.linalg.eigvals`` raises there, so signal "not a mode" (quality 1)
+        # exactly as the ARPACK branch does on non-convergence.
+        if not np.isfinite(dense).all():
+            return 1.0 if method == "eigenvalue" else 1.0 + 0j
+        eigenvalues = np.linalg.eigvals(dense)
+        lam = eigenvalues[np.argmin(np.abs(eigenvalues))]
+        return abs(lam) if method == "eigenvalue" else complex(lam)
+
     if rng is None:
         rng = np.random.default_rng()
     v0 = rng.random(laplacian.shape[0])

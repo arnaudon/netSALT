@@ -108,6 +108,33 @@ class NetSaltParams(BaseModel):
     reduction_factor: float | None = None
     n_modes_max: int | None = None
 
+    # --- Modal-intensity solver --------------------------------------------
+    # ``intensity_method`` selects how the lasing L--I curves are computed from
+    # the threshold modes and the mode-competition matrix. Accepted values:
+    #   ``"linear"`` (default) — the near-threshold SALT model: one
+    #     pump-independent competition matrix and a linear solve
+    #     (``compute_modal_intensities``). Piecewise-linear curves; fast.
+    #   ``"full_salt_newton"`` — operator-level SALT: solves the saturated
+    #     nonlinear eigenproblem for the active modes' ``(k, a)`` (real k,
+    #     amplitude), capturing gain-clamping mode suppression. Validated against
+    #     Ge-Chong-Stone on examples/line_PRA; slower.
+    # See doc/source/lasing.rst and issue #42.
+    intensity_method: Literal["linear", "full_salt_newton"] | None = None
+    # full_salt_newton knobs:
+    intensity_max_iter: int | None = None
+    intensity_tol: float | None = None
+    intensity_damping: float | None = None
+    salt_D0_steps: int | None = None
+    # edge_size passed to oversample_graph for the within-edge hole-burning
+    # resolution (None auto-picks a wavelength-resolving size).
+    intensity_oversample_size: float | None = None
+    # full_salt_newton auto-oversampling knobs: sub-edges per wavelength
+    # (resolution) and the node cap that bounds the oversampled operator. The cap
+    # makes the solver feasible on large graphs (buffon) but reduces accuracy
+    # there; raise it (slower) when the modal magnitudes matter.
+    intensity_oversample_resolution: int | None = None
+    intensity_oversample_node_cap: int | None = None
+
     # --- Infrastructure ----------------------------------------------------
     n_workers: int | None = None
     # Force the dense (k, alpha) quality-grid scan on or off. Unset means

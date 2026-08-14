@@ -23,7 +23,7 @@ slow. The above-threshold (full-SALT) layer is not yet research-grade.**
 | secular matrix + contour mode search | passive modes `k` | **accurate to ~1e-12**; the *subdivision default* found zero modes on the flagship example **[fixed]**; one structural blind spot remains |
 | pump trajectories + thresholds | `D0_thr`, threshold modes | sound physics; crashed on a failed refinement **[fixed]**; still slow |
 | competition matrix `T` + linear L–I | near-threshold modal intensities | **physics is right**, validated against a published reference; kernel was ~100x slower than needed **[fixed]**; near-degenerate results now carry a conditioning flag **[fixed]** |
-| `full_salt_newton` (PR #43) | above-threshold L–I | promising core, but wrapped in heuristics that make results unfalsifiable |
+| `full_salt_newton` (PR #43) | above-threshold L–I | promising core, but wrapped in heuristics that make results unfalsifiable — the heuristics are now gone and the picture is sharper, see §8 |
 
 Two headline points:
 
@@ -524,3 +524,110 @@ limit.
 | competition-matrix speedup and agreement | `benchmark/bench_competition.py` |
 | Ge-Chong-Stone Fig. 6 validation | `examples/line_PRA/compare_to_pra_fig6.py` on PR #43 |
 | stale-cache hazard, gamma_perp crash | run `examples/line_PRA` twice, editing `gamma_perp` between runs |
+| full-SALT reduces to the linear model near threshold (9-graph ladder) | `examples/audit/compare_linear_vs_salt.py` |
+| where full SALT stops converging (deep pump, production size) | `examples/audit/README.md`, "Where the solver stops working" |
+| independent full-SALT cross-check (passive, thresholds, above threshold) | `examples/audit/independent_salt/` |
+| the sign of the newton-vs-linear departure, term by term | `examples/audit/decompose_salt_departure.py` |
+
+---
+
+## 8. Update — after the §5 split landed
+
+§5 recommended splitting `_full_salt_newton_impl` and replacing its guards with
+diagnostics. That landed on `claude/full-salt-solvers` (issue #51): the
+implementation is ~180 lines instead of 432, the fixed-active-set solve is
+exposed as `solve_salt_fixed_set`, the acceptance test as `salt_residuals`, and
+the total-output ratchet and wrong-basin guard are **removed** rather than
+retuned. Every solve now records `modes_df.attrs["salt_diagnostics"]` — per
+pump: `D0`, `n_active`, `active`, `added`, `dropped`, `converged`,
+`max_residual`, `iterations` — persisted alongside the HDF5 output so a cached
+step keeps its report.
+
+That makes §5's central complaint testable, and the answer is mixed.
+
+**The solver reduces to the near-threshold model where it must.** Over a
+nine-graph ladder (11 → 39 nodes; `examples/audit/compare_linear_vs_salt.py`),
+the lasing mode count agrees 9 for 9, and the dominant mode's intensity agrees
+to 0.2–3.4 % just above threshold, with the deviation growing monotonically
+with pump on every graph. Residuals over the ladder are 1e-8 to 2e-5, so the
+agreement is between two converged answers, not two failures. This is the
+consistency check §6 asked for, and it passes.
+
+**It stops working in two regimes, and now says so.**
+
+* *Deep above threshold.* On `mini_buffon` at 25× threshold the summed L–I
+  drops 40.8 % across one pump step, worst residual 9.1e-3, converged 6/25.
+  This is the case the removed ratchet was written for: the guard was hiding a
+  genuine non-convergence, exactly as §5 suspected. It is graph-dependent —
+  `chaotic_ring` at 30× is monotone with residual 5.7e-5. Issue #53.
+* *Production size.* On `examples/buffon/buffon_uniform` (208 nodes / 243
+  edges), 10 modes, 8 pumps: 1101.6 s against 0.6 s for the linear model,
+  converged 1/8, and a within-edge resolution error of **33 %**. PR #43's
+  "~12 s on the production buffon" does not survive the contour fix and the
+  restructure. Issues #53 and #52.
+
+**The YAML/CLI path works, and the diagnostics survive caching.** Checked
+end-to-end on `examples/line_PRA` with `intensity_method: full_salt_newton`:
+`python -m netsalt lasing config.yaml` runs the whole flow, writes
+`modal_intensities_1.h5` plus its `_attrs.json` sidecar, and a second
+invocation returns the cached result byte-identically in 2.3 s with the
+diagnostics intact. That graph converges at 7 of 8 pumps (worst residual
+2.2e-6, at the first lasing pump) with a within-edge resolution error of
+0.76 % — and its `salt_unit_scale` is 0.99–1.008 rather than the ladder's
+0.96–0.98, which is the independent confirmation that the unit-scale deficit
+is the discretisation error and not a convention mismatch.
+
+**An independent solver now agrees with it.** §5 closed by noting that no
+ground-truth full-SALT solver lived in-repo, so accuracy rested on indirect
+evidence. `examples/audit/independent_salt/` is that solver: a transfer-matrix
+engine (exact for piecewise-constant media, verified against the closed form to
+4e-15) plus a finite-difference multimode SALT Newton solve (verified O(h²),
+successive-ratio 4.00 from N=500 to N=16000), sharing no code with netsalt. On
+an open Fabry-Perot cavity, over 122 pump points and three configurations
+(uniform pump, `gamma_perp` doubled, and a partial pump):
+
+| quantity | median rel. diff | max |
+| --- | ---: | ---: |
+| passive modes `k` | 6e-16 | 1e-15 |
+| thresholds `D0_thr` | 7e-7 | 2e-6 |
+| lasing frequency `k_mu` | 2.7e-7 | 2.1e-6 |
+| modal intensity `I_mu` | 1.6e-4 | 8.1e-3 |
+| inter-mode ratio `I_1/I_2` | 2.6e-4 | 8.6e-3 |
+
+with cross-residuals passing in both directions (netsalt's solution against the
+exact transfer-matrix secular function: equivalent `dk` ≤ 2e-5; an external
+solution through netsalt's own `salt_residuals`: falling with netsalt's
+resolution, 5e-3 at λ/12 → 1e-4 at λ/96). The absolute intensities match, not
+only the ratios. The remaining differences are the size of the two
+discretisations, not a bias.
+
+Two defects fell out of that comparison and are fixed: `oversample_graph`
+re-derived `inner` from node degree, relabelling most of every vacuum lead as
+cavity (5–117 % over-count across the ladder); and the default λ/12
+oversampling carries a **+2.8 %** intensity bias where the docstring claimed
+~1 %. The ≥3-mode regime remains unvalidated — a uniformly-pumped Fabry-Perot
+is nearly rank-1 in competition and gain-clamps to two modes, which *both*
+solvers agree on to 0.25 % on the third mode's sub-threshold gain.
+
+**The sign of the newton-vs-linear departure is resolved.** The ladder found
+it case-dependent — mostly newton above linear, but `two_ring` (0.977) and
+`line_PRA` (0.93) below — and §8 previously flagged it as unverified. It is
+expected physics, decomposing into three terms with different sign rules:
+self-saturation (strictly positive, measured above 1 on 8/8 graphs with the
+hole-burning field frozen), field relaxation (sign-indefinite, because SALT's
+operator is non-Hermitian so the relaxed profile is stationary but not
+extremal), and competition (negative for the dominant mode, since `T` has
+positive entries and hence `T⁻¹` negative off-diagonals). `two_ring` crosses
+below on the second term, `line_PRA` on the third. Decisively, the below-1 case
+is the *published* result: Ge-Chong-Stone Fig. 6 has exact/SPA = 0.94 for the
+dominant mode and 1.26 for the second, and `compare_to_pra_fig6.py` reproduces
+both to ~1% (newton 0.208 vs paper 0.210; linear 0.224 vs paper SPA 0.223).
+Reproducer: `examples/audit/decompose_salt_departure.py`.
+
+**Revised verdict for the above-threshold layer:** research-grade on graphs up
+to ~45 edges at up to ~2× threshold, where it is validated against both the
+linear model and Ge–Chong–Stone Fig. 6. Not yet usable at production size or
+far above threshold. The blocking item is the within-edge resolution (#52) —
+until the oversampling is set from `k_max` and edge length rather than a flat
+node budget, the residual on a large graph cannot get small and the cost
+figures cannot be re-measured meaningfully.
