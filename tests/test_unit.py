@@ -3272,3 +3272,131 @@ class TestEdgePropagator:
             edge_transfer_matrix(1.0, 1.0, self._rippled(), n_steps=0)
         with pytest.raises(ValueError, match="magnus"):
             edge_transfer_matrix(1.0, 1.0, self._rippled(), method="rk4")
+
+
+class TestVaryingLaplacian:
+    """Secular matrix assembled from per-edge DtN blocks (issue #52).
+
+    The load-bearing property is exact reduction: with every edge constant, this
+    must reproduce `construct_laplacian` to round-off, on every boundary model.
+    Without that it cannot replace the closed form, and the varying-eps result
+    means nothing either.
+    """
+
+    @staticmethod
+    def _graph(open_model, n_edges=5):
+        import networkx as nx
+
+        import netsalt
+        from netsalt.physics import dispersion_relation_dielectric
+        from netsalt.quantum_graph import create_quantum_graph, set_total_length
+
+        g = nx.cycle_graph(n_edges) if open_model == "closed" else nx.path_graph(n_edges + 1)
+        positions = np.array([[float(i), 0.0] for i in range(len(g))])
+        params = {
+            "open_model": open_model,
+            "c": 1.0,
+            "dielectric_params": {
+                "method": "uniform",
+                "inner_value": 4.0,
+                "loss": 0.0,
+                "outer_value": 1.0,
+            },
+        }
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            create_quantum_graph(g, params, positions=positions, noise_level=0.0)
+        set_total_length(g, 3.0)
+        netsalt.set_dielectric_constant(g, g.graph["params"])
+        netsalt.set_dispersion_relation(g, dispersion_relation_dielectric)
+        return g
+
+    @pytest.mark.parametrize("open_model", ["closed", "open"])
+    def test_reduces_to_construct_laplacian_exactly(self, open_model):
+        from netsalt.quantum_graph import construct_laplacian
+        from netsalt.varying_laplacian import construct_laplacian_varying
+
+        graph = self._graph(open_model)
+        k = 2.3
+        reference = np.asarray(construct_laplacian(k, graph).todense())
+        got = np.asarray(construct_laplacian_varying(k, graph).todense())
+        assert np.max(np.abs(got - reference)) < 1e-12
+
+    def test_constant_profile_matches_no_profile(self):
+        """A callable that happens to be constant must agree with the closed form."""
+        from netsalt.quantum_graph import construct_laplacian
+        from netsalt.varying_laplacian import construct_laplacian_varying
+
+        graph = self._graph("closed")
+        k = 2.3
+        eps = float(np.real(graph.graph["params"]["dielectric_constant"][0]))
+        profiles = [
+            (lambda x, e=eps: np.full_like(np.asarray(x, dtype=float), e)) for _ in graph.edges
+        ]
+        reference = np.asarray(construct_laplacian(k, graph).todense())
+        got = np.asarray(construct_laplacian_varying(k, graph, profiles, n_steps=48).todense())
+        assert np.max(np.abs(got - reference)) < 1e-9
+
+    def test_varying_profile_converges_in_n_steps(self):
+        from netsalt.varying_laplacian import construct_laplacian_varying
+
+        graph = self._graph("closed")
+        k = 2.3
+        eps = float(np.real(graph.graph["params"]["dielectric_constant"][0]))
+
+        def profile(x, e=eps):
+            x = np.asarray(x, dtype=float)
+            return e / (1.0 + 0.05 * np.cos(4.0 * x) ** 2)
+
+        profiles = [profile for _ in graph.edges]
+        fine = np.asarray(construct_laplacian_varying(k, graph, profiles, n_steps=2048).todense())
+        errors = [
+            np.max(
+                np.abs(
+                    np.asarray(construct_laplacian_varying(k, graph, profiles, n_steps=n).todense())
+                    - fine
+                )
+            )
+            for n in (32, 64)
+        ]
+        assert errors[1] < errors[0] / 8.0  # fourth order, comfortably
+
+    def test_varying_profile_actually_differs_from_constant(self):
+        """Guards the test above from passing on a no-op."""
+        from netsalt.quantum_graph import construct_laplacian
+        from netsalt.varying_laplacian import construct_laplacian_varying
+
+        graph = self._graph("closed")
+        k = 2.3
+        eps = float(np.real(graph.graph["params"]["dielectric_constant"][0]))
+        profiles = [
+            (lambda x, e=eps: e / (1.0 + 0.05 * np.cos(4.0 * np.asarray(x)) ** 2))
+            for _ in graph.edges
+        ]
+        constant = np.asarray(construct_laplacian(k, graph).todense())
+        varying = np.asarray(construct_laplacian_varying(k, graph, profiles, n_steps=256).todense())
+        assert np.max(np.abs(varying - constant)) > 1e-3
+
+    def test_rejects_directed_models(self):
+        from netsalt.varying_laplacian import construct_laplacian_varying
+
+        graph = self._graph("open")
+        graph.graph["params"]["open_model"] = "directed"
+        with pytest.raises(ValueError, match="directed"):
+            construct_laplacian_varying(2.3, graph)
+
+    def test_rejects_a_varying_profile_on_a_boundary_edge(self):
+        from netsalt.varying_laplacian import construct_laplacian_varying
+
+        graph = self._graph("open")
+        profiles = [None] * len(graph.edges)
+        profiles[0] = lambda x: np.full_like(np.asarray(x, dtype=float), 4.0)
+        with pytest.raises(ValueError, match="outgoing-wave|boundary"):
+            construct_laplacian_varying(2.3, graph, profiles)
+
+    def test_rejects_wrong_profile_count(self):
+        from netsalt.varying_laplacian import construct_laplacian_varying
+
+        graph = self._graph("closed")
+        with pytest.raises(ValueError, match="entries"):
+            construct_laplacian_varying(2.3, graph, [None])
