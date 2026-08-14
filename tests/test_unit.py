@@ -1501,3 +1501,758 @@ class TestPlotPumpTraj:
         # |imag| minimal in the middle column -> +1 stays in range.
         df = self._modes_df([1.0, 0.0, 1.0])
         plot_pump_traj(df)
+
+
+class TestScanIsOptional:
+    """The dense (k, alpha) quality grid is the most expensive pipeline step
+    and the default contour mode search does not read it (see
+    ``netsalt.pipeline._needs_scan``)."""
+
+    def _params(self, **kwargs):
+        from netsalt.params import NetSaltParams
+
+        return NetSaltParams.from_dict(kwargs)
+
+    def test_skipped_by_default_on_the_contour_path(self):
+        from netsalt.pipeline import _needs_scan
+
+        assert _needs_scan(self._params()) is False
+        assert _needs_scan(self._params(mode_search_method="contour")) is False
+
+    def test_required_by_the_grid_path(self):
+        from netsalt.pipeline import _needs_scan
+
+        assert _needs_scan(self._params(mode_search_method="grid")) is True
+
+    def test_with_scan_overrides_both_ways(self):
+        from netsalt.pipeline import _needs_scan
+
+        assert _needs_scan(self._params(with_scan=True)) is True
+        assert _needs_scan(self._params(mode_search_method="grid", with_scan=False)) is False
+
+    def test_step_returns_none_when_skipped(self):
+        from netsalt.pipeline import step_scan_frequencies
+
+        # qg is never touched when the scan is skipped, so None is a fine stand-in.
+        assert step_scan_frequencies(self._params(), None) is None
+
+    def test_grid_path_fails_loudly_without_the_grid(self):
+        from netsalt.pipeline import step_find_passive_modes
+
+        params = self._params(mode_search_method="grid", with_scan=False, outdir="does-not-exist")
+        with pytest.raises(ValueError, match="needs the quality grid"):
+            step_find_passive_modes(params, None, None)
+
+
+class TestOutputCacheGuard:
+    """Cached step outputs are keyed on filename only, so a config edit used to
+    silently reuse results computed with different physics."""
+
+    def _params(self, tmp_path, **kwargs):
+        from netsalt.params import NetSaltParams
+
+        return NetSaltParams.from_dict({"outdir": str(tmp_path), "k_a": 15.0, **kwargs})
+
+    def test_first_run_writes_a_fingerprint(self, tmp_path):
+        from netsalt.pipeline import check_output_cache
+
+        check_output_cache(self._params(tmp_path))
+        assert (tmp_path / "run_fingerprint.json").exists()
+
+    def test_unchanged_config_is_accepted(self, tmp_path):
+        from netsalt.pipeline import check_output_cache
+
+        check_output_cache(self._params(tmp_path))
+        check_output_cache(self._params(tmp_path))  # must not raise
+
+    def test_changed_physics_raises_and_names_the_key(self, tmp_path):
+        from netsalt.pipeline import check_output_cache
+
+        check_output_cache(self._params(tmp_path))
+        with pytest.raises(ValueError, match="gamma_perp"):
+            check_output_cache(self._params(tmp_path, gamma_perp=1.5))
+
+    def test_force_recomputes_and_restamps(self, tmp_path):
+        from netsalt.pipeline import check_output_cache
+
+        check_output_cache(self._params(tmp_path))
+        check_output_cache(self._params(tmp_path, gamma_perp=1.5, force=True))
+        # the new config is now the reference
+        check_output_cache(self._params(tmp_path, gamma_perp=1.5))
+
+    def test_cosmetic_keys_do_not_invalidate(self, tmp_path):
+        from netsalt.pipeline import check_output_cache
+
+        check_output_cache(self._params(tmp_path, n_workers=1))
+        check_output_cache(self._params(tmp_path, n_workers=8, figdir="elsewhere", plot_ext=".png"))
+
+
+# Module-level so the stub pickles into multiprocessing workers.
+from netsalt.modes import WorkerModes as _RealWorkerModes  # noqa: E402
+
+_REFINE_FAILS_FOR = []
+
+
+class _PartlyFailingWorkerModes(_RealWorkerModes):
+    """``WorkerModes`` whose refinement fails for chosen mode ids.
+
+    ``refine_mode`` legitimately returns ``None`` when it cannot converge; this
+    reproduces that on demand without needing a graph where it happens to. Every
+    other mode is refined for real, so the trajectory stays physical. The failing
+    ids are captured in ``__init__`` (parent process) so the instance pickles
+    into the pool workers carrying them.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fail_ids = list(_REFINE_FAILS_FOR)
+
+    def __call__(self, mode_id):
+        if mode_id in self.fail_ids:
+            return None
+        return super().__call__(mode_id)
+
+
+class TestRefinementFailureIsReported:
+    """A mode that cannot be refined must be reported, not crash the run.
+
+    Both pump-tracking loops used to mishandle a ``None`` from ``refine_mode``:
+    ``pump_trajectories`` substituted the stale previous position and then fed
+    it to ``pump_linear`` at the *new* pump, where ``mode_on_nodes`` raised
+    "Not a mode, as quality is too high"; ``find_threshold_lasing_modes``
+    assigned ``None`` into a float array (an opaque numpy ValueError) and its
+    recovery branch was unreachable dead code.
+    """
+
+    def _setup(self, monkeypatch, fail_ids, n_modes=3):
+        import networkx as nx
+
+        import netsalt.modes as modes_module
+        from netsalt.contour import find_modes_contour
+        from netsalt.modes import find_passive_modes
+        from netsalt.physics import (
+            dispersion_relation_pump,
+            set_dielectric_constant,
+            set_dispersion_relation,
+        )
+        from netsalt.quantum_graph import (
+            create_quantum_graph,
+            set_total_length,
+            update_parameters,
+        )
+
+        # Real modes are required: pump_trajectories evaluates each one with
+        # mode_on_nodes, which (correctly) rejects anything that is not a mode.
+        graph = nx.path_graph(5)
+        positions = np.array([[float(i), 0.0] for i in range(5)])
+        params = {
+            "open_model": "open",
+            "c": 1.0,
+            "k_a": 3.0,
+            "gamma_perp": 3.0,
+            "n_workers": 1,
+            "refraction_params": {
+                "method": "uniform",
+                "inner_value": 2.0,
+                "loss": 0.0,
+                "outer_value": 1.0,
+            },
+            "k_min": 1.0,
+            "k_max": 6.0,
+            "alpha_min": 0.0,
+            "alpha_max": 1.0,
+            "quality_threshold": 1e-4,
+            "search_stepsize": 0.01,
+            "max_steps": 1000,
+            "D0_max": 0.05,
+            "D0_steps": 4,
+        }
+        create_quantum_graph(graph, params, positions=positions, noise_level=0.0)
+        set_total_length(graph, 3.0, inner=True)
+        set_dielectric_constant(graph, params)
+        set_dispersion_relation(graph, dispersion_relation_pump)
+        update_parameters(graph, params)
+        graph.graph["params"]["pump"] = np.array(graph.graph["params"]["inner"], dtype=float)
+
+        del find_modes_contour  # imported above only to document the search path
+        modes_df = find_passive_modes(graph, method="contour").head(n_modes).copy()
+        assert len(modes_df) == n_modes, "fixture graph should have enough modes"
+
+        _REFINE_FAILS_FOR[:] = list(fail_ids)
+        monkeypatch.setattr(modes_module, "WorkerModes", _PartlyFailingWorkerModes)
+        return graph, modes_df
+
+    def test_pump_trajectories_freezes_and_records_the_lost_mode(self, monkeypatch):
+        from netsalt.modes import pump_trajectories
+
+        graph, modes_df = self._setup(monkeypatch, fail_ids=[1])
+        with pytest.warns(UserWarning, match="could not be tracked"):
+            out = pump_trajectories(modes_df, graph)
+
+        lost = out["tracking_lost_at_D0"].to_numpy(dtype=float)
+        assert np.isnan(lost[0]) and np.isnan(lost[2]), "tracked modes must not be flagged"
+        assert lost[1] > 0, "the failing mode must record the pump where tracking was lost"
+
+        # The frozen mode keeps its last good position for the rest of the sweep.
+        cols = sorted(
+            (c for c in out.columns if isinstance(c, tuple) and c[0] == "mode_trajectories"),
+            key=lambda c: c[1],
+        )
+        frozen = [out[c].iloc[1] for c in cols]
+        assert frozen[-1] == frozen[-2]
+
+    def test_pump_trajectories_is_unaffected_when_nothing_fails(self, monkeypatch):
+        from netsalt.modes import pump_trajectories
+
+        graph, modes_df = self._setup(monkeypatch, fail_ids=[])
+        out = pump_trajectories(modes_df, graph)
+        assert np.isnan(out["tracking_lost_at_D0"].to_numpy(dtype=float)).all()
+
+    def test_find_threshold_modes_reports_instead_of_raising(self, monkeypatch):
+        from netsalt.modes import find_threshold_lasing_modes
+
+        graph, modes_df = self._setup(monkeypatch, fail_ids=[1])
+        with pytest.warns(UserWarning, match="Refinement failed for mode"):
+            out = find_threshold_lasing_modes(modes_df, graph)
+
+        # The unrefinable mode is reported as never having reached threshold.
+        assert out["lasing_thresholds"].to_numpy()[1] == np.inf
+
+
+class TestModeCompetitionVectorisation:
+    """Pin the vectorised mode-competition kernel to the scalar reference.
+
+    ``netsalt.modes._compute_mode_competition_element_reference`` is the original
+    per-edge Python loop, kept solely as the oracle for these tests. The
+    production kernel contracts the whole ``(mu, nu, edge)`` tensor with array
+    ops, so it must agree with the loop element for element.
+    """
+
+    @staticmethod
+    def _competition_fixture(n_edges=10, unpumped_edge=1):
+        """A real quantum graph plus per-mode precomputations for its passive modes.
+
+        The line graph is open (leaky), so its passive modes have a genuine
+        ``alpha > 0``; evaluating at zero pump (``D0 = 0``) keeps them exact
+        roots so ``mode_on_nodes`` accepts them. One edge is left unpumped to
+        exercise the ``pump > 0 and inner`` edge mask.
+        """
+        from netsalt.contour import find_modes_contour
+        from netsalt.modes import _get_mask_matrices, _precomputations_mode_competition
+
+        graph = make_line_graph(
+            n_edges=n_edges,
+            extra_params={
+                "gamma_perp": 3.0,
+                "k_a": 10.0,
+                "D0": 0.0,
+                "n_workers": 1,
+                "k_min": 5.0,
+                "k_max": 15.0,
+                "alpha_min": 0.0,
+                "alpha_max": 1.0,
+            },
+            total_length=1.0,
+        )
+        params = graph.graph["params"]
+        params["pump"] = np.ones(len(graph.edges))
+        params["pump"][unpumped_edge] = 0.0
+
+        modes = find_modes_contour(
+            graph,
+            bounds=(5.0, 15.0, 0.0, 1.0),
+            n_quad=120,
+            probe_dim=20,
+            rng=np.random.default_rng(0),
+        )
+        assert len(modes) >= 4
+        pump_mask = _get_mask_matrices(params)[1]
+        precomp = [
+            _precomputations_mode_competition(graph, pump_mask, (mode, 0.0)) for mode in modes
+        ]
+        return graph, params, precomp
+
+    @pytest.mark.parametrize("with_gamma", [True, False])
+    def test_element_matches_scalar_reference(self, with_gamma):
+        from netsalt.modes import (
+            _compute_mode_competition_element,
+            _compute_mode_competition_element_reference,
+        )
+
+        graph, params, precomp = self._competition_fixture()
+        lengths = graph.graph["lengths"]
+        n_modes = len(precomp)
+
+        ref = np.zeros((n_modes, n_modes), dtype=np.complex128)
+        new = np.zeros((n_modes, n_modes), dtype=np.complex128)
+        for mu in range(n_modes):
+            for nu in range(n_modes):
+                data = [precomp[mu][:2], precomp[nu][:2], precomp[nu][2]]
+                ref[mu, nu] = _compute_mode_competition_element_reference(
+                    lengths, params, data, with_gamma=with_gamma
+                )
+                new[mu, nu] = _compute_mode_competition_element(
+                    lengths, params, data, with_gamma=with_gamma
+                )
+
+        assert np.all(np.isfinite(ref))
+        assert np.abs(ref).min() > 0.0  # a non-trivial oracle, not a matrix of zeros
+        assert np.allclose(new, ref, rtol=1e-10, atol=1e-12)
+
+    @pytest.mark.parametrize("with_gamma", [True, False])
+    def test_batched_matrix_matches_scalar_reference(self, with_gamma):
+        from netsalt.modes import (
+            _compute_mode_competition_element_reference,
+            _compute_mode_competition_matrix_batched,
+        )
+
+        graph, params, precomp = self._competition_fixture()
+        lengths = graph.graph["lengths"]
+        n_modes = len(precomp)
+
+        ref = np.zeros((n_modes, n_modes), dtype=np.complex128)
+        for mu in range(n_modes):
+            for nu in range(n_modes):
+                data = [precomp[mu][:2], precomp[nu][:2], precomp[nu][2]]
+                ref[mu, nu] = _compute_mode_competition_element_reference(
+                    lengths, params, data, with_gamma=with_gamma
+                )
+
+        batched = _compute_mode_competition_matrix_batched(
+            lengths, params, precomp, with_gamma=with_gamma
+        )
+        assert batched.shape == (n_modes, n_modes)
+        assert np.allclose(batched, ref, rtol=1e-10, atol=1e-12)
+
+    def test_batched_matrix_is_independent_of_mu_blocking(self):
+        """Chunking over mu must not change a single bit of the result."""
+        from netsalt.modes import (
+            _competition_edge_mask,
+            _competition_left_terms,
+            _competition_right_terms,
+            _mode_competition_contraction,
+            _split_fluxes,
+        )
+
+        graph, params, precomp = self._competition_fixture()
+        mask = _competition_edge_mask(params)
+        lengths = np.asarray(graph.graph["lengths"])[mask]
+        ks = np.asarray([np.asarray(e[0]) for e in precomp])[:, mask]
+        fluxes = np.asarray([np.asarray(e[1]) for e in precomp])
+        fp, fm = _split_fluxes(fluxes, mask)
+        left = _competition_left_terms(lengths, ks, fp, fm)
+        right = _competition_right_terms(lengths, ks, fp, fm)
+
+        whole = _mode_competition_contraction(left, right, chunk=len(precomp))
+        for chunk in (1, 2, 3):
+            np.testing.assert_array_equal(
+                _mode_competition_contraction(left, right, chunk=chunk), whole
+            )
+
+    def test_edge_mask_matches_reference_condition(self):
+        from netsalt.modes import _competition_edge_mask
+
+        params = {
+            "pump": np.array([0.0, 1.0, 0.5, 2.0, 0.0]),
+            "inner": np.array([True, True, False, True, False]),
+        }
+        expected = np.array(
+            [params["pump"][ei] > 0.0 and bool(params["inner"][ei]) for ei in range(5)]
+        )
+        np.testing.assert_array_equal(_competition_edge_mask(params), expected)
+
+    def test_empty_edge_mask_gives_zero(self):
+        """No pumped inner edge -> the reference sums nothing; so must the kernel."""
+        from netsalt.modes import (
+            _compute_mode_competition_element,
+            _compute_mode_competition_element_reference,
+        )
+
+        n_edges = 4
+        rng = np.random.default_rng(0)
+        params = {"pump": np.zeros(n_edges), "inner": np.ones(n_edges, dtype=bool)}
+        lengths = rng.uniform(0.5, 1.5, n_edges)
+        flux = rng.normal(size=2 * n_edges) + 1j * rng.normal(size=2 * n_edges)
+        ks = rng.uniform(3, 5, n_edges) - 1j * rng.uniform(0.01, 0.1, n_edges)
+        data = [(ks, flux), (ks, flux), 0.3 - 0.7j]
+
+        assert _compute_mode_competition_element_reference(lengths, params, data) == 0
+        assert _compute_mode_competition_element(lengths, params, data) == 0
+
+    @pytest.mark.parametrize(
+        "case",
+        ["real_k_nu", "imag_k_nu", "zero_denom_a", "zero_denom_d"],
+    )
+    def test_degenerate_denominators_reproduce_reference_nan(self, case):
+        """Zero denominators are *not* fixed up: the kernel must produce the same
+        non-finite value the scalar loop always produced.
+
+        - ``real_k_nu``:    ``k_nu - conj(k_nu) = 0``   -> E terms divide by zero
+        - ``imag_k_nu``:    ``k_nu + conj(k_nu) = 0``   -> F terms divide by zero
+        - ``zero_denom_a``: ``k_nu - conj(k_nu) + 2 k_mu = 0`` on one edge
+        - ``zero_denom_d``: ``k_nu + conj(k_nu) - 2 k_mu = 0`` on one edge
+        """
+        import warnings
+
+        from netsalt.modes import (
+            _compute_mode_competition_element,
+            _compute_mode_competition_element_reference,
+        )
+
+        n_edges = 6
+        rng = np.random.default_rng(3)
+        lengths = rng.uniform(0.5, 1.5, n_edges)
+        params = {"pump": np.ones(n_edges), "inner": np.ones(n_edges, dtype=bool)}
+        k_mu = rng.uniform(3, 5, n_edges) - 1j * rng.uniform(0.01, 0.1, n_edges)
+        k_nu = rng.uniform(3, 5, n_edges) - 1j * rng.uniform(0.01, 0.1, n_edges)
+
+        if case == "real_k_nu":
+            k_nu = rng.uniform(3, 5, n_edges) + 0j
+        elif case == "imag_k_nu":
+            k_nu = 1j * rng.uniform(3, 5, n_edges)
+        elif case == "zero_denom_a":
+            k_mu[2] = -(k_nu[2] - np.conj(k_nu[2])) / 2.0
+        elif case == "zero_denom_d":
+            k_mu[3] = (k_nu[3] + np.conj(k_nu[3])) / 2.0
+
+        def flux():
+            return rng.normal(size=2 * n_edges) + 1j * rng.normal(size=2 * n_edges)
+
+        data = [(k_mu, flux()), (k_nu, flux()), 0.3 - 0.7j]
+        with np.errstate(divide="ignore", invalid="ignore"), warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            ref = _compute_mode_competition_element_reference(lengths, params, data)
+            new = _compute_mode_competition_element(lengths, params, data)
+
+        assert not np.isfinite(ref)  # the reference really is broken here
+        assert np.isnan(ref.real) == np.isnan(new.real)
+        assert np.isnan(ref.imag) == np.isnan(new.imag)
+        assert np.isinf(ref.real) == np.isinf(new.real)
+        assert np.isinf(ref.imag) == np.isinf(new.imag)
+
+    def test_chunk_size_respects_memory_budget(self):
+        from netsalt.modes import _competition_chunk_size
+
+        # 12 complex128 temporaries of shape (chunk, n_modes, n_edges).
+        assert _competition_chunk_size(10, 10, budget=12 * 16 * 10 * 10 * 7) == 7
+        # Never degenerates to zero, however tight the budget.
+        assert _competition_chunk_size(400, 2500, budget=1) == 1
+
+
+class TestContourSubdivisionDefaults:
+    """A single Beyn contour resolves at most ``probe_dim`` modes; past that the
+    SVD extraction collapses and commonly returns *nothing*. The subdivision
+    default therefore has to be sized from the expected mode count.
+
+    The previous default (one cell per unit of ``k``) was not: on the shipped
+    ``examples/buffon`` config (k in [10.35, 11.0], ~780 modes by the Weyl
+    estimate) it gave ``n_k = 1`` and the pipeline found zero passive modes.
+    """
+
+    def _ring(self, n_nodes=12, total_length=40.0, dielectric=4.0, k_max=12.0):
+        import networkx as nx
+
+        import netsalt
+        from netsalt.physics import dispersion_relation_pump
+        from netsalt.quantum_graph import create_quantum_graph, set_total_length
+
+        graph = nx.cycle_graph(n_nodes)
+        theta = np.linspace(0, 2 * np.pi, n_nodes, endpoint=False)
+        positions = np.stack([np.cos(theta), np.sin(theta)], axis=1)
+        params = {
+            "open_model": "closed",
+            "c": 1.0,
+            "k_a": 0.5 * k_max,
+            "gamma_perp": 5.0,
+            "n_workers": 1,
+            "dielectric_params": {
+                "method": "uniform",
+                "inner_value": dielectric,
+                "outer_value": 1.0,
+                "loss": 0.0,
+            },
+            "k_min": 1.0,
+            "k_max": k_max,
+            "alpha_min": -0.5,
+            "alpha_max": 0.5,
+            "quality_threshold": 1e-6,
+        }
+        create_quantum_graph(graph, params, positions=positions)
+        set_total_length(graph, total_length, inner=True)
+        netsalt.set_dielectric_constant(graph, graph.graph["params"])
+        netsalt.set_dispersion_relation(graph, dispersion_relation_pump)
+        return graph
+
+    def test_optical_length_uses_the_refractive_index(self):
+        from netsalt.contour import optical_length
+
+        graph = self._ring(total_length=40.0, dielectric=4.0)
+        # n = sqrt(eps) = 2 on every edge, so the optical length is 2 x geometric.
+        assert optical_length(graph) == pytest.approx(80.0, rel=1e-9)
+
+    def test_mode_count_matches_the_weyl_law(self):
+        from netsalt.contour import estimate_mode_count
+
+        graph = self._ring(total_length=40.0, dielectric=4.0, k_max=12.0)
+        # N ~ L_opt * dk / pi
+        assert estimate_mode_count(graph) == pytest.approx(80.0 * 11.0 / np.pi, rel=1e-9)
+
+    def test_n_k_scales_with_the_expected_mode_count(self):
+        from netsalt.contour import default_contour_n_k
+
+        small = self._ring(total_length=4.0)
+        large = self._ring(total_length=400.0)
+        assert default_contour_n_k(small) >= 1
+        assert default_contour_n_k(large) > 10 * default_contour_n_k(small)
+
+    def test_default_finds_modes_a_single_contour_would_lose(self):
+        """The regression itself: many more modes in the window than probe_dim."""
+        from netsalt.contour import default_contour_n_k, find_modes_contour
+        from netsalt.modes import find_passive_modes
+
+        graph = self._ring(n_nodes=12, total_length=400.0, dielectric=4.0, k_max=12.0)
+        probe_dim = min(40, len(graph))
+        assert default_contour_n_k(graph) > 1, "fixture must need subdivision"
+
+        # One contour over the whole window is over capacity and loses almost
+        # everything; the sized default recovers the spectrum.
+        single = find_modes_contour(
+            graph, n_k=1, n_alpha=1, n_quad=80, rng=np.random.default_rng(0)
+        )
+        default = find_passive_modes(graph, method="contour")
+        assert len(default) > 5 * max(len(single), 1)
+        assert len(default) > probe_dim
+
+
+class TestCompetitionConditioning:
+    """Near-degenerate modes have nearly parallel competition rows, so how the
+    intensity *splits* between them is not resolvable -- only their sum. The
+    solver uses ``pinv``, which answers regardless, so the conditioning has to
+    be reported."""
+
+    def _modes_df(self, thresholds):
+        import pandas as pd
+
+        index = pd.MultiIndex(levels=[[], []], codes=[[], []], names=["data", "D0"])
+        modes_df = pd.DataFrame(columns=index)
+        modes_df["lasing_thresholds"] = thresholds
+        return modes_df
+
+    def test_conditioning_of_a_well_separated_matrix_is_small(self):
+        from netsalt.modes import competition_conditioning
+
+        matrix = np.eye(3) + 0.1 * np.ones((3, 3))
+        assert competition_conditioning(matrix, [0, 1, 2]) < 10
+
+    def test_conditioning_detects_a_near_degenerate_pair(self):
+        from netsalt.modes import competition_conditioning
+
+        # Two modes with almost identical competition rows.
+        matrix = np.array([[1.0, 0.5, 0.2], [0.5 + 1e-12, 1.0, 0.2], [0.2, 0.2, 1.0]])
+        matrix[1] = matrix[0] + 1e-12
+        assert competition_conditioning(matrix, [0, 1, 2]) > 1e8
+
+    def test_empty_active_set_is_well_conditioned(self):
+        from netsalt.modes import competition_conditioning
+
+        assert competition_conditioning(np.eye(2), []) == 1.0
+
+    def test_sweep_records_the_worst_conditioning(self):
+        from netsalt.modes import compute_modal_intensities
+
+        matrix = np.eye(3) + 0.1 * np.ones((3, 3))
+        out = compute_modal_intensities(self._modes_df([0.1, 0.2, 0.3]), 1.0, matrix)
+        assert out.attrs["competition_condition_max"] >= 1.0
+
+    def test_sweep_warns_when_the_outcome_is_unresolved(self):
+        """A near-degenerate pair is typically never *co*-active -- the sweep
+        picks one and suppresses the other -- so the warning has to key off the
+        candidate set, not just the modes that end up lasing together."""
+        from netsalt.modes import compute_modal_intensities
+
+        rows = np.array([1.0, 0.5, 0.2])
+        matrix = np.vstack([rows, rows + 1e-13, [0.2, 0.2, 1.0]])
+        with pytest.warns(UserWarning, match="not resolved"):
+            out = compute_modal_intensities(self._modes_df([0.1, 0.11, 0.3]), 1.0, matrix)
+        # the pathology is in the candidate set; the active sets stay benign
+        assert out.attrs["competition_condition_candidates"] > 1e8
+        assert out.attrs["competition_condition_max"] < 1e8
+
+    def test_no_warning_on_a_well_conditioned_sweep(self):
+        import warnings as _warnings
+
+        from netsalt.modes import compute_modal_intensities
+
+        matrix = np.eye(3) + 0.1 * np.ones((3, 3))
+        with _warnings.catch_warnings(record=True) as caught:
+            _warnings.simplefilter("always")
+            compute_modal_intensities(self._modes_df([0.1, 0.2, 0.3]), 1.0, matrix)
+        assert not [c for c in caught if "not resolved" in str(c.message)]
+
+    def test_infinite_thresholds_are_excluded_from_the_candidate_set(self):
+        from netsalt.modes import compute_modal_intensities
+
+        matrix = np.eye(3) + 0.1 * np.ones((3, 3))
+        out = compute_modal_intensities(self._modes_df([0.1, 0.2, np.inf]), 1.0, matrix)
+        # only two candidates, so the candidate conditioning is the 2x2 one
+        assert out.attrs["competition_condition_candidates"] == pytest.approx(
+            np.linalg.cond(matrix[np.ix_([0, 1], [0, 1])])
+        )
+
+
+class TestLaplacianPatternCache:
+    """``construct_incidence_matrix`` caches the CSR pattern rather than
+    rebuilding it from COO triplets every call. The quantum incidence matrices
+    have one entry per (bond, node) pair, so the COO path is a pure reordering
+    and the cached result must be *bit*-identical, not merely close."""
+
+    def _graph(self, n_edges=20):
+        from netsalt.quantum_graph import set_wavenumber
+
+        graph = make_line_graph(n_edges=n_edges, dielectric=4.0)
+        set_wavenumber(graph, 2.0 + 0.05j)
+        return graph
+
+    def _coo_reference(self, graph):
+        """Rebuild B / BT the old way, straight from triplets."""
+        import scipy as sc
+
+        from netsalt.quantum_graph import _incidence_topology
+
+        topo = graph.graph.get("_incidence_topology") or _incidence_topology(graph)
+        m, n = topo["m"], topo["n"]
+        row, col = topo["row"], topo["col"]
+        expl = np.exp(1.0j * graph.graph["lengths"] * graph.graph["ks"])
+        data = np.dstack([-np.ones(m), expl, expl, -np.ones(m)])[0].flatten()
+        data_out = data.copy()
+        if graph.graph["params"]["open_model"] == "open":
+            mask = topo["open_mask"]
+            data_out[1::4][mask] = 0
+            data_out[2::4][mask] = 0
+        BT = sc.sparse.csr_matrix((data_out, (col, row)), shape=(n, 2 * m), dtype=np.complex128)
+        B = sc.sparse.csr_matrix((data, (row, col)), shape=(2 * m, n), dtype=np.complex128)
+        return BT, B
+
+    def test_cached_incidence_is_bit_identical_to_the_coo_build(self):
+        from netsalt.quantum_graph import construct_incidence_matrix
+
+        graph = self._graph()
+        BT, B = construct_incidence_matrix(graph)
+        BT_ref, B_ref = self._coo_reference(graph)
+        assert np.array_equal(BT.toarray(), BT_ref.toarray())
+        assert np.array_equal(B.toarray(), B_ref.toarray())
+
+    def test_cached_laplacian_is_bit_identical(self):
+        from netsalt.quantum_graph import construct_laplacian
+
+        graph = self._graph()
+        first = construct_laplacian(2.0 + 0.05j, graph).toarray()
+        # second call goes through the cache populated by the first
+        second = construct_laplacian(2.0 + 0.05j, graph).toarray()
+        assert np.array_equal(first, second)
+
+    def test_weight_matrix_matches_scipy_diags(self):
+        import scipy as sc
+
+        from netsalt.quantum_graph import construct_weight_matrix
+
+        graph = self._graph()
+        weights = construct_weight_matrix(graph)
+        data = 1.0 / (np.exp(2.0j * graph.graph["lengths"] * graph.graph["ks"]) - 1.0)
+        data *= graph.graph["ks"]
+        reference = sc.sparse.diags(np.repeat(data, 2), format="csc", dtype=np.complex128)
+        assert np.array_equal(weights.toarray(), reference.toarray())
+
+    def test_pattern_falls_back_when_duplicates_exist(self):
+        """A self-loop puts two entries on the same (row, col); the cache must
+        decline rather than silently drop one."""
+        from netsalt.quantum_graph import _csr_pattern
+
+        rows = np.array([0, 0, 1])
+        cols = np.array([0, 0, 1])
+        assert _csr_pattern(rows, cols, 2) is None
+        assert _csr_pattern(np.array([0, 1]), np.array([0, 1]), 2) is not None
+
+    def test_cache_invalidates_when_the_edge_count_changes(self):
+        from netsalt.quantum_graph import construct_incidence_matrix
+
+        small = self._graph(n_edges=5)
+        construct_incidence_matrix(small)
+        big = self._graph(n_edges=8)
+        big.graph["_incidence_topology"] = small.graph["_incidence_topology"]
+        _BT, B = construct_incidence_matrix(big)
+        assert B.shape == (2 * 8, len(big))
+
+
+class TestLengthJitter:
+    """``_verify_lengths`` breaks ties between equal edge lengths, which would
+    otherwise all sit on the secular matrix's pole at ``k*l in pi*Z`` (issue #45)."""
+
+    def _ring(self, n_nodes=8):
+        import networkx as nx
+
+        graph = nx.cycle_graph(n_nodes)
+        theta = np.linspace(0, 2 * np.pi, n_nodes, endpoint=False)
+        positions = np.stack([np.cos(theta), np.sin(theta)], axis=1)
+        return graph, positions
+
+    def test_explicit_lengths_are_honoured(self):
+        """Jittering used to recompute lengths from node positions, throwing an
+        explicit ``lengths=`` argument away wholesale rather than perturbing it."""
+        from netsalt.quantum_graph import create_quantum_graph
+
+        graph, positions = self._ring()
+        wanted = np.full(len(graph.edges), 0.125)
+        with pytest.warns(UserWarning, match="share a length"):
+            create_quantum_graph(
+                graph,
+                {"open_model": "closed"},
+                positions=positions,
+                lengths=wanted,
+                noise_level=1e-3,
+            )
+        got = np.array([graph[u][v]["length"] for u, v in graph.edges])
+        # jittered, but around the requested value rather than replaced by the
+        # chord length of the unit circle (~0.765)
+        assert np.allclose(got, wanted, rtol=5e-3)
+        assert not np.allclose(got, wanted, rtol=1e-12), "the tie must actually be broken"
+
+    def test_distinct_lengths_are_left_alone(self):
+        """The trigger compared the largest edge *length* against a threshold on
+        the *count*, so long-edged graphs were jittered with every length
+        distinct."""
+        from netsalt.quantum_graph import create_quantum_graph
+
+        graph, positions = self._ring()
+        wanted = 26.0 * (1.0 + 0.01 * np.arange(len(graph.edges)))
+        create_quantum_graph(
+            graph,
+            {"open_model": "closed"},
+            positions=positions,
+            lengths=wanted,
+            noise_level=1e-3,
+        )
+        got = np.array([graph[u][v]["length"] for u, v in graph.edges])
+        assert np.array_equal(got, wanted)
+
+    def test_noise_level_zero_disables_it(self):
+        from netsalt.quantum_graph import create_quantum_graph
+
+        graph, positions = self._ring()
+        wanted = np.full(len(graph.edges), 0.125)
+        create_quantum_graph(
+            graph,
+            {"open_model": "closed"},
+            positions=positions,
+            lengths=wanted,
+            noise_level=0.0,
+        )
+        got = np.array([graph[u][v]["length"] for u, v in graph.edges])
+        assert np.array_equal(got, wanted)
+
+    def test_winv_guard_sees_a_large_entry_of_any_phase(self):
+        """The guard compared a complex array with ``>``, which numpy resolves on
+        the real part, so it missed large-but-imaginary entries."""
+        values = np.array([1e-3 + 1e6j, -1e6 + 0j])
+        assert not (values > 1e5).any()
+        assert (np.abs(values) > 1e5).all()

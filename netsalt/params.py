@@ -84,6 +84,14 @@ class NetSaltParams(BaseModel):
     #     backward compatibility and for callers who want to visualise
     #     the quality field.
     mode_search_method: Literal["contour", "grid"] | None = None
+    # Beyn contour-search knobs, all optional. n_k / n_alpha are the sub-contour
+    # grid, n_quad the quadrature nodes per contour, probe_dim the random-probe
+    # width (which caps how many modes one contour can resolve). Leave unset for
+    # the mode-count-based defaults in netsalt.contour.
+    contour_n_k: int | None = None
+    contour_n_alpha: int | None = None
+    contour_n_quad: int | None = None
+    contour_probe_dim: int | None = None
     # ``refine_method`` picks the algorithm used by :func:`netsalt.refine_mode`
     # when refinement is explicitly invoked — primarily by
     # ``pump_trajectories`` and ``find_threshold_lasing_modes`` tracking a
@@ -102,6 +110,11 @@ class NetSaltParams(BaseModel):
 
     # --- Infrastructure ----------------------------------------------------
     n_workers: int | None = None
+    # Force the dense (k, alpha) quality-grid scan on or off. Unset means
+    # "compute it only when mode_search_method='grid' needs it" — see
+    # netsalt.pipeline._needs_scan. Set True to keep the scan_* figures on the
+    # contour path, at the cost of k_n * alpha_n eigensolves.
+    with_scan: bool | None = None
 
     # --- Plotting ----------------------------------------------------------
     plot_edgesize: float | None = None

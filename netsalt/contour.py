@@ -231,6 +231,81 @@ def _find_modes_in_cell(
     return modes_arr[order]
 
 
+def optical_length(graph: Any) -> float:
+    """Total optical length ``sum_e n_e l_e`` of the graph.
+
+    ``n_e = sqrt(|eps_e|)`` is the per-edge refractive index. This is the length
+    that sets the density of states, so it is what mode-count estimates need —
+    not the geometric length.
+    """
+    lengths = graph.graph.get("lengths")
+    if lengths is None:
+        # Not a fully-built quantum graph (create_quantum_graph sets "lengths").
+        return 0.0
+    lengths = np.asarray(lengths, dtype=float)
+    dielectric = graph.graph["params"].get("dielectric_constant")
+    if dielectric is None:
+        return float(np.sum(lengths))
+    index = np.sqrt(np.abs(np.asarray(dielectric))).real
+    return float(np.sum(index * lengths))
+
+
+def estimate_mode_count(
+    graph: Any, k_min: float | None = None, k_max: float | None = None
+) -> float:
+    """Weyl estimate of how many modes lie in ``[k_min, k_max]``.
+
+    The integrated density of states of a quantum graph is
+    ``N(k) ~ L_opt * k / pi`` with ``L_opt`` the total optical length
+    (:func:`optical_length`), so the count in a window is
+    ``L_opt * (k_max - k_min) / pi``. Accurate to ``O(1)`` — good enough to size
+    the contour subdivision, which only needs the right order of magnitude.
+    """
+    params = graph.graph["params"]
+    k_min = params["k_min"] if k_min is None else k_min
+    k_max = params["k_max"] if k_max is None else k_max
+    return optical_length(graph) * abs(k_max - k_min) / np.pi
+
+
+def default_contour_n_k(
+    graph: Any,
+    probe_dim: int | None = None,
+    k_min: float | None = None,
+    k_max: float | None = None,
+    modes_per_cell_frac: float = 0.5,
+    safety: float = 2.0,
+) -> int:
+    """Number of sub-contours in ``Re k`` needed to keep every cell under capacity.
+
+    A single Beyn contour resolves at most ``probe_dim`` modes: the SVD of
+    ``A_0`` has that many non-zero singular values, and beyond it the extraction
+    collapses — returning a partial set or, commonly, **nothing at all**. The
+    subdivision therefore has to be sized from the *expected mode count*, and
+    the previous default (one cell per unit of ``k``) was not: on the shipped
+    ``examples/buffon`` config (``k`` in ``[10.35, 11.0]``, ~776 modes by the
+    Weyl estimate) it gave ``n_k = 1`` and the pipeline found **zero** passive
+    modes.
+
+    Sizing from :func:`estimate_mode_count` instead, with a factor-``safety``
+    margin because the Weyl law is only an ``O(1)`` estimate. Cost is linear in
+    ``n_k``, so over-subdividing is cheap insurance next to silently returning
+    an empty spectrum.
+    """
+    if probe_dim is None:
+        probe_dim = min(40, len(graph))
+    probe_dim = max(1, min(probe_dim, len(graph)))
+    expected = estimate_mode_count(graph, k_min=k_min, k_max=k_max)
+    if expected <= 0.0:
+        # No length information to estimate from (see optical_length); fall back
+        # to the old one-cell-per-unit-k rule rather than guessing.
+        params = graph.graph["params"]
+        lo = params["k_min"] if k_min is None else k_min
+        hi = params["k_max"] if k_max is None else k_max
+        return max(1, int(round(abs(hi - lo))))
+    per_cell = max(1.0, modes_per_cell_frac * probe_dim)
+    return max(1, int(np.ceil(safety * expected / per_cell)))
+
+
 def find_modes_contour(
     graph: Any,
     *,
