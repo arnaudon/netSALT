@@ -30,6 +30,7 @@ directly comparable.
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Callable
 from typing import NamedTuple
 
@@ -44,6 +45,7 @@ from .varying_laplacian import construct_laplacian_varying
 
 __all__ = [
     "SaltVaryingSolution",
+    "compute_modal_intensities_varying",
     "edge_field_profiles",
     "node_solution_varying",
     "salt_residuals_varying",
@@ -441,3 +443,152 @@ def solve_salt_varying(
 
     residuals = salt_residuals_varying(graph, ks, amplitudes, fields, D0, pump, n_steps=n_steps)
     return SaltVaryingSolution(ks, amplitudes, fields, residuals, converged, iterations)
+
+
+def compute_modal_intensities_varying(
+    graph,
+    modes_df,
+    max_pump_intensity: float,
+    D0_steps: int = 10,
+    *,
+    n_steps: int = 64,
+    outer: int = 25,
+    residual_tol: float = SALT_VARYING_RESIDUAL_TARGET,
+):
+    r"""Above-threshold L--I curves on the un-oversampled operator.
+
+    The counterpart of
+    :func:`~netsalt.modes.compute_modal_intensities_full_salt_newton`, carried on
+    :func:`~netsalt.varying_laplacian.construct_laplacian_varying` so the graph
+    is never subdivided: the matrix stays ``len(graph)`` square while the
+    within-edge hole burning is resolved by per-edge transfer matrices. On the
+    production buffon that is a 208x208 matrix at 18.5 samples per wavelength,
+    against ~76600 nodes and 0.47 samples per wavelength for the oversampled
+    path (issues #52, #53).
+
+    The pump is stepped from the first threshold to ``max_pump_intensity``, and
+    each solve starts from the previous one. That continuation is load-bearing:
+    solving each pump from a fresh guess makes the solver land on *different*
+    modes, each a genuine root but not the same branch.
+
+    Args:
+        graph: quantum graph, **not** oversampled.
+        modes_df: must carry ``threshold_lasing_modes`` and
+            ``lasing_thresholds``; modified in place and returned.
+        max_pump_intensity: largest ``D0``.
+        D0_steps: pump grid points.
+        n_steps: sub-intervals per varying edge.
+        outer: field-refresh iterations per solve.
+        residual_tol: convergence target on ``|lambda_1|``.
+
+    Returns:
+        ``modes_df`` with ``("modal_intensities", D0)`` columns, plus
+        ``attrs["salt_varying_diagnostics"]`` -- per pump: ``D0``, ``n_active``,
+        ``converged``, ``max_residual``, ``iterations`` -- so a run reports what
+        it actually achieved rather than only its answer.
+
+    Warning:
+        **Single-mode results are solid; multimode is not yet.** On a
+        one-mode sweep this converges at every pump with residuals below 1e-6.
+        With several modes active it currently does *not*: on ``line_PRA`` with
+        six candidates the residual sits around 1.7 and the per-mode intensities
+        thrash between pumps, even though their sum looks monotone.
+
+        The cause is the active set here, not the operator. A mode is admitted
+        the moment ``D0`` passes its **linear** threshold, so modes that should
+        not lase are handed to the solver and nothing drives their amplitudes to
+        zero. :func:`~netsalt.modes.compute_modal_intensities_full_salt_newton`
+        admits a candidate only when it has net gain on the *current saturated
+        background*, and drops modes whose amplitude collapses; porting that is
+        what this needs next. Until then, read
+        ``attrs["salt_varying_diagnostics"]`` and do not trust a sweep whose
+        ``converged`` column is False.
+    """
+    import pandas as pd
+
+    pump = np.asarray(graph.graph["params"]["pump"], dtype=float)
+    thresholds = np.asarray(modes_df["lasing_thresholds"]).ravel()
+    threshold_modes = modes_df["threshold_lasing_modes"].to_numpy()
+    finite = np.where(np.isfinite(thresholds))[0]
+    if not len(finite):
+        raise ValueError("no mode has a finite lasing threshold")
+    first = float(np.min(thresholds[finite]))
+
+    grid = np.linspace(first, float(max_pump_intensity), int(D0_steps))
+    intensities = pd.DataFrame(index=modes_df.index)
+    state: dict[int, tuple[float, float]] = {}
+    rows = []
+
+    for D0 in grid:
+        # a mode is a candidate once the pump passes its (linear) threshold
+        active = [i for i in finite if thresholds[i] < D0]
+        if not active:
+            intensities[D0] = 0.0
+            rows.append(
+                {
+                    "D0": float(D0),
+                    "n_active": 0,
+                    "converged": True,
+                    "max_residual": 0.0,
+                    "iterations": 0,
+                }
+            )
+            continue
+
+        ks0, a0 = [], []
+        for i in active:
+            if i in state:
+                k_prev, a_prev = state[i]
+            else:
+                k_prev = float(np.real(threshold_modes[i]))
+                a_prev = 1e-2
+            ks0.append(k_prev)
+            a0.append(a_prev)
+
+        solution = solve_salt_varying(
+            graph,
+            ks0,
+            a0,
+            float(D0),
+            pump,
+            n_steps=n_steps,
+            outer=outer,
+            residual_tol=residual_tol,
+        )
+        column = np.zeros(len(modes_df.index))
+        for slot, i in enumerate(active):
+            state[i] = (float(solution.ks[slot]), float(solution.amplitudes[slot]))
+            column[i] = float(solution.amplitudes[slot])
+        intensities[D0] = column
+        rows.append(
+            {
+                "D0": float(D0),
+                "n_active": len(active),
+                "converged": bool(solution.converged),
+                "max_residual": float(np.max(solution.residuals)),
+                "iterations": int(solution.iterations),
+            }
+        )
+
+    diagnostics = pd.DataFrame(rows)
+    unconverged = diagnostics[~diagnostics["converged"] & (diagnostics["n_active"] > 0)]
+    if len(unconverged):
+        warnings.warn(
+            f"compute_modal_intensities_varying: {len(unconverged)} of "
+            f"{int((diagnostics['n_active'] > 0).sum())} pumps did not converge "
+            f"(worst residual {unconverged['max_residual'].max():.3g} against a "
+            f"{residual_tol:g} target). The per-mode intensities are not solutions "
+            "of the SALT equations. This is the known multimode limitation: the "
+            "active set is chosen from linear thresholds rather than from net gain "
+            "on the saturated background -- see the function's docstring, and "
+            "issues #52 / #53.",
+            stacklevel=2,
+        )
+
+    if "modal_intensities" in modes_df:
+        del modes_df["modal_intensities"]
+    for D0 in sorted(intensities.columns):
+        modes_df["modal_intensities", np.around(D0, 8)] = intensities[D0]
+    modes_df.attrs["salt_varying_diagnostics"] = diagnostics
+    modes_df.attrs["salt_varying_n_steps"] = int(n_steps)
+    return modes_df
