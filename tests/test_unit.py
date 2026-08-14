@@ -5,6 +5,9 @@ utilities that the rest of the library composes. Extending this file with
 every new bug that slips past the functional test is the point.
 """
 
+import re
+import warnings
+
 import networkx as nx
 import numpy as np
 import pandas as pd
@@ -3131,3 +3134,57 @@ class TestOversampledInnerEdges:
         pump = np.asarray(work.graph["params"]["pump"], dtype=float)
         inner = np.asarray(work.graph["params"]["inner"], dtype=bool)
         assert np.all(pump[~inner] == 0.0)
+
+
+class TestOversampleAliasingWarning:
+    """The node cap can push the within-edge sampling below Nyquist.
+
+    ``SALT_RESOLUTION_WARN`` measures the resolution error after the fact, which
+    is only an error *estimate* while the sequence is converging. Once the cap
+    binds hard enough that there is less than one sample per wavelength, it is
+    not converging and the measured number means nothing — that case needs its
+    own, louder signal, emitted before the expensive solve rather than after.
+    """
+
+    @staticmethod
+    def _modes_df(k=10.7):
+        return pd.DataFrame(
+            {
+                "threshold_lasing_modes": [np.array([k, 0.0])],
+                "lasing_thresholds": [0.003],
+            }
+        )
+
+    def test_no_warning_when_the_cap_does_not_bind(self):
+        from netsalt.modes import _auto_oversample_size
+
+        graph = make_line_graph(n_edges=5, total_length=1.0)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            _auto_oversample_size(graph, self._modes_df(k=10.0), node_cap=100000)
+        assert not [c for c in caught if "aliased" in str(c.message)]
+
+    def test_warns_when_sampling_falls_below_nyquist(self):
+        from netsalt.modes import _auto_oversample_size
+
+        # long edges against a short wavelength: exactly the production-buffon shape
+        graph = make_line_graph(n_edges=5, total_length=2500.0)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            _auto_oversample_size(graph, self._modes_df(k=10.7), node_cap=3000)
+        messages = [str(c.message) for c in caught if "aliased" in str(c.message)]
+        assert messages, "expected an aliasing warning"
+        assert "points per wavelength" in messages[0]
+        assert "not a knob problem" in messages[0]
+
+    def test_the_warning_reports_the_nodes_actually_needed(self):
+        from netsalt.modes import _auto_oversample_size
+
+        graph = make_line_graph(n_edges=5, total_length=2500.0)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            _auto_oversample_size(graph, self._modes_df(k=10.7), node_cap=3000)
+        message = next(str(c.message) for c in caught if "aliased" in str(c.message))
+        # the figure quoted must exceed the cap it is being compared against
+        needed = int(re.search(r"would need (\d+) nodes", message).group(1))
+        assert needed > 3000

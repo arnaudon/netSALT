@@ -104,12 +104,62 @@ Two caveats worth carrying:
   in the linear model's unit via an analytic change of variables
   (`salt_unit_scale`, 0.96–0.98 here). So `ratio -> 1` at threshold is partly a
   units check. What is genuinely predicted is the departure as pump rises.
-* **The sign of that departure is case-dependent.** Most graphs put newton
-  *above* linear (up to 1.32 at twice threshold on the dense ring), but
-  `two_ring` goes the other way (0.977), as does `line_PRA` in its two-mode
-  regime (0.93). The blanket claim that the newton curves "bend below" linear
-  is not supported by this ladder, and the sign should be checked against
-  theory before it is relied on.
+* **The sign of that departure is understood, and both signs are expected.**
+  It decomposes into three terms, separated by
+  `decompose_salt_departure.py`:
+
+  1. *Self-saturation* — **strictly positive**. The lasing condition is
+     `D0 ∫ p·w_μ /(1 + Σ_ν u_ν f_ν) = 1`, and the single-pole model truncates
+     it at first order; since `1/(1+S) = (1-S) + S²/(1+S)` with `S²/(1+S) ≥ 0`,
+     the truncation under-counts the gain still available, so the exact
+     solution needs *more* saturation to clamp. With the hole-burning field
+     frozen at threshold this term is measured above 1 on **8 of 8** ladder
+     graphs (1.003 → 1.32 at `e = 1.0`), growing ~linearly in `e`.
+  2. *Field relaxation* — **sign-indefinite**. Letting the profile relax changes
+     the gain integral at fixed amplitude by a second-order amount that would
+     have a fixed sign if the eigenproblem were variational. SALT's operator is
+     non-Hermitian, so the relaxed profile is stationary but not extremal and no
+     sign theorem applies. Measured from −2.9 % (`two_ring`) to +1.6 % (tree).
+  3. *Competition* — **negative for the dominant mode**. Writing the correction
+     as `T δu = R` with `R_μ = ∫ p·w_μ·S² ≥ 0`: `T` has positive entries, so
+     `T⁻¹` has negative off-diagonals and a competitor's positive correction
+     subtracts from the dominant mode. Measured −3.9 % (line), −6.0 %
+     (ring+leads), −8.6 % (chaotic ring), and ≈ 0 wherever `T` is near-diagonal.
+
+  So `two_ring` falls below 1 on term 2 — it is still single-mode at `e = 0.5`
+  where the ratio already crosses — and `line_PRA` on term 3. Frequency pulling
+  is a fourth candidate and is numerically dead: the largest shift on the ladder
+  is 0.0016·γ⊥.
+
+  **The below-1 case is the published result, not a defect.** Ge–Chong–Stone
+  Fig. 6 itself has exact/SPA = **0.94** for the dominant mode and **1.26** for
+  the second. `compare_to_pra_fig6.py` at `D0 = 1.258` gives dominant newton
+  0.208 against the paper's exact 0.210, linear 0.224 against the paper's SPA
+  0.223 — reproducing both signs and magnitudes to ~1 %. Where the two models
+  disagree at `e = 1.0`, the single-pole model is being used far outside its
+  near-threshold validity and the newton answer is the correct one.
+
+## `decompose_salt_departure.py`
+
+Separates the three terms above by re-solving the dominant mode *in isolation*
+with the mechanisms switched on one at a time — frozen hole-burning field
+(term 1 only), relaxed (terms 1+2), and hard-converged as a control. The gap to
+`compare_linear_vs_salt.py`'s full-sweep ratio is term 3, since the sweep lets
+competitors lase and this script does not.
+
+```bash
+python decompose_salt_departure.py two_ring
+python decompose_salt_departure.py dense_ring 24    # at lambda/24
+```
+
+On `two_ring` at `e = 1.0`: frozen 1.0029, relaxed 0.9734, hard-converged
+0.9736 — so the crossing below 1 is the field relaxation, not a convergence
+artifact, and the profile really is moving (`|df|/|f|` grows 0.012 → 0.061 as
+the pump rises). Robust to the pump grid (21 → 41 steps: 0.9769 → 0.9764), to
+the solver budget (default vs `outer=200, damping=0.5`: 0.9734 vs 0.9736), and
+in sign to resolution (lambda/12 → lambda/24: 0.9736 → 0.9697, so quote the
+sign, not the third digit). The residual bounds the amplitude error at 0.03 %,
+some 80x smaller than the effect.
 
 ## Where the solver stops working
 

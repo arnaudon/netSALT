@@ -1543,6 +1543,20 @@ def _auto_oversample_size(graph, modes_df, resolution=12, node_cap=3000):
         # raise ``node_cap`` (the full_salt_newton ``oversample_node_cap`` knob)
         # to recover within-edge accuracy at higher cost.
         target *= est_nodes / node_cap
+        effective = resolution * node_cap / est_nodes
+        if effective < SALT_NYQUIST_RESOLUTION:
+            warnings.warn(
+                f"full_salt_newton: oversample_node_cap={node_cap:.0f} allows only "
+                f"~{effective:.2f} sample points per wavelength on this graph "
+                f"(lambda/{resolution:.0f} would need {est_nodes:.0f} nodes). Below "
+                f"{SALT_NYQUIST_RESOLUTION} points per wavelength the within-edge field is "
+                "aliased, not merely coarse: the hole-burning profile the solver clamps "
+                "with does not represent the standing wave at all, and neither the "
+                "amplitudes nor the SALT residual are meaningful. Raising the cap to "
+                f"{est_nodes:.0f} nodes makes the operator ~{est_nodes / max(node_cap, 1):.0f}x "
+                "larger, so this is not a knob problem -- see issues #52 and #53.",
+                stacklevel=2,
+            )
     return float(target)
 
 
@@ -1551,6 +1565,15 @@ def _auto_oversample_size(graph, modes_df, resolution=12, node_cap=3000):
 #: lambda/12 (which measures 2-3%) and tight enough to catch lambda/6 and below,
 #: where it is 8-17% and the intensities are visibly off.
 SALT_RESOLUTION_WARN = 0.05
+
+#: Sample points per wavelength below which the within-edge field is *aliased*
+#: rather than merely coarse -- the Nyquist floor. Distinct from
+#: :data:`SALT_RESOLUTION_WARN`, which measures the error after the fact on a
+#: converging sequence; below this the sequence is not converging at all and the
+#: measured error is not an error estimate. The production buffon sits here: its
+#: edges are ~11 long with lambda ~ 0.4, so lambda/12 needs ~74000 nodes against
+#: the default cap of 3000, giving ~0.5 points per wavelength.
+SALT_NYQUIST_RESOLUTION = 2.0
 
 #: Residual the fixed-set solve drives towards before declaring convergence.
 #: This is the method's own target, not the bar a result is judged against --

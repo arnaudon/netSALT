@@ -527,6 +527,7 @@ limit.
 | full-SALT reduces to the linear model near threshold (9-graph ladder) | `examples/audit/compare_linear_vs_salt.py` |
 | where full SALT stops converging (deep pump, production size) | `examples/audit/README.md`, "Where the solver stops working" |
 | independent full-SALT cross-check (passive, thresholds, above threshold) | `examples/audit/independent_salt/` |
+| the sign of the newton-vs-linear departure, term by term | `examples/audit/decompose_salt_departure.py` |
 
 ---
 
@@ -607,6 +608,21 @@ oversampling carries a **+2.8 %** intensity bias where the docstring claimed
 ~1 %. The ≥3-mode regime remains unvalidated — a uniformly-pumped Fabry-Perot
 is nearly rank-1 in competition and gain-clamps to two modes, which *both*
 solvers agree on to 0.25 % on the third mode's sub-threshold gain.
+
+**The sign of the newton-vs-linear departure is resolved.** The ladder found
+it case-dependent — mostly newton above linear, but `two_ring` (0.977) and
+`line_PRA` (0.93) below — and §8 previously flagged it as unverified. It is
+expected physics, decomposing into three terms with different sign rules:
+self-saturation (strictly positive, measured above 1 on 8/8 graphs with the
+hole-burning field frozen), field relaxation (sign-indefinite, because SALT's
+operator is non-Hermitian so the relaxed profile is stationary but not
+extremal), and competition (negative for the dominant mode, since `T` has
+positive entries and hence `T⁻¹` negative off-diagonals). `two_ring` crosses
+below on the second term, `line_PRA` on the third. Decisively, the below-1 case
+is the *published* result: Ge-Chong-Stone Fig. 6 has exact/SPA = 0.94 for the
+dominant mode and 1.26 for the second, and `compare_to_pra_fig6.py` reproduces
+both to ~1% (newton 0.208 vs paper 0.210; linear 0.224 vs paper SPA 0.223).
+Reproducer: `examples/audit/decompose_salt_departure.py`.
 
 **Revised verdict for the above-threshold layer:** research-grade on graphs up
 to ~45 edges at up to ~2× threshold, where it is validated against both the
