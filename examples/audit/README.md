@@ -280,3 +280,30 @@ nonsense first:
   `work.edges` order assumes that order walks each parent edge end to end. It
   does not; doing so scrambles the profile and the reference lands on a
   different mode (6.42 instead of 5.42).
+
+## `probe_varying_continuation.py`
+
+Pump continuation through `netsalt.salt_varying.solve_salt_varying`, which never
+oversamples. This is the direct answer to #53's complaint about the oversampled
+solver: a non-monotone summed output (−40.8 % across one pump step on
+`mini_buffon`) with residuals of 1e-2 deep above threshold.
+
+Fabry-Perot fixture, 8-node matrix throughout, 15 pumps from 1.05x to 3.0x
+threshold:
+
+| D0/thr | k | a | residual | converged |
+| ---: | ---: | ---: | ---: | :---: |
+| 1.05 | 10.4410520 | 0.0372679 | 3.22e-07 | yes |
+| 1.61 | 10.4411674 | 0.4053469 | 8.75e-07 | yes |
+| 2.03 | 10.4411873 | 0.6906345 | 3.88e-07 | yes |
+| 2.58 | 10.4411733 | 1.0778356 | 4.77e-07 | yes |
+| 3.00 | 10.4411466 | 1.3715324 | 4.98e-07 | yes |
+
+**15 of 15 pumps converged**, residuals 3e-7..9e-7, amplitude strictly
+monotone, `k` stable to 1e-5 across the whole sweep, 11.4 s total.
+
+The continuation is load-bearing. Starting each pump from a scan-derived guess
+instead of from the previous solution makes the solver land on *different*
+modes (`k` jumping 11.4 -> 10.4 -> 9.5) — each a genuine root at residual
+< 1e-6, but not the same branch. Carrying the solution forward is what keeps it
+on one.
