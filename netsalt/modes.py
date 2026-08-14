@@ -217,21 +217,40 @@ def find_modes(graph, qualities, quality_method="eigenvalue", min_distance=2, th
     true_modes = clean_duplicate_modes(refined_modes, ks[1] - ks[0], alphas[1] - alphas[0])
     L.info("Found %s after refinements.", len(true_modes))
 
-    # sort by decreasing Q*\Gamma value
-    _gammas = gamma(to_complex(true_modes.T), graph.graph["params"])
-    q_factors = -1 * np.imag(_gammas) * true_modes[:, 0] / (2 * true_modes[:, 1])
-    modes_sorted = true_modes[np.argsort(q_factors)[::-1]]
-    q_factors = np.sort(q_factors)[::-1]
-    if "n_modes_max" in graph.graph["params"] and graph.graph["params"]["n_modes_max"]:
-        L.info(
-            "...but we will use the top %s modes only",
-            graph.graph["params"]["n_modes_max"],
-        )
-        modes_sorted = modes_sorted[: graph.graph["params"]["n_modes_max"]]
-        q_factors = q_factors[: graph.graph["params"]["n_modes_max"]]
+    # sort by decreasing Q*\Gamma value and cap at n_modes_max
+    return _rank_and_cap_modes(graph, true_modes)
 
+
+def _rank_and_cap_modes(graph, modes):
+    """Build the passive-modes dataframe: rank by ``Q * gamma``, cap at ``n_modes_max``.
+
+    Shared by both mode-search paths. It used to live only inside
+    :func:`find_modes` (the grid path), so switching to the contour search --
+    which became the default -- silently changed two things: modes came back
+    ordered by ``Re k`` instead of by decreasing ``Q * gamma``, and
+    ``n_modes_max`` was ignored entirely. That made mode *indices*
+    incomparable between the two methods and let a capped config pull in the
+    whole spectrum (the buffon config asks for 12 and got 454).
+    """
+    modes = np.asarray(modes)
     modes_df = _init_dataframe()
-    modes_df["passive"] = [to_complex(mode_sorted) for mode_sorted in modes_sorted]
+    if not len(modes):
+        modes_df["passive"] = []
+        return modes_df
+
+    _gammas = gamma(to_complex(modes.T), graph.graph["params"])
+    q_factors = -1 * np.imag(_gammas) * modes[:, 0] / (2 * modes[:, 1])
+    order = np.argsort(q_factors)[::-1]
+    modes_sorted = modes[order]
+    q_factors = q_factors[order]
+
+    n_modes_max = graph.graph["params"].get("n_modes_max")
+    if n_modes_max:
+        L.info("...but we will use the top %s modes only", n_modes_max)
+        modes_sorted = modes_sorted[:n_modes_max]
+        q_factors = q_factors[:n_modes_max]
+
+    modes_df["passive"] = [to_complex(mode) for mode in modes_sorted]
     modes_df["q_factor"] = q_factors
     return modes_df
 
@@ -305,15 +324,8 @@ def find_passive_modes(graph, qualities=None, method=None, **kwargs):
                 graph, probe_dim=contour_defaults["probe_dim"]
             )
         modes = find_modes_contour(graph, **contour_defaults, **kwargs)
-        # Build modes_df in the same shape find_modes returns.
-        modes_df = _init_dataframe()
-        modes_df["passive"] = [to_complex(m) for m in modes]
-        # q_factor = -Im(gamma) * Re(k) / (2 * alpha) — the same formula
-        # find_modes uses, applied to our contour output.
-        if len(modes):
-            _g = gamma(to_complex(modes.T), graph.graph["params"])
-            modes_df["q_factor"] = -np.imag(_g) * modes[:, 0] / (2 * modes[:, 1])
-        return modes_df
+        L.info("Found %s modes by contour integration.", len(modes))
+        return _rank_and_cap_modes(graph, modes)
 
     if method == "grid":
         if qualities is None:

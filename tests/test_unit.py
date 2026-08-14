@@ -2925,3 +2925,73 @@ class TestSaltResolutionError:
         _, warned_fine = self._run(graph, tdf, 24)
         assert warned_coarse, "lambda/6 is visibly under-resolved and must warn"
         assert not warned_fine, "lambda/24 is well resolved and must not warn"
+
+
+class TestModeRankingIsSharedByBothSearches:
+    """Both mode-search paths must rank by decreasing Q*gamma and honour
+    ``n_modes_max``. The ranking used to live only inside the grid path, so when
+    the contour search became the default it silently returned modes ordered by
+    ``Re k`` and ignored the cap."""
+
+    def _graph(self, n_modes_max=None):
+        import networkx as nx
+
+        import netsalt
+        from netsalt.physics import dispersion_relation_pump
+        from netsalt.quantum_graph import create_quantum_graph, set_total_length
+
+        graph = nx.path_graph(11)
+        positions = np.array([[i, 0.0] for i in range(11)], dtype=float)
+        params = {
+            "open_model": "open",
+            "c": 1.0,
+            "k_a": 15.0,
+            "gamma_perp": 3.0,
+            "k_min": 12.0,
+            "k_max": 18.0,
+            "alpha_min": 0.0,
+            "alpha_max": 1.0,
+            "n_workers": 1,
+            "quality_threshold": 1e-4,
+            "dielectric_params": {
+                "method": "uniform",
+                "inner_value": 9.0,
+                "outer_value": 1.0,
+                "loss": 0.0,
+            },
+        }
+        if n_modes_max is not None:
+            params["n_modes_max"] = n_modes_max
+        with pytest.warns(UserWarning, match="share a length"):
+            create_quantum_graph(graph, params, positions=positions)
+        set_total_length(graph, 0.5)
+        netsalt.set_dielectric_constant(graph, graph.graph["params"])
+        netsalt.set_dispersion_relation(graph, dispersion_relation_pump)
+        return graph
+
+    def test_contour_modes_come_back_ranked_by_q_factor(self):
+        from netsalt.modes import find_passive_modes
+
+        modes_df = find_passive_modes(self._graph(), method="contour")
+        q = modes_df["q_factor"].to_numpy(dtype=float)
+        assert len(q) > 2, "fixture should find several modes"
+        assert np.all(np.diff(q) <= 1e-9), f"not ranked by descending Q: {q}"
+
+    def test_contour_honours_n_modes_max(self):
+        from netsalt.modes import find_passive_modes
+
+        full = find_passive_modes(self._graph(), method="contour")
+        capped = find_passive_modes(self._graph(n_modes_max=2), method="contour")
+        assert len(full) > 2, "fixture should find more modes than the cap"
+        assert len(capped) == 2
+        # the cap keeps the *highest-Q* modes, not the first ones found
+        assert np.allclose(
+            capped["q_factor"].to_numpy(dtype=float),
+            full["q_factor"].to_numpy(dtype=float)[:2],
+        )
+
+    def test_empty_mode_set_is_handled(self):
+        from netsalt.modes import _rank_and_cap_modes
+
+        modes_df = _rank_and_cap_modes(self._graph(), np.empty((0, 2)))
+        assert len(modes_df) == 0
