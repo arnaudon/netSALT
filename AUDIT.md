@@ -23,7 +23,7 @@ slow. The above-threshold (full-SALT) layer is not yet research-grade.**
 | secular matrix + contour mode search | passive modes `k` | **accurate to ~1e-12**; the *subdivision default* found zero modes on the flagship example **[fixed]**; one structural blind spot remains |
 | pump trajectories + thresholds | `D0_thr`, threshold modes | sound physics; crashed on a failed refinement **[fixed]**; still slow |
 | competition matrix `T` + linear L–I | near-threshold modal intensities | **physics is right**, validated against a published reference; kernel was ~100x slower than needed **[fixed]**; near-degenerate results now carry a conditioning flag **[fixed]** |
-| `full_salt_newton` (PR #43) | above-threshold L–I | promising core, but wrapped in heuristics that make results unfalsifiable |
+| `full_salt_newton` (PR #43) | above-threshold L–I | promising core, but wrapped in heuristics that make results unfalsifiable — the heuristics are now gone and the picture is sharper, see §8 |
 
 Two headline points:
 
@@ -524,3 +524,50 @@ limit.
 | competition-matrix speedup and agreement | `benchmark/bench_competition.py` |
 | Ge-Chong-Stone Fig. 6 validation | `examples/line_PRA/compare_to_pra_fig6.py` on PR #43 |
 | stale-cache hazard, gamma_perp crash | run `examples/line_PRA` twice, editing `gamma_perp` between runs |
+| full-SALT reduces to the linear model near threshold (9-graph ladder) | `examples/audit/compare_linear_vs_salt.py` |
+| where full SALT stops converging (deep pump, production size) | `examples/audit/README.md`, "Where the solver stops working" |
+
+---
+
+## 8. Update — after the §5 split landed
+
+§5 recommended splitting `_full_salt_newton_impl` and replacing its guards with
+diagnostics. That landed on `claude/full-salt-solvers` (issue #51): the
+implementation is ~180 lines instead of 432, the fixed-active-set solve is
+exposed as `solve_salt_fixed_set`, the acceptance test as `salt_residuals`, and
+the total-output ratchet and wrong-basin guard are **removed** rather than
+retuned. Every solve now records `modes_df.attrs["salt_diagnostics"]` — per
+pump: `D0`, `n_active`, `active`, `added`, `dropped`, `converged`,
+`max_residual`, `iterations` — persisted alongside the HDF5 output so a cached
+step keeps its report.
+
+That makes §5's central complaint testable, and the answer is mixed.
+
+**The solver reduces to the near-threshold model where it must.** Over a
+nine-graph ladder (11 → 39 nodes; `examples/audit/compare_linear_vs_salt.py`),
+the lasing mode count agrees 9 for 9, and the dominant mode's intensity agrees
+to 0.2–3.4 % just above threshold, with the deviation growing monotonically
+with pump on every graph. Residuals over the ladder are 1e-8 to 2e-5, so the
+agreement is between two converged answers, not two failures. This is the
+consistency check §6 asked for, and it passes.
+
+**It stops working in two regimes, and now says so.**
+
+* *Deep above threshold.* On `mini_buffon` at 25× threshold the summed L–I
+  drops 40.8 % across one pump step, worst residual 9.1e-3, converged 6/25.
+  This is the case the removed ratchet was written for: the guard was hiding a
+  genuine non-convergence, exactly as §5 suspected. It is graph-dependent —
+  `chaotic_ring` at 30× is monotone with residual 5.7e-5. Issue #53.
+* *Production size.* On `examples/buffon/buffon_uniform` (208 nodes / 243
+  edges), 10 modes, 8 pumps: 1101.6 s against 0.6 s for the linear model,
+  converged 1/8, and a within-edge resolution error of **33 %**. PR #43's
+  "~12 s on the production buffon" does not survive the contour fix and the
+  restructure. Issues #53 and #52.
+
+**Revised verdict for the above-threshold layer:** research-grade on graphs up
+to ~45 edges at up to ~2× threshold, where it is validated against both the
+linear model and Ge–Chong–Stone Fig. 6. Not yet usable at production size or
+far above threshold. The blocking item is the within-edge resolution (#52) —
+until the oversampling is set from `k_max` and edge length rather than a flat
+node budget, the residual on a large graph cannot get small and the cost
+figures cannot be re-measured meaningfully.

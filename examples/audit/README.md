@@ -110,3 +110,36 @@ Two caveats worth carrying:
   regime (0.93). The blanket claim that the newton curves "bend below" linear
   is not supported by this ladder, and the sign should be checked against
   theory before it is relied on.
+
+## Where the solver stops working
+
+The ladder above stays inside the regime the solver handles. Two probes outside
+it, both read off `modes_df.attrs["salt_diagnostics"]`:
+
+**Deep above threshold.** `mini_buffon` swept to 25× the first threshold, 25
+pumps (267 s): the summed L–I is *not* monotone — it drops 3.9 % at
+`D0 = 0.541` and 40.8 % at `D0 = 0.601` — worst residual 9.1e-3, converged at
+6 of 25 pumps. The drops land where the active set grows (2→3, then 3→4). The
+removed total-output ratchet was written for exactly this graph and hid this;
+the solve underneath was already failing. Note it is graph-dependent:
+`chaotic_ring` at 30× threshold is monotone, residual 5.7e-5, 24/25 converged.
+
+**Production size.** `examples/buffon/buffon_uniform` (208 nodes / 243 edges),
+10 candidate modes, 8 pumps to 2× threshold:
+
+| step | time |
+| --- | ---: |
+| passive modes (contour) | 26.3 s |
+| thresholds | 108.6 s |
+| linear modal intensities | 0.6 s |
+| `full_salt_newton` | 1101.6 s |
+
+with `work graph 2890 nodes, resolution error 0.3321, worst residual 2.4e-3,
+converged 1/8`. A 33 % within-edge resolution error means the discretised
+hole-burning integral is not the continuum one, so the residual cannot get
+small — at this size the two failures are the same failure.
+
+So: full SALT is usable on the ladder graphs (≤ ~45 edges) up to ~2× threshold,
+and is not usable on the production buffon. Tracked as
+[#53](https://github.com/arnaudon/netSALT/issues/53) (convergence and cost) and
+[#52](https://github.com/arnaudon/netSALT/issues/52) (resolution).
