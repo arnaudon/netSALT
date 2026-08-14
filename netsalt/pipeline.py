@@ -465,8 +465,12 @@ def step_compute_mode_competition_matrix(
 
     qg = _attach_pump_to_graph(p, qg, pump)
     matrix = compute_mode_competition_matrix(qg, threshold_modes_df)
+    # format/mode pinned for the same reason as netsalt.io.save_modes: the
+    # pandas defaults are settable globally (io.hdf.default_format) and mode
+    # defaults to append, so an unpinned write silently changes behaviour with
+    # the environment. This file holds exactly one key.
     pd.DataFrame(data=matrix, index=None, columns=None).to_hdf(
-        str(out), key="mode_competition_matrix"
+        str(out), key="mode_competition_matrix", format="fixed", mode="w"
     )
     return matrix
 

@@ -137,29 +137,25 @@ research-grade full-SALT solver, with every claim backed by a reproducer in
 Ranked by impact vs. effort. None of these are required for the code to run;
 they are what an "old code" most needs before further work lands on top.
 
-1. **Test coverage is one functional test.** `tests/test_functional.py` runs
-   the full pipeline and byte-diffs HDF5 output. That catches
-   regressions but gives no signal on *what* broke. Add unit tests for the
-   load-bearing pieces in isolation: `mode_quality`, `to_complex` /
-   `from_complex`, `refine_mode_brownian_ratchet` on a toy graph,
-   `construct_laplacian` / `construct_weight_matrix` on a 3-edge line,
-   `clean_duplicate_modes`, `pump_cost`. Until this exists, any refactor is
-   flying blind.
+1. ~~**Test coverage is one functional test.**~~ **Largely done.** The suite
+   is now 184 tests: `tests/test_unit.py` covers `mode_quality`,
+   `to_complex`/`from_complex`, the matrix builders, `clean_duplicate_modes`,
+   `pump_cost`, the contour defaults, the competition-matrix vectorisation
+   against its scalar oracle, the SALT solver's structure and diagnostics, and
+   the oversampling/`inner` invariants. What is still shallow is multimode
+   physics regression — see issue #54.
 
-2. **Modernise packaging.** `setup.py` still guards against Python < 2.7 and
-   pins `VERSION = "0.2.0"`. Move to `pyproject.toml` (PEP 621), declare
-   `requires-python = ">=3.10"`, drop the 2.7 check. `tox.ini` still targets
-   `py38`/`py39` (both EOL) and `.github/workflows/run-tox.yml` uses
-   `actions/checkout@v2` + `actions/setup-python@v2` (deprecated). Bump CI to
-   `@v4` and to Python 3.10–3.12.
+2. ~~**Modernise packaging.**~~ **Done.** Metadata is in `pyproject.toml`
+   (PEP 621) with `requires-python = ">=3.10"`; `setup.py` is a four-line
+   shim for editable installs on older pip. `tox.ini` targets
+   `py{310,311,312}` and the workflows use `actions/checkout@v4` +
+   `actions/setup-python@v5` + `astral-sh/setup-uv@v5`.
 
-3. **`warnings.filterwarnings("ignore")` at module import in `modes.py:27`.**
-   This silences *every* warning for *every* consumer of the library. Worse,
-   line 28 promotes `np.ComplexWarning` to an error — and `np.ComplexWarning`
-   was removed in NumPy 1.25 (it now lives at `numpy.exceptions.ComplexWarning`).
-   On a modern NumPy, importing `netsalt.modes` raises `AttributeError`. Fix
-   both: scope the filter to the narrowest block that needs it, and use the
-   new path (or `warnings.catch_warnings`).
+3. ~~**`warnings.filterwarnings("ignore")` at module import.**~~ **Done.**
+   No module-level filter remains anywhere in the package (the suppressions
+   that are still needed are scoped to the block that needs them), and
+   `ComplexWarning` is imported from `numpy.exceptions` with a fallback to
+   the pre-1.25 location.
 
 4. ~~**`pickle` for graph I/O.**~~ **Done.** `save_graph` / `load_graph`
    now default to JSON (node-link format) with a custom encoder for numpy
@@ -196,10 +192,9 @@ they are what an "old code" most needs before further work lands on top.
    still mutate `self.params` in place — that's fine because pydantic
    validates each assignment, but a follow-up could remove the mutation.
 
-7. **`raise Exception(...)` in `physics.py`.** `dispersion_relation_linear`,
-   `_resistance`, `_dielectric` all raise the bare `Exception` class with
-   typo'd messages ("Please correct provide…"). Use `ValueError` (or a
-   module-specific exception) and fix the strings — these are user-facing.
+7. ~~**`raise Exception(...)` in `physics.py`.**~~ **Done.** No bare
+   `Exception` is raised anywhere in the package; these are `ValueError`
+   with the typo'd messages rewritten.
 
 8. ~~**`pandas.to_hdf` without `format=` / `mode=`.**~~ **Done.**
    `save_modes` pins `format="fixed", mode="w"`; `save_qualities` pins
