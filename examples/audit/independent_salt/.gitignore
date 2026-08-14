@@ -1,0 +1,5 @@
+results_*.json
+*.h5
+log_*.txt
+out_*.txt
+__pycache__/

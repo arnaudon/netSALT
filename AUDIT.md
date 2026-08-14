@@ -526,6 +526,7 @@ limit.
 | stale-cache hazard, gamma_perp crash | run `examples/line_PRA` twice, editing `gamma_perp` between runs |
 | full-SALT reduces to the linear model near threshold (9-graph ladder) | `examples/audit/compare_linear_vs_salt.py` |
 | where full SALT stops converging (deep pump, production size) | `examples/audit/README.md`, "Where the solver stops working" |
+| independent full-SALT cross-check (passive, thresholds, above threshold) | `examples/audit/independent_salt/` |
 
 ---
 
@@ -574,6 +575,38 @@ diagnostics intact. That graph converges at 7 of 8 pumps (worst residual
 0.76 % — and its `salt_unit_scale` is 0.99–1.008 rather than the ladder's
 0.96–0.98, which is the independent confirmation that the unit-scale deficit
 is the discretisation error and not a convention mismatch.
+
+**An independent solver now agrees with it.** §5 closed by noting that no
+ground-truth full-SALT solver lived in-repo, so accuracy rested on indirect
+evidence. `examples/audit/independent_salt/` is that solver: a transfer-matrix
+engine (exact for piecewise-constant media, verified against the closed form to
+4e-15) plus a finite-difference multimode SALT Newton solve (verified O(h²),
+successive-ratio 4.00 from N=500 to N=16000), sharing no code with netsalt. On
+an open Fabry-Perot cavity, over 122 pump points and three configurations
+(uniform pump, `gamma_perp` doubled, and a partial pump):
+
+| quantity | median rel. diff | max |
+| --- | ---: | ---: |
+| passive modes `k` | 6e-16 | 1e-15 |
+| thresholds `D0_thr` | 7e-7 | 2e-6 |
+| lasing frequency `k_mu` | 2.7e-7 | 2.1e-6 |
+| modal intensity `I_mu` | 1.6e-4 | 8.1e-3 |
+| inter-mode ratio `I_1/I_2` | 2.6e-4 | 8.6e-3 |
+
+with cross-residuals passing in both directions (netsalt's solution against the
+exact transfer-matrix secular function: equivalent `dk` ≤ 2e-5; an external
+solution through netsalt's own `salt_residuals`: falling with netsalt's
+resolution, 5e-3 at λ/12 → 1e-4 at λ/96). The absolute intensities match, not
+only the ratios. The remaining differences are the size of the two
+discretisations, not a bias.
+
+Two defects fell out of that comparison and are fixed: `oversample_graph`
+re-derived `inner` from node degree, relabelling most of every vacuum lead as
+cavity (5–117 % over-count across the ladder); and the default λ/12
+oversampling carries a **+2.8 %** intensity bias where the docstring claimed
+~1 %. The ≥3-mode regime remains unvalidated — a uniformly-pumped Fabry-Perot
+is nearly rank-1 in competition and gain-clamps to two modes, which *both*
+solvers agree on to 0.25 % on the third mode's sub-threshold gain.
 
 **Revised verdict for the above-threshold layer:** research-grade on graphs up
 to ~45 edges at up to ~2× threshold, where it is validated against both the

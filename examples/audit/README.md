@@ -143,3 +143,13 @@ So: full SALT is usable on the ladder graphs (≤ ~45 edges) up to ~2× threshol
 and is not usable on the production buffon. Tracked as
 [#53](https://github.com/arnaudon/netSALT/issues/53) (convergence and cost) and
 [#52](https://github.com/arnaudon/netSALT/issues/52) (resolution).
+
+## `independent_salt/`
+
+A second SALT solver, written from the equations and importing no netsalt code:
+an exact transfer-matrix engine plus a finite-difference multimode Newton
+solve. On an open Fabry-Perot cavity it agrees with netsalt to 1e-15 on passive
+modes, ~1e-6 on thresholds, 2.7e-7 on lasing frequencies and 1.6e-4 on modal
+intensities (median over 122 pump points), with cross-residuals passing in both
+directions. It also found the `inner`-on-oversampled-graphs bug and quantified
+the default oversampling's +2.8 % intensity bias. See that directory's README.
