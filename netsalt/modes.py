@@ -1508,11 +1508,24 @@ def _auto_oversample_size(graph, modes_df, resolution=12, node_cap=3000):
     the Ge-Chong-Stone single-pole SALT, PRA 82, 063824) correctly lases. Sampling
     a few points per wavelength fixes it. The local wavelength is
     ``λ = 2π / (n·Re k)`` with ``n = sqrt(ε)``; target ``λ_min / resolution``,
-    capped so the oversampled graph stays bounded. ``resolution`` defaults to 12
-    (~λ/12): a convergence study on ``line_PRA`` shows the modal *intensities*
-    converge to ~1% there, while the cheaper λ/6 (used before the ARPACK
-    eigensolve scaling) got the lasing count right but was ~15% under-resolved.
-    ARPACK makes λ/12 essentially free.
+    capped so the oversampled graph stays bounded.
+
+    ``resolution`` defaults to 12 (~λ/12), which is **not** converged: on an
+    open Fabry-Perot cavity, checked against an independent transfer-matrix +
+    finite-difference SALT solver sharing no code with netsalt, λ/12 carries a
+    **+2.8 %** bias in the single-mode modal intensity (res 12/24/48/96/192 →
+    8.0216e-2, 7.8594e-2, 7.8182e-2, 7.8089e-2, 7.8066e-2, clean O(h²) toward
+    7.8058e-2) and +2.7e-5 relative in ``k``. It also biases the *sub-threshold*
+    gain of the next mode by ~7 %. So default-settings L–I curves carry a
+    few-percent systematic in the amplitudes; the mode count, the frequencies
+    and the ratios between modes are far better than that. Raise ``resolution``
+    (and ``node_cap`` with it) when the absolute intensities matter. See
+    :data:`SALT_RESOLUTION_WARN`, which measures the same thing at runtime, and
+    issue #52.
+
+    The cheaper λ/6 (used before the ARPACK eigensolve scaling) got the lasing
+    count right but was ~15 % under-resolved; ARPACK makes λ/12 essentially
+    free by comparison.
     """
     cand = np.where(np.asarray(modes_df["lasing_thresholds"]).ravel() < np.inf)[0]
     tms = modes_df["threshold_lasing_modes"].to_numpy()

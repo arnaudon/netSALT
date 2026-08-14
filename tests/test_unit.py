@@ -3075,3 +3075,59 @@ class TestModesAttrsSurviveHDF5:
         back = load_modes(path)
         assert back.attrs == {}
         assert back["lasing_thresholds"].tolist() == pytest.approx([0.1, 0.2])
+
+
+class TestOversampledInnerEdges:
+    """``oversample_graph`` must inherit ``inner``, not re-derive it from degree.
+
+    Under ``open_model="open"`` an edge counts as outer when one endpoint has
+    degree 1. After subdivision only the single sub-edge touching the terminal
+    node still satisfies that, so re-deriving relabels the rest of every vacuum
+    lead as *inner* — silently growing the region that "integrate over the
+    cavity" covers.
+    """
+
+    @staticmethod
+    def _oversampled(edge_size=0.2):
+        from netsalt.quantum_graph import oversample_graph
+
+        graph = make_line_graph(n_edges=5, extra_params={"pump": [0, 1, 1, 1, 0]})
+        return graph, oversample_graph(graph, edge_size)
+
+    def test_inner_length_is_preserved(self):
+        graph, work = self._oversampled()
+        parent = sum(graph[u][v]["length"] for u, v in graph.edges if graph[u][v]["inner"])
+        child = sum(work[u][v]["length"] for u, v in work.edges if work[u][v]["inner"])
+        assert child == pytest.approx(parent, rel=1e-12)
+
+    def test_the_degree_rule_would_have_over_counted(self):
+        """Guards the regression itself: the old rule really does differ here."""
+        graph, work = self._oversampled()
+        parent = sum(graph[u][v]["length"] for u, v in graph.edges if graph[u][v]["inner"])
+        by_degree = sum(
+            work[u][v]["length"]
+            for u, v in work.edges
+            if not (len(work[u]) == 1 or len(work[v]) == 1)
+        )
+        assert by_degree > parent * 1.05
+
+    def test_params_inner_matches_the_edge_attribute(self):
+        _, work = self._oversampled()
+        assert list(work.graph["params"]["inner"]) == [
+            bool(work[u][v]["inner"]) for u, v in work.edges
+        ]
+
+    def test_edgelabel_maps_sub_edges_back_to_their_parent(self):
+        graph, work = self._oversampled()
+        labels = np.asarray(work.graph["edgelabel"])
+        assert set(labels.tolist()) == set(range(len(graph.edges)))
+        # every sub-edge of one parent carries that parent's pump and inner flag
+        parent_inner = [graph[u][v]["inner"] for u, v in graph.edges]
+        for (u, v), label in zip(work.edges, labels, strict=True):
+            assert bool(work[u][v]["inner"]) == bool(parent_inner[label])
+
+    def test_outer_sub_edges_are_never_pumped(self):
+        _, work = self._oversampled()
+        pump = np.asarray(work.graph["params"]["pump"], dtype=float)
+        inner = np.asarray(work.graph["params"]["inner"], dtype=bool)
+        assert np.all(pump[~inner] == 0.0)

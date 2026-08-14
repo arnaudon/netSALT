@@ -272,11 +272,24 @@ def oversample_graph(graph, edge_size):
 
     The input graph is deep-copied before any mutation: ``_set_pump_on_graph``
     writes per-edge ``pump`` attributes, and the post-copy
-    ``_set_pump_on_params`` / ``set_inner_edges`` calls rewrite
-    ``params['pump']`` and ``params['inner']`` to the oversampled-edge
-    count. Without the deep copy these mutations leak back to the caller
-    via ``graph.graph["params"]`` (a shared reference) and break any
+    ``_set_pump_on_params`` call rewrites ``params['pump']`` to the
+    oversampled-edge count. Without the deep copy these mutations leak back to
+    the caller via ``graph.graph["params"]`` (a shared reference) and break any
     subsequent ``compute_mode_*`` call that re-reads those arrays.
+
+    Each sub-edge **inherits** its parent's ``inner`` flag and ``edgelabel``
+    rather than having them re-derived. Re-deriving is wrong here:
+    :func:`set_inner_edges` calls an edge outer when one of its endpoints has
+    degree 1, which after subdivision is true only of the single sub-edge
+    touching the terminal node — so most of an open graph's vacuum leads would
+    be relabelled *inner*. On the shipped Fabry-Perot line that moves the
+    "inner" length from the cavity's 0.5 to 0.589, an 18% error in every
+    integral normalised over the cavity (``_newton_onset_unit_scale`` is one).
+    netsalt's own hole-burning path masks with ``pump * inner`` and so was
+    insulated, but the flag is public and consumers read it.
+
+    Inheriting ``edgelabel`` also keeps the sub-edge → parent-edge map, which
+    is the only way to fold a work-graph quantity back onto the original graph.
 
     Args:
         graph (graph): quantum graph (left untouched)
@@ -291,6 +304,8 @@ def oversample_graph(graph, edge_size):
         if n_nodes > 1:
             dielectric_constant = graph[u][v].get("dielectric_constant", None)
             pump = graph[u][v]["pump"]
+            inner = graph[u][v].get("inner", True)
+            edgelabel = graph[u][v].get("edgelabel", ei)
             oversampled_graph.remove_edge(u, v)
 
             for node_index in range(n_nodes - 1):
@@ -313,7 +328,8 @@ def oversample_graph(graph, edge_size):
                     last,
                     dielectric_constant=dielectric_constant,
                     pump=pump,
-                    edgelabel=ei,
+                    inner=inner,
+                    edgelabel=edgelabel,
                 )
 
             oversampled_graph.add_edge(
@@ -321,13 +337,17 @@ def oversample_graph(graph, edge_size):
                 v,
                 dielectric_constant=dielectric_constant,
                 pump=pump,
-                edgelabel=ei,
+                inner=inner,
+                edgelabel=edgelabel,
             )
 
     oversampled_graph = nx.convert_node_labels_to_integers(oversampled_graph)
     _set_edge_lengths(oversampled_graph)
     params = oversampled_graph.graph["params"]
-    set_inner_edges(oversampled_graph, params)
+    params["inner"] = [bool(oversampled_graph[u][v]["inner"]) for u, v in oversampled_graph.edges]
+    oversampled_graph.graph["edgelabel"] = np.array(
+        [oversampled_graph[u][v]["edgelabel"] for u, v in oversampled_graph.edges]
+    )
     update_params_dielectric_constant(oversampled_graph, params)
     _set_pump_on_params(oversampled_graph, params)
     update_parameters(oversampled_graph, params, force=True)
