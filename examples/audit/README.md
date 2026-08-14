@@ -242,3 +242,41 @@ form exactly for constant eps, so it can replace it without changing passive
 behaviour. Wiring it into `construct_incidence_matrix` / `construct_weight_matrix`
 — which is where the open and directed boundary models have to be handled — is
 the follow-up.
+
+## `probe_varying_operator.py`
+
+The load-bearing check for #52/#53: does the per-edge-DtN operator
+(`netsalt/varying_laplacian.py`) actually reproduce what oversampling computes,
+with a matrix the size of the original graph?
+
+A 5-edge ring carrying a deliberately strong 10 % standing-wave ripple in eps
+(far deeper than real hole burning, so the effect is unmistakable):
+
+```
+uniform-eps mode:      k = 5.235987748  |lambda_min| = 1.84e-07   (matrix 5x5)
+varying, per-edge DtN: k = 5.415002428  |lambda_min| = 1.11e-13   (matrix 5x5)
+  ripple shifts the mode by 1.790e-01
+```
+
+| sub-edges/edge | matrix | k | \|k − DtN\| | ratio |
+| ---: | ---: | ---: | ---: | ---: |
+| 16 | 80 | 5.414378858 | 6.24e-04 | |
+| 32 | 160 | 5.414841847 | 1.61e-04 | 3.88 |
+| 64 | 320 | 5.414962004 | 4.04e-05 | 3.99 |
+
+The oversampled answer converges **to** the DtN answer at a clean O(h²) — they
+are solving the same problem — and the DtN operator arrives there directly, at
+`|lambda_min| = 1e-13`, with a 5×5 matrix instead of 320×320. On the buffon the
+equivalent subdivision is 76803 nodes against 243 edges.
+
+Two traps this script now guards against, both of which produced convincing
+nonsense first:
+
+* **A minimum on the bracket boundary is not a mode.** An earlier version took a
+  fixed window around a guess; every configuration returned its own endpoint and
+  they "agreed" to 1e-13 without any of them having found a root. `find_mode`
+  now requires an *interior* minimum and raises otherwise.
+* **Sub-edge eps must be placed geometrically.** Accumulating sub-edge lengths in
+  `work.edges` order assumes that order walks each parent edge end to end. It
+  does not; doing so scrambles the profile and the reference lands on a
+  different mode (6.42 instead of 5.42).
