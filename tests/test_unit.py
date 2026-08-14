@@ -3630,3 +3630,58 @@ class TestSaltVarying:
         profiles = saturated_eps_profiles(graph, [10.2], [0.5], fields, 0.05, pump)
         for edge_index, profile in enumerate(profiles):
             assert (profile is None) == (pump[edge_index] <= 0.0)
+
+
+class TestSolveSaltVarying:
+    """The self-consistent solve on the un-oversampled operator (#52, #53)."""
+
+    def test_converges_to_a_genuine_solution_above_threshold(self):
+        """Residual driven below target, on a graph that is never oversampled."""
+        from netsalt.salt_varying import _lam_varying, saturated_eps_profiles, solve_salt_varying
+
+        graph, pump = TestSaltVarying._graph()
+        n_steps = 32
+
+        # locate the threshold: D0 where the unsaturated operator turns singular
+        def min_lam(D0):
+            zero = [[np.zeros(n_steps + 1) for _ in graph.edges]]
+            profiles = saturated_eps_profiles(graph, [10.0], [0.0], zero, D0, pump)
+            grid = np.linspace(9.5, 11.0, 41)
+            values = np.array([abs(_lam_varying(graph, k, profiles, n_steps)) for k in grid])
+            i = int(np.argmin(values))
+            return values[i], grid[i]
+
+        grid = np.linspace(0.2, 0.7, 11)
+        pairs = [min_lam(D0) for D0 in grid]
+        i = int(np.argmin([v for v, _ in pairs]))
+        d0_thr, k0 = grid[i], pairs[i][1]
+        assert pairs[i][0] < 0.5, "fixture does not reach threshold in the scanned window"
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            solution = solve_salt_varying(
+                graph, [k0], [0.05], 1.5 * d0_thr, pump, n_steps=n_steps, outer=25
+            )
+        assert solution.converged
+        assert solution.residuals[0] < 1e-6
+        assert solution.amplitudes[0] > 0.0
+        assert len(graph) == 8  # never oversampled
+
+    def test_with_no_pump_it_reports_failure_rather_than_a_number(self):
+        """D0 = 0 has no lasing solution, and the solve must say so.
+
+        With no gain the operator does not depend on the amplitude at all, so the
+        residual has no gradient in ``a`` and least-squares leaves it wherever it
+        started. That is correct for an unconstrained sub-problem -- what matters
+        is that the result is *flagged*: ``converged`` is False and the residual
+        stays large, so a caller reading only ``amplitudes`` is reading a number
+        the solver never claimed to have solved for.
+        """
+        from netsalt.salt_varying import solve_salt_varying
+
+        graph, pump = TestSaltVarying._graph()
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            solution = solve_salt_varying(graph, [10.45], [0.05], 0.0, pump, n_steps=32, outer=6)
+        assert not solution.converged
+        assert solution.residuals[0] > 1.0

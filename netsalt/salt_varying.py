@@ -31,6 +31,7 @@ directly comparable.
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import NamedTuple
 
 import numpy as np
 import scipy as sc
@@ -42,10 +43,12 @@ from .physics import gamma
 from .varying_laplacian import construct_laplacian_varying
 
 __all__ = [
+    "SaltVaryingSolution",
     "edge_field_profiles",
     "node_solution_varying",
     "salt_residuals_varying",
     "saturated_eps_profiles",
+    "solve_salt_varying",
 ]
 
 #: Above this many nodes the null vector is found with ARPACK rather than a
@@ -294,3 +297,147 @@ def salt_residuals_varying(
         value, _ = node_solution_varying(float(k), graph, profiles, n_steps=n_steps)
         residuals.append(abs(value))
     return np.array(residuals)
+
+
+#: Residual the fixed-set solve drives ``|lambda_1|`` towards before declaring
+#: convergence. Matches ``modes.SALT_RESIDUAL_TARGET`` so the two paths report
+#: convergence on the same footing.
+SALT_VARYING_RESIDUAL_TARGET = 1e-6
+
+#: Amplitudes below this are treated as "not lasing" when refreshing the fields,
+#: mirroring ``modes.SALT_LASING_AMPLITUDE``.
+SALT_VARYING_LASING_AMPLITUDE = 1e-4
+
+
+class SaltVaryingSolution(NamedTuple):
+    """Result of :func:`solve_salt_varying`.
+
+    ``ks`` and ``amplitudes`` are the solved lasing frequencies and amplitudes;
+    ``fields`` the ``|E(x)|^2`` profiles they were solved against; ``residuals``
+    the per-mode ``|lambda_1|`` at the returned state -- the acceptance test, not
+    a proxy for it. ``converged`` says whether every lasing mode reached
+    :data:`SALT_VARYING_RESIDUAL_TARGET`; a solve can be un-converged with a
+    small residual (it ran out of iterations just after arriving) or converged
+    with a large one only if the target itself is loose, so read both.
+    """
+
+    ks: np.ndarray
+    amplitudes: np.ndarray
+    fields: list
+    residuals: np.ndarray
+    converged: bool
+    iterations: int
+
+
+def _lam_varying(graph, k, profiles, n_steps):
+    """Complex ``lambda_1`` at real ``k``, with the gain bound at this ``k``."""
+    gain = gamma(complex(k), graph.graph["params"])
+    for profile in profiles:
+        if profile is not None:
+            profile.gain = gain
+    value, _ = node_solution_varying(float(k), graph, profiles, n_steps=n_steps)
+    return value
+
+
+def solve_salt_varying(
+    graph,
+    ks,
+    amplitudes,
+    D0: float,
+    pump,
+    *,
+    n_steps: int = 64,
+    outer: int = 25,
+    damping: float = 0.7,
+    residual_tol: float = SALT_VARYING_RESIDUAL_TARGET,
+    max_nfev: int = 60,
+) -> SaltVaryingSolution:
+    r"""Solve SALT for a given set of lasing modes, without oversampling.
+
+    The varying-operator counterpart of
+    :func:`~netsalt.modes.solve_salt_fixed_set`. For each mode the unknowns are
+    :math:`(k_\mu, a_\mu)` and the equations are
+    :math:`\mathrm{Re}\,\lambda_1(k_\mu) = \mathrm{Im}\,\lambda_1(k_\mu) = 0` --
+    two real equations for two real unknowns, so the system is square. The
+    hole-burning fields are frozen during each least-squares solve and refreshed
+    afterwards, which is what makes each residual a single clean eigensolve.
+
+    Args:
+        graph: quantum graph, **not** oversampled.
+        ks: initial real frequencies, one per lasing mode.
+        amplitudes: initial amplitudes.
+        D0: pump strength.
+        pump: per-edge pump.
+        n_steps: sub-intervals per varying edge.
+        outer: field-refresh iterations.
+        damping: mixing applied when refreshing the fields.
+        residual_tol: convergence target on ``|lambda_1|``.
+        max_nfev: budget for each frozen-field least-squares solve.
+
+    Returns:
+        :class:`SaltVaryingSolution`.
+    """
+    from scipy.optimize import least_squares
+
+    ks = np.asarray(ks, dtype=float).copy()
+    amplitudes = np.asarray(amplitudes, dtype=float).copy()
+    n_modes = len(ks)
+    pump = np.asarray(pump, dtype=float)
+
+    # initial fields, from the unsaturated operator
+    fields = []
+    for k in ks:
+        _, psi = node_solution_varying(float(k), graph, None, n_steps=n_steps)
+        fields.append(edge_field_profiles(float(k), graph, psi, None, n_steps=n_steps, pump=pump))
+
+    converged = False
+    iterations = 0
+    for _outer_step in range(outer):
+        iterations += 1
+        frozen = [list(f) for f in fields]
+
+        def residual(x, _frozen=frozen):
+            local_ks = x[0::2]
+            local_a = np.clip(x[1::2], 0.0, None)
+            profiles = saturated_eps_profiles(graph, local_ks, local_a, _frozen, D0, pump)
+            out = []
+            for k in local_ks:
+                value = _lam_varying(graph, float(k), profiles, n_steps)
+                out.extend((value.real, value.imag))
+            return np.asarray(out, dtype=float)
+
+        x0 = np.empty(2 * n_modes)
+        x0[0::2] = ks
+        x0[1::2] = amplitudes
+        result = least_squares(residual, x0, method="lm", max_nfev=max_nfev, xtol=1e-12)
+        ks = result.x[0::2]
+        amplitudes = np.clip(result.x[1::2], 0.0, None)
+
+        # refresh the fields against the solved state
+        profiles = saturated_eps_profiles(graph, ks, amplitudes, frozen, D0, pump)
+        refreshed = []
+        for k in ks:
+            gain = gamma(complex(k), graph.graph["params"])
+            for profile in profiles:
+                if profile is not None:
+                    profile.gain = gain
+            _, psi = node_solution_varying(float(k), graph, profiles, n_steps=n_steps)
+            refreshed.append(
+                edge_field_profiles(float(k), graph, psi, profiles, n_steps=n_steps, pump=pump)
+            )
+        fields = [
+            [
+                (1.0 - damping) * old + damping * new
+                for old, new in zip(per_mode_old, per_mode_new, strict=True)
+            ]
+            for per_mode_old, per_mode_new in zip(fields, refreshed, strict=True)
+        ]
+
+        lasing = [i for i in range(n_modes) if amplitudes[i] > SALT_VARYING_LASING_AMPLITUDE]
+        residuals = salt_residuals_varying(graph, ks, amplitudes, fields, D0, pump, n_steps=n_steps)
+        if lasing and all(residuals[i] <= residual_tol for i in lasing):
+            converged = True
+            break
+
+    residuals = salt_residuals_varying(graph, ks, amplitudes, fields, D0, pump, n_steps=n_steps)
+    return SaltVaryingSolution(ks, amplitudes, fields, residuals, converged, iterations)
