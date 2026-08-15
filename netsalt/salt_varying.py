@@ -558,6 +558,9 @@ def solve_salt_varying(
         residual_tol: convergence target on ``|lambda_1|``.
         max_nfev: budget for each frozen-field least-squares solve.
         k_window_cap: how far each ``k`` may move from its starting value.
+            May be a scalar, or one value per mode -- a caller that knows the
+            *whole* candidate set can bound each mode by its own nearest
+            neighbour, which a solve seeing only the active set cannot do.
             ``None`` derives it from the mode spacing, the gain linewidth
             ``gamma_perp``, and a fraction of ``k`` itself. This is not
             cosmetic, and both failure modes it prevents report *success*:
@@ -584,7 +587,14 @@ def solve_salt_varying(
     # while the per-mode amplitudes are arbitrary, and consecutive pumps report
     # wildly different splits of the same total. The cap is a fraction of the
     # spacing between the modes being solved, which keeps each on its own branch.
-    if k_window_cap is None:
+    if k_window_cap is not None and np.ndim(k_window_cap) > 0:
+        # per-mode caps, supplied by a caller that knows the whole candidate set
+        caps = np.asarray(k_window_cap, dtype=float)
+        if len(caps) != n_modes:
+            raise ValueError(f"k_window_cap has {len(caps)} entries for {n_modes} modes.")
+        k_lo, k_hi = ks - caps, ks + caps
+        k_window_cap = float(np.min(caps))
+    elif k_window_cap is None:
         cap = np.inf
         if n_modes > 1:
             cap = 0.2 * float(np.min(np.diff(np.sort(ks))))
@@ -599,8 +609,9 @@ def solve_salt_varying(
         # lasing mode at all.
         cap = min(cap, 0.1 * float(np.min(np.abs(ks))))
         k_window_cap = float(np.clip(cap, 1e-6, np.inf))
-    k_lo = ks - k_window_cap
-    k_hi = ks + k_window_cap
+        k_lo, k_hi = ks - k_window_cap, ks + k_window_cap
+    else:
+        k_lo, k_hi = ks - k_window_cap, ks + k_window_cap
 
     # initial fields, from the unsaturated operator
     fields = []
@@ -758,6 +769,32 @@ def compute_modal_intensities_varying(
         raise ValueError("no mode has a finite lasing threshold")
     first = float(np.min(thresholds[finite]))
 
+    # Bound each candidate by its own nearest neighbour among *all* candidates.
+    # solve_salt_varying only sees the active set, so with one mode active it has
+    # no spacing to work from and falls back to gamma_perp -- on a dense spectrum
+    # that is enormous: the buffon's candidates sit 7.6e-4 apart against a 0.5
+    # fallback, 658x the spacing, and a single active mode wanders across every
+    # candidate (modes appear to switch *off* as the pump rises).
+    #
+    # A single global cap from the *minimum* spacing is the obvious fix and is
+    # also wrong: it punishes well-separated modes for a near-degenerate pair
+    # elsewhere in the window. On the buffon two candidates are 7.6e-4 apart
+    # while the others are ~20x further out, and the global cap left nothing able
+    # to lase at all. Per-mode is what the geometry actually calls for.
+    cand_ks = np.array([float(np.real(threshold_modes[i])) for i in finite])
+    if len(cand_ks) > 1:
+        separation = np.abs(cand_ks[:, None] - cand_ks[None, :])
+        np.fill_diagonal(separation, np.inf)
+        nearest = separation.min(axis=1)
+        gamma_perp = graph.graph["params"].get("gamma_perp")
+        ceiling = float(gamma_perp) if gamma_perp else np.inf
+        caps = {
+            int(i): float(np.clip(0.4 * d, 1e-9, ceiling))
+            for i, d in zip(finite, nearest, strict=True)
+        }
+    else:
+        caps = {}
+
     grid = np.linspace(first, float(max_pump_intensity), int(D0_steps))
     intensities = pd.DataFrame(index=modes_df.index)
     state: dict[int, tuple[float, float]] = {}
@@ -795,6 +832,9 @@ def compute_modal_intensities_varying(
             n_steps=n_steps,
             outer=outer,
             residual_tol=residual_tol,
+            k_window_cap=(
+                [caps[i] for i in candidate_set] if all(i in caps for i in candidate_set) else None
+            ),
         )
         ok = all(
             solution.amplitudes[slot] > SALT_VARYING_LASING_AMPLITUDE
