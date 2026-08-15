@@ -3685,3 +3685,48 @@ class TestSolveSaltVarying:
             solution = solve_salt_varying(graph, [10.45], [0.05], 0.0, pump, n_steps=32, outer=6)
         assert not solution.converged
         assert solution.residuals[0] > 1.0
+
+
+class TestSaltVaryingKWindow:
+    """The k bound, whose absence produces *converged* wrong answers.
+
+    Both failure modes it prevents report success, which is why they need
+    pinning: an unbounded single-mode solve walks to k ~ 0 where the operator is
+    degenerate and reports a tiny residual for something that is not a lasing
+    mode; and two modes drifting onto the same k leave any split of intensity
+    between them satisfying the equations.
+    """
+
+    def test_single_mode_k_stays_near_its_start(self):
+        from netsalt.salt_varying import solve_salt_varying
+
+        graph, pump = TestSaltVarying._graph()
+        k0 = 10.45
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            solution = solve_salt_varying(graph, [k0], [0.05], 0.0, pump, n_steps=32, outer=6)
+        assert abs(solution.ks[0] - k0) < 0.1 * k0
+        assert solution.ks[0] > 1.0  # emphatically not the k ~ 0 degenerate root
+
+    def test_two_modes_cannot_collapse_onto_one_k(self):
+        from netsalt.salt_varying import solve_salt_varying
+
+        graph, pump = TestSaltVarying._graph()
+        ks = [10.30, 10.60]
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            solution = solve_salt_varying(graph, ks, [0.05, 0.05], 0.5, pump, n_steps=32, outer=6)
+        separation = abs(solution.ks[0] - solution.ks[1])
+        assert separation > 0.5 * abs(ks[0] - ks[1])
+
+    def test_explicit_cap_is_honoured(self):
+        from netsalt.salt_varying import solve_salt_varying
+
+        graph, pump = TestSaltVarying._graph()
+        k0 = 10.45
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            solution = solve_salt_varying(
+                graph, [k0], [0.05], 0.5, pump, n_steps=32, outer=4, k_window_cap=1e-3
+            )
+        assert abs(solution.ks[0] - k0) <= 1e-3 + 1e-9

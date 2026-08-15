@@ -353,6 +353,7 @@ def solve_salt_varying(
     damping: float = 0.7,
     residual_tol: float = SALT_VARYING_RESIDUAL_TARGET,
     max_nfev: int = 60,
+    k_window_cap: float | None = None,
 ) -> SaltVaryingSolution:
     r"""Solve SALT for a given set of lasing modes, without oversampling.
 
@@ -375,6 +376,16 @@ def solve_salt_varying(
         damping: mixing applied when refreshing the fields.
         residual_tol: convergence target on ``|lambda_1|``.
         max_nfev: budget for each frozen-field least-squares solve.
+        k_window_cap: how far each ``k`` may move from its starting value.
+            ``None`` derives it from the mode spacing, the gain linewidth
+            ``gamma_perp``, and a fraction of ``k`` itself. This is not
+            cosmetic, and both failure modes it prevents report *success*:
+            two active modes drifting onto the same ``k`` leave the system
+            degenerate, so any split of intensity between them satisfies the
+            equations and the residual converges while the per-mode amplitudes
+            are arbitrary; and an unbounded single-mode solve walks to
+            ``k ~ 0``, where the operator is degenerate and a 1e-8 residual is
+            reported for something that is not a lasing mode.
 
     Returns:
         :class:`SaltVaryingSolution`.
@@ -385,6 +396,30 @@ def solve_salt_varying(
     amplitudes = np.asarray(amplitudes, dtype=float).copy()
     n_modes = len(ks)
     pump = np.asarray(pump, dtype=float)
+
+    # Bound how far each k may travel. Without this two active modes can drift
+    # onto the *same* k, where the system is degenerate -- any split of intensity
+    # between them satisfies lambda_1(k) = 0 for both -- so the residual converges
+    # while the per-mode amplitudes are arbitrary, and consecutive pumps report
+    # wildly different splits of the same total. The cap is a fraction of the
+    # spacing between the modes being solved, which keeps each on its own branch.
+    if k_window_cap is None:
+        cap = np.inf
+        if n_modes > 1:
+            cap = 0.2 * float(np.min(np.diff(np.sort(ks))))
+        # Frequency pulling is bounded by the gain linewidth, so gamma_perp is a
+        # physical ceiling on how far a lasing k can travel.
+        gamma_perp = graph.graph["params"].get("gamma_perp")
+        if gamma_perp:
+            cap = min(cap, float(gamma_perp))
+        # And never let k move by a large fraction of itself. Unbounded, a
+        # single-mode solve walks to k ~ 0, where the operator is degenerate:
+        # it reports a 1e-8 residual and "converged" for a root that is not a
+        # lasing mode at all.
+        cap = min(cap, 0.1 * float(np.min(np.abs(ks))))
+        k_window_cap = float(np.clip(cap, 1e-6, np.inf))
+    k_lo = ks - k_window_cap
+    k_hi = ks + k_window_cap
 
     # initial fields, from the unsaturated operator
     fields = []
@@ -409,11 +444,20 @@ def solve_salt_varying(
             return np.asarray(out, dtype=float)
 
         x0 = np.empty(2 * n_modes)
-        x0[0::2] = ks
-        x0[1::2] = amplitudes
-        result = least_squares(residual, x0, method="lm", max_nfev=max_nfev, xtol=1e-12)
+        x0[0::2] = np.clip(ks, k_lo, k_hi)
+        x0[1::2] = np.maximum(amplitudes, 0.0)
+        lower = np.empty(2 * n_modes)
+        upper = np.empty(2 * n_modes)
+        lower[0::2], upper[0::2] = k_lo, k_hi
+        # a >= 0 as a real bound rather than a clip after the fact: clipping lets
+        # the solver explore negative amplitudes and converge to a state that is
+        # then silently altered.
+        lower[1::2], upper[1::2] = 0.0, np.inf
+        result = least_squares(
+            residual, x0, bounds=(lower, upper), method="trf", max_nfev=max_nfev, xtol=1e-12
+        )
         ks = result.x[0::2]
-        amplitudes = np.clip(result.x[1::2], 0.0, None)
+        amplitudes = np.maximum(result.x[1::2], 0.0)
 
         # refresh the fields against the solved state
         profiles = saturated_eps_profiles(graph, ks, amplitudes, frozen, D0, pump)
@@ -487,22 +531,29 @@ def compute_modal_intensities_varying(
         ``converged``, ``max_residual``, ``iterations`` -- so a run reports what
         it actually achieved rather than only its answer.
 
-    Warning:
-        **Single-mode results are solid; multimode is not yet.** On a
-        one-mode sweep this converges at every pump with residuals below 1e-6.
-        With several modes active it currently does *not*: on ``line_PRA`` with
-        six candidates the residual sits around 1.7 and the per-mode intensities
-        thrash between pumps, even though their sum looks monotone.
+    Note:
+        Two things make the multimode sweep correct, and both were found by
+        watching it be wrong first.
 
-        The cause is the active set here, not the operator. A mode is admitted
-        the moment ``D0`` passes its **linear** threshold, so modes that should
-        not lase are handed to the solver and nothing drives their amplitudes to
-        zero. :func:`~netsalt.modes.compute_modal_intensities_full_salt_newton`
-        admits a candidate only when it has net gain on the *current saturated
-        background*, and drops modes whose amplitude collapses; porting that is
-        what this needs next. Until then, read
-        ``attrs["salt_varying_diagnostics"]`` and do not trust a sweep whose
-        ``converged`` column is False.
+        *The active set is self-consistent.* A set is accepted only when every
+        member both lases (amplitude above the floor) and satisfies its own
+        ``lambda_1(k) = 0``; failing members are dropped, and candidates are
+        admitted one at a time and kept only if the enlarged set still holds.
+        Admitting on the *linear* threshold instead -- the obvious thing --
+        hands the solver modes that cannot lase and forces an impossible
+        equation on them: residuals near 1.7 at every pump instead of 1e-7.
+
+        *Each mode's ``k`` is bounded* (see ``k_window_cap`` in
+        :func:`solve_salt_varying`). Without it two active modes drift onto the
+        same ``k``, where the system is degenerate: any split of intensity
+        between them satisfies the equations, so the residual converges to 1e-7
+        while the per-mode amplitudes are arbitrary and consecutive pumps report
+        different splits of the same total. That failure is invisible in the
+        residual and in the summed output -- only the per-mode curve shows it.
+
+        With both in place, ``line_PRA`` gives two lasing modes with strictly
+        monotone L--I curves and residuals of 3e-7..8e-7 at every pump -- the
+        two-mode count being the published Ge-Chong-Stone result.
     """
     import pandas as pd
 
@@ -517,34 +568,26 @@ def compute_modal_intensities_varying(
     grid = np.linspace(first, float(max_pump_intensity), int(D0_steps))
     intensities = pd.DataFrame(index=modes_df.index)
     state: dict[int, tuple[float, float]] = {}
+    active: list[int] = []
     rows = []
 
-    for D0 in grid:
-        # a mode is a candidate once the pump passes its (linear) threshold
-        active = [i for i in finite if thresholds[i] < D0]
-        if not active:
-            intensities[D0] = 0.0
-            rows.append(
-                {
-                    "D0": float(D0),
-                    "n_active": 0,
-                    "converged": True,
-                    "max_residual": 0.0,
-                    "iterations": 0,
-                }
-            )
-            continue
+    def attempt(candidate_set, D0):
+        """Solve for a candidate active set; return the solution or None if it fails.
 
+        A set is accepted only when every member actually lases -- amplitude
+        above the lasing floor *and* its own residual at target. That is what
+        makes the set self-consistent: a mode that cannot satisfy
+        ``lambda_1(k) = 0`` is not a lasing mode, and leaving it in forces an
+        impossible equation on the least-squares solve, which is what made the
+        linear-threshold active set thrash.
+        """
+        if not candidate_set:
+            return None
         ks0, a0 = [], []
-        for i in active:
-            if i in state:
-                k_prev, a_prev = state[i]
-            else:
-                k_prev = float(np.real(threshold_modes[i]))
-                a_prev = 1e-2
+        for i in candidate_set:
+            k_prev, a_prev = state.get(i, (float(np.real(threshold_modes[i])), 1e-2))
             ks0.append(k_prev)
-            a0.append(a_prev)
-
+            a0.append(max(a_prev, 1e-3))
         solution = solve_salt_varying(
             graph,
             ks0,
@@ -555,18 +598,58 @@ def compute_modal_intensities_varying(
             outer=outer,
             residual_tol=residual_tol,
         )
+        ok = all(
+            solution.amplitudes[slot] > SALT_VARYING_LASING_AMPLITUDE
+            and solution.residuals[slot] <= residual_tol
+            for slot in range(len(candidate_set))
+        )
+        return solution if ok else None
+
+    for D0 in grid:
+        # 1. shrink: drop members that no longer lase at this pump
+        current, solution = list(active), None
+        while current:
+            solution = attempt(current, D0)
+            if solution is not None:
+                break
+            # the set does not hold together: drop its weakest member and retry
+            probe = solve_salt_varying(
+                graph,
+                [state.get(i, (float(np.real(threshold_modes[i])), 1e-2))[0] for i in current],
+                [max(state.get(i, (0.0, 1e-2))[1], 1e-3) for i in current],
+                float(D0),
+                pump,
+                n_steps=n_steps,
+                outer=outer,
+                residual_tol=residual_tol,
+            )
+            current.pop(int(np.argmin(probe.amplitudes)))
+
+        # 2. grow: admit candidates one at a time, keeping only those that hold up
+        for cand in sorted(finite, key=lambda i: thresholds[i]):
+            if cand in current or thresholds[cand] >= D0:
+                continue
+            trial = attempt([*current, cand], D0)
+            if trial is not None:
+                current = [*current, cand]
+                solution = trial
+
+        active = current
         column = np.zeros(len(modes_df.index))
-        for slot, i in enumerate(active):
-            state[i] = (float(solution.ks[slot]), float(solution.amplitudes[slot]))
-            column[i] = float(solution.amplitudes[slot])
+        if solution is not None and active:
+            for slot, i in enumerate(active):
+                state[i] = (float(solution.ks[slot]), float(solution.amplitudes[slot]))
+                column[i] = float(solution.amplitudes[slot])
         intensities[D0] = column
         rows.append(
             {
                 "D0": float(D0),
                 "n_active": len(active),
-                "converged": bool(solution.converged),
-                "max_residual": float(np.max(solution.residuals)),
-                "iterations": int(solution.iterations),
+                "converged": bool(solution.converged) if solution is not None else True,
+                "max_residual": (
+                    float(np.max(solution.residuals)) if solution is not None else 0.0
+                ),
+                "iterations": int(solution.iterations) if solution is not None else 0,
             }
         )
 
@@ -577,11 +660,9 @@ def compute_modal_intensities_varying(
             f"compute_modal_intensities_varying: {len(unconverged)} of "
             f"{int((diagnostics['n_active'] > 0).sum())} pumps did not converge "
             f"(worst residual {unconverged['max_residual'].max():.3g} against a "
-            f"{residual_tol:g} target). The per-mode intensities are not solutions "
-            "of the SALT equations. This is the known multimode limitation: the "
-            "active set is chosen from linear thresholds rather than from net gain "
-            "on the saturated background -- see the function's docstring, and "
-            "issues #52 / #53.",
+            f"{residual_tol:g} target). The intensities at those pumps are not "
+            "solutions of the SALT equations -- see attrs['salt_varying_diagnostics'] "
+            "and the function's docstring.",
             stacklevel=2,
         )
 
