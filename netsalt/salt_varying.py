@@ -282,6 +282,17 @@ def saturated_eps_profiles(
     return out
 
 
+#: Fraction of the distance to the nearest candidate that a mode's ``k`` may
+#: travel. This bounds the search to one *analytic branch* of the eigenvalue, not
+#: merely to "nearer this mode than the next": ``_smallest_eigenpair`` returns
+#: ``argmin |lambda|``, a min over branches, so past the point where two branches
+#: cross, the eigenvalue being root-found belongs to the *neighbouring* mode and
+#: is discontinuous there. On the production buffon that crossing was measured at
+#: 0.395 of the spacing, so a 0.4 bound put it 3.1e-5 *inside* the box: the solve
+#: slid onto the neighbour (eigenvector overlap 0.89 with the wrong mode), pinned
+#: at the bound, and drove the amplitude to zero. 0.25 keeps a margin.
+_BRANCH_SAFETY = 0.25
+
 #: Bytes of resampling matrices :func:`_cubic_resampling_weights` may hold.
 #: Once it is full nothing is evicted and nothing more is built -- the profiles
 #: that missed keep using ``CubicSpline`` directly. Deterministic admission
@@ -646,7 +657,24 @@ def solve_salt_varying(
         # then silently altered.
         lower[1::2], upper[1::2] = 0.0, np.inf
         result = least_squares(
-            residual, x0, bounds=(lower, upper), method="trf", max_nfev=max_nfev, xtol=1e-12
+            residual,
+            x0,
+            bounds=(lower, upper),
+            method="trf",
+            max_nfev=max_nfev,
+            xtol=1e-12,
+            # x_scale="jac" is load-bearing, not a tuning knob. The residual's
+            # sensitivity to k and to a differ by ~6e5 on the production buffon
+            # (|dlam/dk| = 8.2e2 against |dlam/da| = 1.3e-3), because the
+            # amplitude's unit is set by the pump-region norm: mean |E|^2 is
+            # 5.4e-4 over 2500 units of pumped length there against 1.04 over 1.0
+            # on line_PRA, so the natural amplitude is ~1900x larger. With the
+            # default isotropic x_scale=1.0 the trust region takes steps sized
+            # for k, which are useless for a, and the amplitude never leaves its
+            # initial guess -- the buffon converged to a = 6.29 where the root is
+            # at a = 343, and looked like a physically impossible answer rather
+            # than an unmoved one.
+            x_scale="jac",
         )
         ks = result.x[0::2]
         amplitudes = np.maximum(result.x[1::2], 0.0)
@@ -789,7 +817,7 @@ def compute_modal_intensities_varying(
         gamma_perp = graph.graph["params"].get("gamma_perp")
         ceiling = float(gamma_perp) if gamma_perp else np.inf
         caps = {
-            int(i): float(np.clip(0.4 * d, 1e-9, ceiling))
+            int(i): float(np.clip(_BRANCH_SAFETY * d, 1e-9, ceiling))
             for i, d in zip(finite, nearest, strict=True)
         }
     else:
