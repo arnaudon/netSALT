@@ -47,29 +47,67 @@ __all__ = [
     "SaltVaryingSolution",
     "compute_modal_intensities_varying",
     "edge_field_profiles",
+    "net_gain_alpha",
     "node_solution_varying",
     "salt_residuals_varying",
     "saturated_eps_profiles",
     "solve_salt_varying",
 ]
 
-#: Above this many nodes the null vector is found with ARPACK rather than a
-#: dense SVD. Mirrors ``quantum_graph.DENSE_SVD_MAX``'s role on the other path.
-DENSE_NULL_MAX = 400
+#: Above this many nodes the null vector is found by ARPACK shift-invert rather
+#: than a dense ``eig``. Mirrors ``quantum_graph.DENSE_EIG_MAX``'s role on the
+#: other path, and like it the value is the *measured* crossover rather than a
+#: comfortable-looking round number: only the smallest-magnitude eigenpair is
+#: wanted, and a dense ``eig`` computes all ``n`` of them in ``O(n^3)`` while
+#: shift-invert on the banded secular matrix is nearly flat in ``n``. On the
+#: saturated varying operator of a line graph (median of repeated solves,
+#: agreeing to 1e-12):
+#:
+#: =====  =========  ==========
+#: ``n``  dense      shift-inv.
+#: =====  =========  ==========
+#: 33      0.68 ms     0.78 ms
+#: 65      3.47 ms     0.91 ms
+#: 129    22.6  ms     0.98 ms
+#: 257    97.4  ms     1.30 ms
+#: 1025    2.69 s      2.30 ms
+#: =====  =========  ==========
+#:
+#: -- so the two are level around 40 nodes, not 400. The production buffon
+#: (208 nodes) spent two thirds of every operator rebuild in ``eig`` at the old
+#: threshold.
+DENSE_NULL_MAX = 40
+
+#: ARPACK start vector seed. Fixed so a residual is reproducible: without it the
+#: sparse branch draws a fresh random start and reports slightly different last
+#: digits on every call, which the finite-difference Jacobian of the frozen-field
+#: least-squares reads as noise.
+DENSE_NULL_SEED = 42
 
 
 def _smallest_eigenpair(matrix):
     """Smallest-magnitude eigenvalue of ``matrix`` and its eigenvector."""
     size = matrix.shape[0]
-    if size <= DENSE_NULL_MAX:
-        dense = np.asarray(matrix.todense()) if sc.sparse.issparse(matrix) else np.asarray(matrix)
-        values, vectors = np.linalg.eig(dense)
-        i = int(np.argmin(np.abs(values)))
-        return values[i], vectors[:, i]
-    values, vectors = sc.sparse.linalg.eigs(
-        matrix.asfptype(), k=1, sigma=0, which="LM", return_eigenvectors=True
-    )
-    return values[0], vectors[:, 0]
+    if size > DENSE_NULL_MAX:
+        try:
+            values, vectors = sc.sparse.linalg.eigs(
+                matrix.asfptype(),
+                k=1,
+                sigma=0,
+                which="LM",
+                return_eigenvectors=True,
+                v0=np.random.default_rng(DENSE_NULL_SEED).normal(size=size),
+            )
+            return values[0], vectors[:, 0]
+        except (sc.sparse.linalg.ArpackError, RuntimeError):
+            # Shift-invert factorises the operator itself, which is exactly
+            # singular at a converged lasing solution; fall back rather than
+            # fail on the answer we were looking for.
+            pass
+    dense = np.asarray(matrix.todense()) if sc.sparse.issparse(matrix) else np.asarray(matrix)
+    values, vectors = np.linalg.eig(dense)
+    i = int(np.argmin(np.abs(values)))
+    return values[i], vectors[:, i]
 
 
 def node_solution_varying(
@@ -244,17 +282,88 @@ def saturated_eps_profiles(
     return out
 
 
+#: Bytes of resampling matrices :func:`_cubic_resampling_weights` may hold.
+#: Once it is full nothing is evicted and nothing more is built -- the profiles
+#: that missed keep using ``CubicSpline`` directly. Deterministic admission
+#: rather than an LRU is the point: every residual evaluation sweeps *all* the
+#: pumped edges in the same order, so an LRU that cannot hold them all would
+#: evict exactly the entry needed next and rebuild every matrix every time.
+#: A matrix is ``n_query * n_samples * 8`` bytes, so at the default
+#: ``n_steps = 64`` this holds ~1000 edges' worth.
+CUBIC_RESAMPLE_CACHE_BYTES = 64 * 1024 * 1024
+
+_RESAMPLE_CACHE: dict[tuple[int, float, float, bytes], np.ndarray] = {}
+_RESAMPLE_CACHE_BYTES = 0
+
+
+def _cubic_resampling_weights(n_samples: int, lo: float, hi: float, query: bytes):
+    """``W`` with ``W @ y == CubicSpline(linspace(lo, hi, n_samples), y)(x)``.
+
+    Cubic-spline interpolation is *linear* in the sampled values, so for a fixed
+    grid and fixed query points it is one matrix. Both are fixed here -- the
+    grid is the edge's sample grid, and the query points are the Magnus
+    abscissae, which depend only on the edge's length and ``n_steps`` -- while
+    the values change at every residual evaluation. Rebuilding a ``CubicSpline``
+    for each of those was the largest cost after the propagator itself.
+
+    Feeding the spline the identity gets every column in one construction, so a
+    cache miss costs one spline build rather than ``n_samples`` of them.
+
+    Returns ``None`` when the matrix will not pay for itself -- it is
+    ``O(n_samples^2)`` in both memory and apply cost, against ``O(n_samples)``
+    for the spline, so past a few hundred samples per edge the caller is better
+    off with the spline and is told so.
+    """
+    global _RESAMPLE_CACHE_BYTES
+
+    key = (n_samples, lo, hi, query)
+    cached = _RESAMPLE_CACHE.get(key)
+    if cached is not None:
+        return cached
+    n_query = len(query) // 8
+    size = n_query * n_samples * 8
+    if _RESAMPLE_CACHE_BYTES + size > CUBIC_RESAMPLE_CACHE_BYTES:
+        return None
+    grid = np.linspace(lo, hi, n_samples)
+    weights = np.asarray(
+        CubicSpline(grid, np.eye(n_samples), axis=0)(np.frombuffer(query, dtype=float))
+    )
+    _RESAMPLE_CACHE[key] = weights
+    _RESAMPLE_CACHE_BYTES += weights.nbytes
+    return weights
+
+
+class _SaturatedEdgeProfile:
+    r"""``eps(x) = eps_edge + gamma(k) * D0_eff(x)`` on one edge.
+
+    ``D0_eff`` is known on the edge's uniform sample grid and cubic-interpolated
+    in between; ``gain`` (:math:`\gamma(k)`) is rebound by the caller, which is
+    the only thing that changes as the solver moves ``k`` at fixed fields.
+    """
+
+    __slots__ = ("_d0_eff", "_eps", "_hi", "_lo", "_n_samples", "gain")
+
+    def __init__(self, grid, d0_eff, eps_edge):
+        self._d0_eff = np.asarray(d0_eff, dtype=float)
+        self._eps = eps_edge
+        self._lo, self._hi = float(grid[0]), float(grid[-1])
+        self._n_samples = len(grid)
+        self.gain = 0.0 + 0.0j  # set by the caller, which knows k
+
+    def __call__(self, x):
+        clipped = np.clip(np.asarray(x, dtype=float), self._lo, self._hi)
+        flat = np.ascontiguousarray(np.ravel(clipped))
+        weights = _cubic_resampling_weights(self._n_samples, self._lo, self._hi, flat.tobytes())
+        if weights is None:
+            grid = np.linspace(self._lo, self._hi, self._n_samples)
+            return self._eps + self.gain * CubicSpline(grid, self._d0_eff)(clipped)
+        return self._eps + self.gain * (weights @ self._d0_eff).reshape(np.shape(clipped))
+
+
 def _spline_profile(grid, d0_eff, eps_edge, params):
     """Build eps(x) = eps_edge + gamma(k) D0_eff(x); gamma is bound at call time."""
-    spline = CubicSpline(grid, d0_eff)
-    lo, hi = grid[0], grid[-1]
-
-    def profile(x, _spline=spline, _eps=eps_edge, _lo=lo, _hi=hi):
-        clipped = np.clip(np.asarray(x, dtype=float), _lo, _hi)
-        return _eps + profile.gain * _spline(clipped)
-
-    profile.gain = 0.0 + 0.0j  # set by salt_residuals_varying, which knows k
-    return profile
+    del params  # kept for signature stability; gamma is bound via `.gain`
+    return _SaturatedEdgeProfile(grid, d0_eff, eps_edge)
 
 
 def salt_residuals_varying(
@@ -332,13 +441,85 @@ class SaltVaryingSolution(NamedTuple):
 
 
 def _lam_varying(graph, k, profiles, n_steps):
-    """Complex ``lambda_1`` at real ``k``, with the gain bound at this ``k``."""
+    """Complex ``lambda_1`` at ``k``, with the gain bound at this ``k``.
+
+    ``k`` may be complex: the frozen-field solve only ever asks for real ``k``
+    (a lasing mode is a root *on* the real axis), but the net-gain probe of
+    :func:`net_gain_alpha` walks off it to read the candidate's ``alpha``.
+    """
     gain = gamma(complex(k), graph.graph["params"])
     for profile in profiles:
         if profile is not None:
             profile.gain = gain
-    value, _ = node_solution_varying(float(k), graph, profiles, n_steps=n_steps)
+    value, _ = node_solution_varying(complex(k), graph, profiles, n_steps=n_steps)
     return value
+
+
+#: Net-gain margin for admitting a candidate to the active set, mirroring
+#: :data:`~netsalt.modes.SALT_GAIN_MARGIN`. Saturation pins an established
+#: mode's alpha at ~0-, so the bar sits a hair below zero rather than at it.
+SALT_VARYING_GAIN_MARGIN = -1e-6
+
+
+def net_gain_alpha(
+    graph,
+    k0: float,
+    profiles,
+    n_steps: int = 64,
+    *,
+    k_window: float = 0.1,
+    max_steps: int = 30,
+) -> tuple[float, float]:
+    r"""``(k, alpha)`` of the root nearest ``k0`` on a *given* saturated background.
+
+    The cheap admission test. A candidate lases on top of the modes already
+    active when the operator saturated by them still has a root with net gain,
+    :math:`\alpha = -\mathrm{Im}\,k < 0`; this walks the candidate's root off the
+    real axis and reports where it sits. It is the varying-operator counterpart
+    of what :func:`~netsalt.modes._full_salt_newton_impl` does with
+    ``_refine_local`` on a ``_saturated_graph_multi`` background.
+
+    It replaces asking the same question by *solving* the enlarged set and
+    seeing whether it holds together -- same answer, one local two-variable root
+    find (tens of eigensolves) instead of a complete nonlinear solve (hundreds).
+
+    Args:
+        graph: quantum graph.
+        k0: the candidate's current real frequency, and the root find's start.
+        profiles: saturated per-edge permittivity callables, i.e. the background
+            the incumbents have burnt. Their ``gain`` attribute is rebound at
+            every probed ``k``, so pass the profiles, not a frozen operator.
+        n_steps: sub-intervals per varying edge.
+        k_window: how far the root may travel in ``Re k`` before the probe is
+            judged to have left the candidate's branch, in which case ``k0`` is
+            returned with ``alpha = +inf`` -- "no evidence of gain here" rather
+            than a neighbouring mode's gain misattributed to this one.
+        max_steps: MINPACK function-evaluation budget.
+
+    Returns:
+        ``(k, alpha)``. Admit when ``alpha`` is below
+        :data:`SALT_VARYING_GAIN_MARGIN`.
+    """
+    from scipy.optimize import root
+
+    def residual(x):
+        # to_complex's convention: alpha is stored as -imag(k).
+        value = _lam_varying(graph, complex(x[0], -x[1]), profiles, n_steps)
+        return [value.real, value.imag]
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = root(
+            residual,
+            np.array([float(k0), 0.0]),
+            method="hybr",
+            tol=0,
+            options={"maxfev": int(max_steps), "xtol": 1e-9},
+        )
+    k, alpha = float(result.x[0]), float(result.x[1])
+    if not np.isfinite(k) or not np.isfinite(alpha) or abs(k - k0) > k_window:
+        return float(k0), np.inf
+    return k, alpha
 
 
 def solve_salt_varying(
@@ -543,6 +724,18 @@ def compute_modal_intensities_varying(
         hands the solver modes that cannot lase and forces an impossible
         equation on them: residuals near 1.7 at every pump instead of 1e-7.
 
+        Candidates are screened by :func:`net_gain_alpha` before that solve:
+        a mode the incumbents have burnt below threshold has ``alpha > 0`` on
+        their saturated background, and would come back from the enlarged solve
+        with ``a ~ 0`` and be rejected. Reading its ``alpha`` costs one local
+        root find instead of a whole nonlinear solve, and that is the difference
+        between an ``O(candidates)`` sequence of full solves per pump and a
+        single one. On ``line_PRA`` it takes the sweep from 35 solves to 8, with
+        a bit-identical answer -- on the converged ``D0 = 4`` background the two
+        lasing modes sit at ``alpha = +5e-9`` and ``+2e-9`` (gain clamped, as
+        SALT requires) while the four non-lasing candidates sit at ``+1e-2`` to
+        ``+2e-1``, so the screen is nowhere near a close call.
+
         *Each mode's ``k`` is bounded* (see ``k_window_cap`` in
         :func:`solve_salt_varying`). Without it two active modes drift onto the
         same ``k``, where the system is degenerate: any split of intensity
@@ -572,7 +765,7 @@ def compute_modal_intensities_varying(
     rows = []
 
     def attempt(candidate_set, D0):
-        """Solve for a candidate active set; return the solution or None if it fails.
+        """Solve for a candidate active set; return ``(solution, ok)``.
 
         A set is accepted only when every member actually lases -- amplitude
         above the lasing floor *and* its own residual at target. That is what
@@ -580,9 +773,14 @@ def compute_modal_intensities_varying(
         ``lambda_1(k) = 0`` is not a lasing mode, and leaving it in forces an
         impossible equation on the least-squares solve, which is what made the
         linear-threshold active set thrash.
+
+        A rejected solve is returned rather than discarded: its amplitudes are
+        exactly what the shrink step needs to name the weakest member, and
+        re-running the identical (deterministic) solve to find that out was
+        doubling the cost of every drop.
         """
         if not candidate_set:
-            return None
+            return None, False
         ks0, a0 = [], []
         for i in candidate_set:
             k_prev, a_prev = state.get(i, (float(np.real(threshold_modes[i])), 1e-2))
@@ -603,34 +801,49 @@ def compute_modal_intensities_varying(
             and solution.residuals[slot] <= residual_tol
             for slot in range(len(candidate_set))
         )
-        return solution if ok else None
+        return solution, ok
+
+    def has_net_gain(cand, current, solution, D0):
+        """Does ``cand`` still see gain on what ``current`` has already burnt?
+
+        The admission test. Asking it by *solving* the enlarged set costs a
+        complete nonlinear solve per candidate per pump, which is what made this
+        sweep unaffordable; the same question is answered by one local root find
+        on the incumbents' saturated background (:func:`net_gain_alpha`).
+        A candidate the background has driven below threshold converges to
+        ``a ~ 0`` in the enlarged solve, i.e. it is rejected -- so skipping it is
+        skipping a solve whose outcome is already known.
+        """
+        if solution is None or not current:
+            return True  # nothing has saturated anything yet; there is no background
+        profiles = saturated_eps_profiles(
+            graph, solution.ks, solution.amplitudes, solution.fields, D0, pump
+        )
+        k_cand = state.get(cand, (float(np.real(threshold_modes[cand])), 0.0))[0]
+        gap = min(abs(k_cand - float(k)) for k in solution.ks)
+        window = float(np.clip(0.2 * gap, 1e-6, 0.3))
+        _, alpha = net_gain_alpha(graph, k_cand, profiles, n_steps=n_steps, k_window=window)
+        return alpha < SALT_VARYING_GAIN_MARGIN
 
     for D0 in grid:
         # 1. shrink: drop members that no longer lase at this pump
         current, solution = list(active), None
         while current:
-            solution = attempt(current, D0)
-            if solution is not None:
+            solution, ok = attempt(current, D0)
+            if ok:
                 break
             # the set does not hold together: drop its weakest member and retry
-            probe = solve_salt_varying(
-                graph,
-                [state.get(i, (float(np.real(threshold_modes[i])), 1e-2))[0] for i in current],
-                [max(state.get(i, (0.0, 1e-2))[1], 1e-3) for i in current],
-                float(D0),
-                pump,
-                n_steps=n_steps,
-                outer=outer,
-                residual_tol=residual_tol,
-            )
-            current.pop(int(np.argmin(probe.amplitudes)))
+            current.pop(int(np.argmin(solution.amplitudes)))
+            solution = None
 
         # 2. grow: admit candidates one at a time, keeping only those that hold up
         for cand in sorted(finite, key=lambda i: thresholds[i]):
             if cand in current or thresholds[cand] >= D0:
                 continue
-            trial = attempt([*current, cand], D0)
-            if trial is not None:
+            if not has_net_gain(cand, current, solution, D0):
+                continue
+            trial, ok = attempt([*current, cand], D0)
+            if ok:
                 current = [*current, cand]
                 solution = trial
 

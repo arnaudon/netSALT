@@ -58,7 +58,7 @@ from collections.abc import Callable, Sequence
 import numpy as np
 import scipy as sc
 
-from .edge_propagator import edge_transfer_matrix, propagator_constant_eps
+from .edge_propagator import edge_transfer_matrices, propagator_constant_eps
 from .quantum_graph import set_wavenumber
 
 __all__ = ["construct_laplacian_varying", "edge_dtn_block"]
@@ -165,33 +165,45 @@ def construct_laplacian_varying(
     cols: list[int] = []
     data: list[complex] = []
 
+    def _is_boundary(u, v):
+        if open_model == "open":
+            return degrees[u] == 1 or degrees[v] == 1
+        if open_model == "custom":
+            return outer_edges is not None and (u, v) in outer_edges
+        return False
+
+    # Varying edges are propagated together: the ordered sub-interval product is
+    # the same number of Python-level operations for one edge as for all of them
+    # (see edge_transfer_matrices), and it is the whole cost of a rebuild.
+    varying = [i for i, profile in enumerate(eps_profiles) if profile is not None]
+    for edge_index in varying:
+        u, v = edges[edge_index]
+        if _is_boundary(u, v):
+            raise ValueError(
+                f"Edge {(u, v)} touches the open boundary and was given a varying "
+                "permittivity profile. The outgoing-wave block is only valid for "
+                "constant eps; boundary edges are passive leads (pump = 0), so "
+                "hole burning should leave them uniform. Pass None for them."
+            )
+    transfers = edge_transfer_matrices(
+        k_over_c,
+        lengths[varying],
+        [eps_profiles[i] for i in varying],
+        n_steps=n_steps,
+        method=method,
+    )
+    varying_blocks = dict(zip(varying, transfers, strict=True))
+
     for edge_index, (u, v) in enumerate(edges):
         length = float(lengths[edge_index])
-        profile = eps_profiles[edge_index]
+        transfer = varying_blocks.get(edge_index)
 
-        if open_model == "open":
-            is_boundary = degrees[u] == 1 or degrees[v] == 1
-        elif open_model == "custom":
-            is_boundary = outer_edges is not None and (u, v) in outer_edges
-        else:
-            is_boundary = False
-
-        if is_boundary:
-            if profile is not None:
-                raise ValueError(
-                    f"Edge {(u, v)} touches the open boundary and was given a varying "
-                    "permittivity profile. The outgoing-wave block is only valid for "
-                    "constant eps; boundary edges are passive leads (pump = 0), so "
-                    "hole burning should leave them uniform. Pass None for them."
-                )
-            block = _boundary_block(ks[edge_index], length)
-        elif profile is None:
-            block = edge_dtn_block(propagator_constant_eps(ks[edge_index], length))
-        else:
-            transfer = edge_transfer_matrix(
-                k_over_c, length, profile, n_steps=n_steps, method=method
-            )
+        if transfer is not None:
             block = edge_dtn_block(transfer)
+        elif _is_boundary(u, v):
+            block = _boundary_block(ks[edge_index], length)
+        else:
+            block = edge_dtn_block(propagator_constant_eps(ks[edge_index], length))
 
         iu, iv = index[u], index[v]
         rows.extend((iu, iu, iv, iv))
