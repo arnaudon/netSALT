@@ -377,6 +377,12 @@ _AMPLITUDE_TRUST_FLOOR = 1e-3
 #: over a 3x change in amplitude -- stops instead of expanding forever.
 _AMPLITUDE_TRUST_MIN_GAIN = 1e-3
 
+#: How close to its own ``k`` bound a solve may sit before it is read as having
+#: been stopped by the bound rather than having found a root there, as a fraction
+#: of the box width. The failing buffon solves land exactly on the bound, so this
+#: only has to exclude the boundary itself, not a neighbourhood of it.
+_K_BOUND_TOL = 1e-6
+
 #: Fraction of the distance to the nearest candidate that a mode's ``k`` may
 #: travel. This bounds the search to one *analytic branch* of the eigenvalue, not
 #: merely to "nearer this mode than the next": ``_smallest_eigenpair`` returns
@@ -629,6 +635,50 @@ def net_gain_alpha(
     return k, alpha
 
 
+def _predicted_amplitude(
+    trail: list[tuple[float, float]], D0: float, threshold: float, fallback: float
+) -> float:
+    r"""Seed a pump's solve by extrapolating the amplitudes already solved.
+
+    Starting each pump from the *previous* pump's amplitude is the obvious
+    choice and it is a factor ~2 low wherever the L--I curve is steep, which on
+    the production buffon is enough to start the solve on the wrong side of a
+    ridge: from a = 3.06 towards a true 5.62 it instead slides along a joint
+    ``(k, a)`` valley and returns a = 52.7 with ``k`` pinned at its cap.
+    Extrapolating the pumps already solved costs nothing -- the caller has them
+    -- and lands inside the right basin: from the two pumps at 1.02x and 1.05x
+    threshold (a = 1.419, 3.063) the linear prediction for 1.10x is 5.80,
+    against a true 5.623.
+
+    The one-point case uses ``a`` proportional to the pump *above* threshold
+    rather than to the pump, because that is the near-threshold law (the linear
+    model's ``a = (D0/D0_thr - 1) / T_mumu``); a chord through the origin would
+    barely move off the previous value.
+
+    Args:
+        trail: ``(D0, amplitude)`` already solved for this mode, oldest first.
+        D0: the pump about to be solved.
+        threshold: this mode's lasing threshold.
+        fallback: amplitude to use when ``trail`` is empty.
+
+    Returns:
+        The amplitude to start the solve from, never below
+        :data:`_AMPLITUDE_TRUST_FLOOR`.
+    """
+    guess = fallback
+    if len(trail) >= 2:
+        (d1, a1), (d2, a2) = trail[-2], trail[-1]
+        if d2 != d1:
+            guess = a2 + (a2 - a1) * (D0 - d2) / (d2 - d1)
+    elif len(trail) == 1:
+        d1, a1 = trail[0]
+        if d1 > threshold:
+            guess = a1 * (D0 - threshold) / (d1 - threshold)
+    if not np.isfinite(guess):
+        guess = fallback
+    return float(max(guess, _AMPLITUDE_TRUST_FLOOR))
+
+
 def solve_salt_varying(
     graph,
     ks,
@@ -763,6 +813,7 @@ def solve_salt_varying(
         # active-set logic; only the *ceiling* moves (see below).
         lower[1::2] = 0.0
         ceiling = _AMPLITUDE_TRUST_GROWTH * np.maximum(x0[1::2], _AMPLITUDE_TRUST_FLOOR)
+        k_width = np.maximum(k_hi - k_lo, 1e-300)
 
         # Expanding trust ceiling on the amplitudes. Unbounded, one Gauss-Newton
         # step from a good state can walk clean over the root into a region where
@@ -827,7 +878,25 @@ def solve_salt_varying(
                 # one.
                 x_scale="jac",
             )
-            improved = result.cost < best_cost * (1.0 - _AMPLITUDE_TRUST_MIN_GAIN)
+            # A solve that comes back with `k` sitting on its own bound is not a
+            # candidate, however low its cost. The k cap marks the edge of the
+            # mode's analytic branch, so a k pinned there means the least-squares
+            # wanted to leave the branch and was merely stopped -- it is reporting
+            # the boundary, not a root. This is the signature of the failure the
+            # ceiling alone does not catch: seeded at a = 5.80 against a true
+            # 5.623 -- inside the right basin, from the converged 1.05x field --
+            # the buffon solve still left for a = 52.7, and it left with k on the
+            # bound every time. With a stale frozen field there is no exact root
+            # anywhere, so least_squares is free to chase the frozen problem's
+            # global minimum, which sits at the corner; refusing corners keeps it
+            # on the branch until the field refresh makes a real root available.
+            on_k_bound = np.any(
+                (result.x[0::2] <= k_lo + _K_BOUND_TOL * k_width)
+                | (result.x[0::2] >= k_hi - _K_BOUND_TOL * k_width)
+            )
+            improved = (not on_k_bound) and result.cost < best_cost * (
+                1.0 - _AMPLITUDE_TRUST_MIN_GAIN
+            )
             if improved:
                 best, best_cost = result, float(result.cost)
             pinned = result.x[1::2] >= ceiling * (1.0 - 1e-9)
@@ -835,9 +904,14 @@ def solve_salt_varying(
                 break
             ceiling = np.where(pinned, ceiling * _AMPLITUDE_TRUST_GROWTH, ceiling)
 
-        result = best if best is not None else result
-        ks = result.x[0::2]
-        amplitudes = np.maximum(result.x[1::2], 0.0)
+        if best is not None:
+            ks = best.x[0::2]
+            amplitudes = np.maximum(best.x[1::2], 0.0)
+        # else: every solve this round wanted to leave the branch. Hold (k, a)
+        # where they are and let the field refresh below; a stale field is the
+        # reason there was no interior root to find, so refreshing it is exactly
+        # the move that can produce one. Stepping onto the boundary instead is
+        # what put the buffon at a = 52.7 with a residual of 0.43.
 
         # refresh the fields against the solved state
         profiles = saturated_eps_profiles(graph, ks, amplitudes, frozen, D0, pump)
@@ -1000,6 +1074,10 @@ def compute_modal_intensities_varying(
     grid = np.linspace(first, float(max_pump_intensity), int(D0_steps))
     intensities = pd.DataFrame(index=modes_df.index)
     state: dict[int, tuple[float, float]] = {}
+    # Per mode, the (D0, amplitude) pairs accepted so far. Only this loop knows
+    # how a mode's amplitude has moved across pumps, and that trail is what puts
+    # the next solve in the right basin (see :func:`_predicted_amplitude`).
+    trail: dict[int, list[tuple[float, float]]] = {}
     active: list[int] = []
     rows = []
 
@@ -1024,7 +1102,11 @@ def compute_modal_intensities_varying(
         for i in candidate_set:
             k_prev, a_prev = state.get(i, (float(np.real(threshold_modes[i])), 1e-2))
             ks0.append(k_prev)
-            a0.append(max(a_prev, 1e-3))
+            a0.append(
+                _predicted_amplitude(
+                    trail.get(i, []), float(D0), float(thresholds[i]), max(a_prev, 1e-3)
+                )
+            )
         solution = solve_salt_varying(
             graph,
             ks0,
@@ -1094,6 +1176,7 @@ def compute_modal_intensities_varying(
         if solution is not None and active:
             for slot, i in enumerate(active):
                 state[i] = (float(solution.ks[slot]), float(solution.amplitudes[slot]))
+                trail.setdefault(i, []).append((float(D0), float(solution.amplitudes[slot])))
                 column[i] = float(solution.amplitudes[slot])
         intensities[D0] = column
         rows.append(
