@@ -354,6 +354,29 @@ def saturated_eps_profiles(
     return out
 
 
+#: Factor by which a frozen-field solve may raise an amplitude above the value it
+#: started from, and the factor by which that ceiling is expanded when the
+#: solution lands on it. 4 keeps the buffon's true step (a = 3.06 -> 5.62 between
+#: two pumps) comfortably interior while excluding the flat region that starts
+#: around a = 15 on that graph.
+_AMPLITUDE_TRUST_GROWTH = 4.0
+
+#: How many times the amplitude ceiling may be expanded within one frozen-field
+#: solve. ``4.0 ** 12`` is 1.7e7, so this cannot stop a genuine climb; it exists
+#: only so that a solve which pins at every ceiling terminates.
+_AMPLITUDE_TRUST_EXPANSIONS = 12
+
+#: Floor under the amplitude ceiling, so a mode starting from zero (or from the
+#: caller's 1e-3 seed) can still leave it. Without a floor the ceiling is
+#: ``4 * 0 = 0`` and the amplitude is pinned at zero for ever.
+_AMPLITUDE_TRUST_FLOOR = 1e-3
+
+#: Relative drop in the least-squares cost that counts as an expansion having
+#: earned its keep. Anything smaller is treated as no improvement, so a solve
+#: creeping along the flat region -- where the cost changes in the fifth digit
+#: over a 3x change in amplitude -- stops instead of expanding forever.
+_AMPLITUDE_TRUST_MIN_GAIN = 1e-3
+
 #: Fraction of the distance to the nearest candidate that a mode's ``k`` may
 #: travel. This bounds the search to one *analytic branch* of the eigenvalue, not
 #: merely to "nearer this mode than the next": ``_smallest_eigenpair`` returns
@@ -735,28 +758,84 @@ def solve_salt_varying(
         lower[0::2], upper[0::2] = k_lo, k_hi
         # a >= 0 as a real bound rather than a clip after the fact: clipping lets
         # the solver explore negative amplitudes and converge to a state that is
-        # then silently altered.
-        lower[1::2], upper[1::2] = 0.0, np.inf
-        result = least_squares(
-            residual,
-            x0,
-            bounds=(lower, upper),
-            method="trf",
-            max_nfev=max_nfev,
-            xtol=1e-12,
-            # x_scale="jac" is load-bearing, not a tuning knob. The residual's
-            # sensitivity to k and to a differ by ~6e5 on the production buffon
-            # (|dlam/dk| = 8.2e2 against |dlam/da| = 1.3e-3), because the
-            # amplitude's unit is set by the pump-region norm: mean |E|^2 is
-            # 5.4e-4 over 2500 units of pumped length there against 1.04 over 1.0
-            # on line_PRA, so the natural amplitude is ~1900x larger. With the
-            # default isotropic x_scale=1.0 the trust region takes steps sized
-            # for k, which are useless for a, and the amplitude never leaves its
-            # initial guess -- the buffon converged to a = 6.29 where the root is
-            # at a = 343, and looked like a physically impossible answer rather
-            # than an unmoved one.
-            x_scale="jac",
-        )
+        # then silently altered. The lower bound stays at 0 so a mode that does
+        # not lase can still be driven to zero and rejected by the caller's
+        # active-set logic; only the *ceiling* moves (see below).
+        lower[1::2] = 0.0
+        ceiling = _AMPLITUDE_TRUST_GROWTH * np.maximum(x0[1::2], _AMPLITUDE_TRUST_FLOOR)
+
+        # Expanding trust ceiling on the amplitudes. Unbounded, one Gauss-Newton
+        # step from a good state can walk clean over the root into a region where
+        # the residual is flat in `a`: measured on the production buffon at
+        # D0 = 1.10x threshold, starting from the converged 1.05x state
+        # (a = 3.06) and holding k, the frozen-field residual has a clean minimum
+        # at the true a = 5.62 (|lambda| 0.287 -> 0.018 -> 0.356 at a = 3.06,
+        # 5.62, 10) and then flattens at |lambda| ~ 0.47 for a >= 12, where
+        # |dlambda/da| collapses from 9.6e-2 to 3.4e-3 -- a 28x drop. The root is
+        # not missing and it is not misplaced: an independent amplitude
+        # continuation through this same residual reproduces the whole L-I curve
+        # (a = 1.431, 3.092, 5.623, 15.558, 68.077 at 1.02, 1.05, 1.10, 1.26,
+        # 2.09x threshold, to ~2%). Only the step that reaches it is at fault.
+        #
+        # This bound is necessary but NOT sufficient, and the measurement says
+        # why. Capping `a` alone still leaves the buffon at a = 52.7 for a true
+        # 5.62, because the runaway is not along `a`: it is a joint (k, a)
+        # direction, and the failing solve comes back with k *pinned at its own
+        # cap* (+2.57e-4 from a start of +4.8e-5) where the true k moves only
+        # +7.3e-5. The scan above holds k fixed, which is exactly why it sees a
+        # clean minimum where the solver sees a valley worth sliding into.
+        # Closing that gap needs the solve to *start* inside the right basin,
+        # which is the caller's job -- it is the only party that knows how the
+        # amplitude has moved across previous pumps (issues #52, #53).
+        #
+        # The ceiling is expanded, not fixed, because the honest jump between two
+        # pumps is not known ahead of time and the amplitude's unit is graph
+        # dependent -- mean |E|^2 is 5.4e-4 over 2500 units of pumped length on
+        # the buffon against 1.04 over 1.0 on line_PRA, so the natural amplitude
+        # differs ~1900x and no absolute ceiling suits both.
+        #
+        # What makes the expansion safe is that it is *earned*: the ceiling only
+        # rises while raising it actually reduced the residual. Expanding merely
+        # because the solution sits on the bound is what the runaway wants -- the
+        # plateau is above every finite ceiling, so "pinned" stays true all the
+        # way up and the expansion walks the solve into exactly the region it
+        # exists to exclude. Keeping the best-scoring solve instead means a mode
+        # genuinely climbing (a seed of 1e-3 growing to the buffon's a = 68)
+        # expands as far as it needs, while one being pulled into the flat region
+        # stops at the last ceiling that helped. line_PRA never expands at all,
+        # and its answer is unchanged to every digit.
+        best = None
+        best_cost = np.inf
+        for _ in range(_AMPLITUDE_TRUST_EXPANSIONS):
+            upper[0::2] = k_hi
+            upper[1::2] = ceiling
+            result = least_squares(
+                residual,
+                np.minimum(x0, upper),
+                bounds=(lower, upper),
+                method="trf",
+                max_nfev=max_nfev,
+                xtol=1e-12,
+                # x_scale="jac" is load-bearing, not a tuning knob. The residual's
+                # sensitivity to k and to a differ by ~6e5 on the production buffon
+                # (|dlam/dk| = 8.2e2 against |dlam/da| = 1.3e-3), because the
+                # amplitude's unit is set by the pump-region norm (see above). With
+                # the default isotropic x_scale=1.0 the trust region takes steps
+                # sized for k, which are useless for a, and the amplitude never
+                # leaves its initial guess -- the buffon converged to a = 6.29 and
+                # looked like a physically impossible answer rather than an unmoved
+                # one.
+                x_scale="jac",
+            )
+            improved = result.cost < best_cost * (1.0 - _AMPLITUDE_TRUST_MIN_GAIN)
+            if improved:
+                best, best_cost = result, float(result.cost)
+            pinned = result.x[1::2] >= ceiling * (1.0 - 1e-9)
+            if not improved or not np.any(pinned):
+                break
+            ceiling = np.where(pinned, ceiling * _AMPLITUDE_TRUST_GROWTH, ceiling)
+
+        result = best if best is not None else result
         ks = result.x[0::2]
         amplitudes = np.maximum(result.x[1::2], 0.0)
 
