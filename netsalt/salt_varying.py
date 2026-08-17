@@ -39,6 +39,7 @@ import scipy as sc
 from scipy.integrate import simpson
 from scipy.interpolate import CubicSpline
 
+from .contour import optical_length
 from .edge_propagator import edge_field_samples, edge_transfer_matrix, propagator_constant_eps
 from .physics import gamma
 from .varying_laplacian import construct_laplacian_varying
@@ -83,6 +84,77 @@ DENSE_NULL_MAX = 40
 #: digits on every call, which the finite-difference Jacobian of the frozen-field
 #: least-squares reads as noise.
 DENSE_NULL_SEED = 42
+
+#: Field samples per wavelength :func:`_resolved_n_steps` targets *inside* a
+#: pumped edge.
+#:
+#: ``n_steps`` is a per-edge sample count, not a resolution, so what it buys
+#: depends entirely on how many wavelengths fit in an edge -- and that varies by
+#: two orders of magnitude between the graphs this solver is run on. On
+#: ``line_PRA`` an edge is 0.92 wavelengths long, so the shipped default of 64
+#: is 69 samples per wavelength and everything is converged. On the production
+#: buffon the longest pumped edge is 50.9 wavelengths, so the same 64 is
+#: **1.3 samples per wavelength**: the :math:`|E(x)|^2` that drives the hole
+#: burning is aliased, and with it the pump-region norm that sets the amplitude
+#: scale. The error this makes is not subtle, and it is measurable without a
+#: reference solver -- SALT must reproduce the linear competition matrix's
+#: onset slope :math:`1/T_{\mu\mu}` as :math:`D_0 \to D_0^{thr}`. On the
+#: buffon's lowest mode (:math:`1/T_{\mu\mu} = 74.01`), solving at
+#: :math:`D_0 = 1.005\,D_0^{thr}` and reading :math:`a/(D_0/D_0^{thr} - 1)`:
+#:
+#: ========= ================== ======= =======
+#: n_steps   samples/wavelength  slope   ratio
+#: ========= ================== ======= =======
+#: 64         1.3                108.70  1.469
+#: 128        2.5                 87.40  1.181
+#: 256        5.0                 74.19  1.002
+#: 512       10.1                 73.63  0.995
+#: ========= ================== ======= =======
+#:
+#: -- a 47 % amplitude error at the default, gone once the edge is resolved,
+#: and converged to <1 % by 5 samples per wavelength. 8 is that with margin.
+#: The count is quoted per wavelength of the *field*; the intensity being
+#: integrated has half the period, so it is 4 samples per intensity fringe.
+#: On ``line_PRA`` the requirement is 8 steps, far below the default, so the
+#: shipped fixture is untouched.
+SALT_VARYING_SAMPLES_PER_WAVELENGTH = 8
+
+#: Ceiling on the auto-raised ``n_steps``. The propagator cost is linear in it,
+#: so this bounds the per-solve cost the way ``modes.oversample_node_cap``
+#: bounds the oversampled path's. A graph that hits the cap is under-resolved
+#: exactly as before -- raise it (or ``SALT_VARYING_SAMPLES_PER_WAVELENGTH``)
+#: when the absolute amplitudes matter.
+SALT_VARYING_N_STEPS_CAP = 4096
+
+
+def _resolved_n_steps(graph, wavenumber, n_steps: int, pump=None) -> int:
+    r"""``n_steps`` raised until a pumped edge is resolved at this ``wavenumber``.
+
+    The requested value is treated as a *floor*: it is raised, never lowered, so
+    a caller asking for more resolution than the wavelength needs still gets it.
+    See :data:`SALT_VARYING_SAMPLES_PER_WAVELENGTH` for why the floor alone is
+    not enough.
+
+    Only pumped edges are measured: they are the ones that carry a varying
+    profile, whose :math:`|E(x)|^2` enters the hole burning and whose
+    :math:`\psi^2` enters the norm. Unpumped edges keep the exact closed form.
+    """
+    params = graph.graph["params"]
+    spw = float(params.get("intensity_varying_samples_per_wavelength") or 0.0)
+    if spw <= 0.0:
+        spw = float(SALT_VARYING_SAMPLES_PER_WAVELENGTH)
+    lengths = np.asarray(graph.graph["lengths"], dtype=float)
+    index = np.sqrt(np.abs(np.asarray(params["dielectric_constant"])))
+    c = float(params.get("c", 1.0) or 1.0)
+    k = abs(float(np.real(wavenumber)))
+    waves = lengths * index * k / (2.0 * np.pi * c)
+    if pump is not None:
+        pumped = np.asarray(pump, dtype=float) > 0.0
+        if not pumped.any():
+            return int(n_steps)
+        waves = waves[pumped]
+    needed = int(np.ceil(spw * float(np.max(waves)))) if len(waves) else 0
+    return int(min(max(int(n_steps), needed), SALT_VARYING_N_STEPS_CAP))
 
 
 def _smallest_eigenpair(matrix):
@@ -409,6 +481,7 @@ def salt_residuals_varying(
     """
     ks = np.asarray(ks, dtype=float)
     params = graph.graph["params"]
+    n_steps = _resolved_n_steps(graph, float(np.max(np.abs(ks))), n_steps, pump)
     profiles = saturated_eps_profiles(graph, ks, amplitudes, field_profiles, D0, pump)
     residuals = []
     for k in ks:
@@ -563,7 +636,11 @@ def solve_salt_varying(
         amplitudes: initial amplitudes.
         D0: pump strength.
         pump: per-edge pump.
-        n_steps: sub-intervals per varying edge.
+        n_steps: sub-intervals per varying edge. A **floor**: it is raised to
+            whatever resolves the within-edge wavelength (see
+            :data:`SALT_VARYING_SAMPLES_PER_WAVELENGTH`), because the same
+            per-edge count means 69 samples per wavelength on ``line_PRA`` and
+            1.3 on the buffon.
         outer: field-refresh iterations.
         damping: mixing applied when refreshing the fields.
         residual_tol: convergence target on ``|lambda_1|``.
@@ -591,6 +668,10 @@ def solve_salt_varying(
     amplitudes = np.asarray(amplitudes, dtype=float).copy()
     n_modes = len(ks)
     pump = np.asarray(pump, dtype=float)
+    # ``n_steps`` is a per-edge sample count, so on a graph whose edges span many
+    # wavelengths the requested value can be far below what the within-edge field
+    # needs; raise it to the wavelength (see SALT_VARYING_SAMPLES_PER_WAVELENGTH).
+    n_steps = _resolved_n_steps(graph, float(np.max(np.abs(ks))), n_steps, pump)
 
     # Bound how far each k may travel. Without this two active modes can drift
     # onto the *same* k, where the system is degenerate -- any split of intensity
@@ -741,7 +822,10 @@ def compute_modal_intensities_varying(
             ``lasing_thresholds``; modified in place and returned.
         max_pump_intensity: largest ``D0``.
         D0_steps: pump grid points.
-        n_steps: sub-intervals per varying edge.
+        n_steps: sub-intervals per varying edge; a floor, raised to resolve the
+            within-edge wavelength (:data:`SALT_VARYING_SAMPLES_PER_WAVELENGTH`).
+            The value actually used is reported in
+            ``attrs["salt_varying_n_steps"]``.
         outer: field-refresh iterations per solve.
         residual_tol: convergence target on ``|lambda_1|``.
 
@@ -810,18 +894,29 @@ def compute_modal_intensities_varying(
     # while the others are ~20x further out, and the global cap left nothing able
     # to lase at all. Per-mode is what the geometry actually calls for.
     cand_ks = np.array([float(np.real(threshold_modes[i])) for i in finite])
+    n_steps = _resolved_n_steps(graph, float(np.max(np.abs(cand_ks))), n_steps, pump)
+    # The spacing must come from the *Weyl law*, not from the candidate list.
+    # That list is only as complete as the mode search behind it, and on the
+    # production buffon it is not remotely complete: Weyl gives ~120 modes in
+    # k = [10.63, 10.73] (mean spacing pi / L_opt = 8.4e-4) where the fixture
+    # carries 4. Keying the bound off those 4 gives ~3e-4 -- a third of the true
+    # spacing -- so the box still holds whole *unlisted* modes, and the solver
+    # converges to genuine 1e-7 roots belonging to a different mode. A residual
+    # pins k to 2.5e-10 on this graph and says nothing about being on the
+    # intended branch. Taking the min of the two keeps the bound honest whether
+    # or not the list is complete.
+    mean_spacing = np.pi / max(optical_length(graph), 1e-12)
+    separation = np.full(len(cand_ks), mean_spacing)
     if len(cand_ks) > 1:
-        separation = np.abs(cand_ks[:, None] - cand_ks[None, :])
-        np.fill_diagonal(separation, np.inf)
-        nearest = separation.min(axis=1)
-        gamma_perp = graph.graph["params"].get("gamma_perp")
-        ceiling = float(gamma_perp) if gamma_perp else np.inf
-        caps = {
-            int(i): float(np.clip(_BRANCH_SAFETY * d, 1e-9, ceiling))
-            for i, d in zip(finite, nearest, strict=True)
-        }
-    else:
-        caps = {}
+        pairwise = np.abs(cand_ks[:, None] - cand_ks[None, :])
+        np.fill_diagonal(pairwise, np.inf)
+        separation = np.minimum(separation, pairwise.min(axis=1))
+    gamma_perp = graph.graph["params"].get("gamma_perp")
+    ceiling = float(gamma_perp) if gamma_perp else np.inf
+    caps = {
+        int(i): float(np.clip(_BRANCH_SAFETY * d, 1e-9, ceiling))
+        for i, d in zip(finite, separation, strict=True)
+    }
 
     grid = np.linspace(first, float(max_pump_intensity), int(D0_steps))
     intensities = pd.DataFrame(index=modes_df.index)
