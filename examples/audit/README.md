@@ -333,3 +333,29 @@ One trap, because it produced a perfect-looking result first: running this at
 constant, the propagator is exact at any `n_steps`, and `|lambda|` is identical
 to 1e-12 across the whole sweep — exercising none of the varying machinery. The
 sweep above uses a genuine saturated field.
+
+## `probe_varying_amplitude_branch.py`
+
+Which lasing solution the varying-operator SALT solver lands on, against the
+branch traced by amplitude continuation. Backs AUDIT.md §10.
+
+```bash
+cd ../buffon/buffon_narrow && bash run.sh && cd -
+OMP_NUM_THREADS=1 python probe_varying_amplitude_branch.py ../buffon/buffon_narrow/out
+```
+
+Measured on the narrow-window buffon (208 nodes, `n_steps = 512`):
+
+| D0/D0_thr | branch (truth) | solver | residual | converged |
+| --- | --- | --- | --- | --- |
+| 1.02 | 1.431 | 1.419 | 8.3e-07 | yes |
+| 1.05 | 3.092 | 3.063 | 6.9e-07 | yes |
+| 1.10 | 5.623 | 22.73 | 6.8e-07 | yes |
+| 1.26 | 15.558 | 85.67 | 6.6e-01 | no |
+| 2.09 | 68.077 | 412.2 | 5.8e-01 | no |
+
+`D0(a)` is strictly increasing at all 56 continuation points, so each pump has
+exactly one amplitude on the branch — and the continuation puts the solver's
+`a = 22.73` at `D0 = 1.38x`, not the `1.10x` asked for. Read: the residual is
+converged and the answer belongs to a different pump, so **a small residual is
+not evidence** for this class of failure.
