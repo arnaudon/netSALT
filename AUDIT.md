@@ -739,3 +739,52 @@ the bound `k` ran into.
 
 `line_PRA` is unchanged to every printed digit throughout — two lasing modes,
 8/8 pumps converged, worst residual 9.16e-07.
+
+## 11. The varying operator, against an independent solver
+
+§10 leaned on a reference curve traced through netsalt's *own* varying operator,
+which checks branch selection and not the model. This closes that gap:
+`examples/audit/independent_salt/` is a SALT solver written from the equations,
+sharing **no code** with netsalt (numpy and scipy only), verified to 0–4e-15
+against the closed-form Fabry–Pérot spectrum and O(h²) with successive-ratio
+4.00. It had only ever been run against netsalt's *oversampled* path. The
+varying path has now been run through the same comparison.
+
+Reproducers: `independent_salt/step5v_netsalt_varying_run.py` (the varying sweep,
+emitting step 5's schema) and `step8v_compare_varying.py` (the comparison — no
+Richardson stage, since the varying path converges in `n_steps` rather than an
+oversampling resolution).
+
+Fabry–Pérot, `n_steps = 64`, D0 = 0.58 … 1.40, **two co-lasing modes**, 72
+(pump, mode) comparisons of the convention-free quantities:
+
+| quantity | median rel. diff | max rel. diff |
+| --- | ---: | ---: |
+| lasing frequency `k_μ` | **4.4e-06** | 5.7e-06 |
+| modal intensity `I_μ` | **1.1e-04** | 7.8e-03 |
+
+These are **absolute** intensities, not ratios: `∫|Ψ_μ|² dx` on both sides, so
+SALT's denominator fixes the scale and there is no free normalisation. At
+D0 = 0.70 the varying path gives 7.804615e-2 against the independent solver's
+7.804230e-2.
+
+For comparison, the oversampled path's published figures on the same case are
+median 1.6e-4 / max 8.1e-3 in intensity — so the varying operator matches
+independent truth at least as well, on a matrix that never grows. The worst
+point (7.8e-3, D0 = 0.82, mode 2) sits in the pump steps straddling the second
+mode's turn-on, where its intensity is near zero — the same place the
+oversampled path's 8.1e-3 outliers sit, i.e. the discretisations rather than a
+bias.
+
+**What this does and does not license.** It validates the varying *model* —
+`construct_laplacian_varying`, `saturated_eps_profiles`, the per-edge
+propagators — above threshold and multimode, on a 1D Fabry–Pérot. It does not
+independently validate the buffon, whose geometry is far harsher (dense
+spectrum, tens of wavelengths per edge). What it does mean is that §10's
+continuation reference is no longer resting only on self-consistency: the
+operator underneath it now has independent backing on a case where truth exists.
+
+Not covered: a single `n_steps` with no Richardson extrapolation, so the `k`
+agreement (4.4e-06 against the oversampled path's Richardson-extrapolated
+2.7e-07) is limited by discretisation on both sides rather than by either
+solver.

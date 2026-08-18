@@ -35,11 +35,18 @@ for path in varying_paths:
         if ref is None:
             continue
         for i in rec["active"]:
-            kk, ii = f"k_{i}", f"I_{i}"
-            if kk not in ref or ii not in ref:
+            kk = f"k_{i}"
+            # The independent solver normalises int|phi|^2 = 1, so its `a_mu`
+            # IS the physical intensity int|Psi_mu|^2 dx -- the same number this
+            # side reports as `I_mu`. Comparing `a` to `a` would instead compare
+            # two different normalisation conventions.
+            ref_i = ref.get(f"I_{i}", ref.get(f"a_{i}"))
+            if kk not in ref or ref_i is None or f"I_{i}" not in rec:
                 continue
-            if not np.isfinite(ref[ii]) or ref[ii] <= 0:
+            if not np.isfinite(ref_i) or ref_i <= 0:
                 continue
+            ii = f"I_{i}"
+            ref = dict(ref, **{ii: ref_i})
             rel_k = abs(rec[kk] - ref[kk]) / max(abs(ref[kk]), 1e-300)
             rel_i = abs(rec[ii] - ref[ii]) / max(abs(ref[ii]), 1e-300)
             dk.append(rel_k)
