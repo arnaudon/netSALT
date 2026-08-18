@@ -30,6 +30,7 @@ directly comparable.
 
 from __future__ import annotations
 
+import os
 import warnings
 from collections.abc import Callable
 from typing import NamedTuple
@@ -354,28 +355,74 @@ def saturated_eps_profiles(
     return out
 
 
-#: Factor by which a frozen-field solve may raise an amplitude above the value it
-#: started from, and the factor by which that ceiling is expanded when the
-#: solution lands on it. 4 keeps the buffon's true step (a = 3.06 -> 5.62 between
-#: two pumps) comfortably interior while excluding the flat region that starts
-#: around a = 15 on that graph.
+#: Factor by which the continuation's total amplitude scale ``s`` may change in
+#: one outer step. The secant that drives ``s`` is only as good as the two points
+#: behind it, and near threshold those two points can be a hair apart while the
+#: extrapolation they imply is enormous; the clamp turns that into a bounded
+#: climb instead of a jump into the flat region. 4 keeps the buffon's true step
+#: (a = 3.06 -> 5.62 between two pumps) reachable in one step while excluding the
+#: flat region that starts around a = 15 on that graph, and a genuine climb from
+#: the caller's 1e-3 seed to the buffon's a = 68 costs ~8 steps of the 25
+#: available.
 _AMPLITUDE_TRUST_GROWTH = 4.0
 
-#: How many times the amplitude ceiling may be expanded within one frozen-field
-#: solve. ``4.0 ** 12`` is 1.7e7, so this cannot stop a genuine climb; it exists
-#: only so that a solve which pins at every ceiling terminates.
-_AMPLITUDE_TRUST_EXPANSIONS = 12
-
-#: Floor under the amplitude ceiling, so a mode starting from zero (or from the
-#: caller's 1e-3 seed) can still leave it. Without a floor the ceiling is
-#: ``4 * 0 = 0`` and the amplitude is pinned at zero for ever.
+#: Floor under the amplitude scale, so a mode starting from zero (or from the
+#: caller's 1e-3 seed) can still leave it: a multiplicative update from ``s = 0``
+#: never moves.
 _AMPLITUDE_TRUST_FLOOR = 1e-3
 
-#: Relative drop in the least-squares cost that counts as an expansion having
-#: earned its keep. Anything smaller is treated as no improvement, so a solve
-#: creeping along the flat region -- where the cost changes in the fifth digit
-#: over a 3x change in amplitude -- stops instead of expanding forever.
-_AMPLITUDE_TRUST_MIN_GAIN = 1e-3
+#: Top of the range :func:`_bracket_D0` sweeps, in units of the requested pump.
+#: Exactly ``D0_target``, and the ceiling is doing work: the continuation runs
+#: from the mode's own threshold *up* to the requested pump, so every point on it
+#: has ``D0 <= D0_target`` and anything above is a root of something else. Given
+#: room above, the sweep takes it -- on the buffon at 2.09x threshold with the
+#: amplitude at the floor, a ceiling of ``2 D0_target`` put the minimum at the
+#: ceiling itself (``|lambda| = 8.1e-03``) rather than at the mode's own
+#: threshold near ``0.478 D0_target``, because the seed's ``k`` is 2.8e-05 off
+#: the passive mode and that shallows the true dip to ``|lambda| = 2.1e-02``.
+_D0_BRACKET_MAX = 1.0
+
+#: Points in that sweep. The basin measured on the buffon is ~15 % of
+#: ``D0_target`` wide, so 32 points across it put at least one sample inside.
+_D0_BRACKET_POINTS = 32
+
+#: Cap on the damped field-refresh rounds run per outer iteration. The refresh
+#: runs to :data:`_FIELD_TRACK_TOL` and stops, so this only bounds the cost of a
+#: state whose field iteration will not settle. Each round is two eigensolves per
+#: mode, against the ~60 residual evaluations of the least-squares each outer
+#: iteration also pays, so even the cap is roughly a doubling.
+_FIELD_REFRESH_MAX = 40
+
+#: Relative field movement per refresh round below which the field is treated as
+#: having caught up with the current amplitude, and the continuation is allowed
+#: to take its next step in ``s``.
+#:
+#: 1e-03 is where the cost stops buying anything. Tightening it to 1e-07 (which
+#: roughly doubled the wall time, the refresh running to its cap) left the buffon
+#: at 1.05x threshold converging at the same rate -- residual 6.7e-06 after 40
+#: iterations against 5.2e-06 before -- so the apparent ``dD0/ds`` noise that
+#: sets that rate does *not* come from the field still moving. It comes from the
+#: secant itself, and :data:`_SCALE_STEP_DAMPING` is what answers it. What this
+#: tolerance is for is the gross case: with no gate at all the field trails the
+#: amplitude by a whole outer step and the continuation runs away (see the
+#: refresh loop).
+_FIELD_TRACK_TOL = 1e-3
+
+#: Fraction of the Newton step on ``s`` that is actually taken. The believed
+#: ``dD0/ds`` is a secant over two continuation points, and on the buffon at
+#: 1.05x threshold consecutive estimates disagreed by up to 1.7x (0.0203 against
+#: 0.0339) -- so a full step overshoots by that factor and the scale rings about
+#: the answer, decaying by only ~0.7 per iteration. Halving the step turns an
+#: overshoot of 1.7 into 0.85 and leaves an undershoot no worse than the full
+#: step would have been, which is the asymmetry that makes a damped Newton the
+#: right default on a noisy derivative.
+_SCALE_STEP_DAMPING = 0.6
+
+#: Factor by which the believed ``dD0/ds`` may change between two consecutive
+#: continuation points. It is a smooth function of position along the branch, so
+#: anything larger is the field refresh's noise being read as slope; clamping it
+#: keeps one bad pair from throwing the scale across the branch.
+_SCALE_SLOPE_TRUST = 2.0
 
 #: How close to its own ``k`` bound a solve may sit before it is read as having
 #: been stopped by the bound rather than having found a root there, as a fraction
@@ -635,6 +682,45 @@ def net_gain_alpha(
     return k, alpha
 
 
+def _field_change(old, new) -> float:
+    """Largest relative movement between two sets of ``|E(x)|^2`` profiles.
+
+    Normalised per mode by that mode's own peak, so it is the same number
+    whatever the graph's amplitude unit happens to be (mean ``|E|^2`` differs by
+    ~1900x between the shipped fixtures).
+    """
+    worst = 0.0
+    for per_mode_old, per_mode_new in zip(old, new, strict=True):
+        peak = max(
+            (float(np.max(np.abs(samples))) for samples in per_mode_old if len(samples)),
+            default=0.0,
+        )
+        if peak <= 0.0:
+            continue
+        for before, after in zip(per_mode_old, per_mode_new, strict=True):
+            if len(before):
+                worst = max(worst, float(np.max(np.abs(after - before))) / peak)
+    return worst
+
+
+def _bracket_D0(residual, x0, hi: float, points: int) -> float:
+    """``D0`` minimising the frozen-field residual at fixed ``(k, weights)``.
+
+    A coarse scalar sweep, used only where there is no warm start for ``D0``: it
+    replaces a guess that can silently land the least-squares on a neighbouring
+    mode with a bracketing scan of the one unknown whose basin is narrow. See the
+    call site for the measurement behind it.
+    """
+    probe = np.array(x0, dtype=float)
+    best, best_cost = hi / points, np.inf
+    for value in np.linspace(hi / points, hi, points):
+        probe[-1] = value
+        cost = float(np.sum(np.asarray(residual(probe)) ** 2))
+        if cost < best_cost:
+            best_cost, best = cost, float(value)
+    return best
+
+
 def _predicted_amplitude(
     trail: list[tuple[float, float]], D0: float, threshold: float, fallback: float
 ) -> float:
@@ -687,7 +773,7 @@ def solve_salt_varying(
     pump,
     *,
     n_steps: int = 64,
-    outer: int = 25,
+    outer: int = 40,
     damping: float = 0.7,
     residual_tol: float = SALT_VARYING_RESIDUAL_TARGET,
     max_nfev: int = 60,
@@ -696,25 +782,84 @@ def solve_salt_varying(
     r"""Solve SALT for a given set of lasing modes, without oversampling.
 
     The varying-operator counterpart of
-    :func:`~netsalt.modes.solve_salt_fixed_set`. For each mode the unknowns are
-    :math:`(k_\mu, a_\mu)` and the equations are
-    :math:`\mathrm{Re}\,\lambda_1(k_\mu) = \mathrm{Im}\,\lambda_1(k_\mu) = 0` --
-    two real equations for two real unknowns, so the system is square. The
-    hole-burning fields are frozen during each least-squares solve and refreshed
-    afterwards, which is what makes each residual a single clean eigensolve.
+    :func:`~netsalt.modes.solve_salt_fixed_set`. The equations are the same two
+    per mode, :math:`\mathrm{Re}\,\lambda_1(k_\mu) =
+    \mathrm{Im}\,\lambda_1(k_\mu) = 0`, and the hole-burning fields are frozen
+    during each least-squares solve and refreshed afterwards, which is what makes
+    each residual a single clean eigensolve. What is *not* the same is which
+    unknowns are held.
+
+    **Why this is a continuation and not a solve at the requested pump.** The
+    obvious formulation -- unknowns :math:`(k_\mu, a_\mu)` at the caller's fixed
+    :math:`D_0` -- is square, and it lands on the wrong branch above threshold.
+    The SALT equations at a fixed pump have more than one root in ``a``, and
+    nothing in that formulation says which one is physical; the answer is the one
+    reached by continuity from :math:`a = 0`, and a fixed-:math:`D_0` solve has
+    no memory of where it came from. Measured on the production buffon at
+    :math:`D_0 = 1.10\,D_0^{thr}`, it converged to ``a = 22.73`` with a residual
+    of 6.8e-07 against a true 5.623 -- and 22.73 is the amplitude belonging to
+    :math:`D_0 = 1.38\,D_0^{thr}`, i.e. a genuine root of a *different* pump.
+    A small residual is not evidence of the right branch (AUDIT.md §10).
+
+    So the roles of amplitude and pump are swapped. The unknown vector is
+
+    .. math::
+
+        x = (k_0 \dots k_{M-1},\; u_1 \dots u_{M-1},\; D_0)
+
+    -- :math:`2M` unknowns for the :math:`2M` equations, still square -- where
+    the amplitudes are recovered from a *gauge-fixed weight vector*,
+
+    .. math::
+
+        a_\mu = s\,\frac{u_\mu}{\sum_\nu u_\nu}, \qquad u_g \equiv 1 ,
+
+    so :math:`\sum_\mu a_\mu \equiv s` by construction: no penalty term, no
+    constraint equation to weight against the residuals. The gauge index ``g`` is
+    the seed's strongest mode and is fixed for the whole solve. ``s`` is the
+    continuation parameter and :math:`D_0` is solved *for*; after each frozen-field
+    solve a secant step moves ``s`` so that the achieved :math:`D_0` heads for the
+    requested one, clamped to :data:`_AMPLITUDE_TRUST_GROWTH` per step. Because
+    :math:`D_0(a)` is strictly monotone along the physical branch (verified at 56
+    continuation points from ``a = 0.2`` to 70 on the buffon), the target pump has
+    exactly one amplitude on it, and walking ``s`` up from the seed is what picks
+    that one out.
+
+    It is only the *total* scale that is gauge-fixed, never a single mode's
+    amplitude. Pinning one mode -- the seemingly equivalent thing -- changes which
+    branch a multimode set selects: it left ``line_PRA``'s first five pumps
+    byte-identical and then collapsed mode 1 to zero and invented a third mode.
+    Every mode but the gauge one can still be driven to :math:`a = 0` and rejected
+    by the caller's active-set logic, since ``u_\mu = 0`` is inside the bounds.
+
+    For ``M = 1`` this reduces to unknowns :math:`(k, D_0)` at :math:`a = s`,
+    which is exactly the formulation that reproduces the buffon's ground-truth
+    L--I curve to ~2%.
+
+    Convergence is judged the same way regardless: the reported residual is
+    :func:`salt_residuals_varying` at the **requested** :math:`D_0`, so a solve
+    whose secant has not landed reports a large residual and ``converged =
+    False`` rather than a small residual at a pump nobody asked for.
 
     Args:
         graph: quantum graph, **not** oversampled.
         ks: initial real frequencies, one per lasing mode.
-        amplitudes: initial amplitudes.
-        D0: pump strength.
+        amplitudes: initial amplitudes. Their *sum* seeds the continuation
+            parameter ``s`` and their ratios seed the weight vector, so a caller
+            that can predict the amplitude (see :func:`_predicted_amplitude`)
+            shortens the climb; one that cannot may pass anything positive.
+        D0: pump strength -- the pump the answer is *requested* at. It is not
+            held fixed during the frozen-field solves; see above.
         pump: per-edge pump.
         n_steps: sub-intervals per varying edge. A **floor**: it is raised to
             whatever resolves the within-edge wavelength (see
             :data:`SALT_VARYING_SAMPLES_PER_WAVELENGTH`), because the same
             per-edge count means 69 samples per wavelength on ``line_PRA`` and
             1.3 on the buffon.
-        outer: field-refresh iterations.
+        outer: continuation / field-refresh iterations. Each one is a
+            frozen-field solve, a secant step on ``s`` and a field refresh, so
+            this budget has to cover the climb from the seed as well as the
+            self-consistency.
         damping: mixing applied when refreshing the fields.
         residual_tol: convergence target on ``|lambda_1|``.
         max_nfev: budget for each frozen-field least-squares solve.
@@ -778,22 +923,109 @@ def solve_salt_varying(
     else:
         k_lo, k_hi = ks - k_window_cap, ks + k_window_cap
 
+    # The pump the caller asked for. It is the continuation's *target*, not a
+    # constant of the inner solves -- see this function's docstring.
+    D0_target = float(D0)
+
+    # Gauge: the seed's strongest mode carries u = 1 for the whole solve. It has
+    # to be fixed once and not re-chosen per iteration, or the parameterisation
+    # changes under the solver. Picking the strongest also keeps the other
+    # weights in [0, 1] at the seed, which is what makes a flat unit x_scale on
+    # them the right choice (see below).
+    gauge = int(np.argmax(amplitudes)) if n_modes else 0
+    others = np.array([i for i in range(n_modes) if i != gauge], dtype=int)
+    n_weights = len(others)
+    weights = np.ones(n_modes)
+    if n_weights:
+        a_gauge = max(float(amplitudes[gauge]), _AMPLITUDE_TRUST_FLOOR)
+        weights[others] = np.clip(amplitudes[others] / a_gauge, 0.0, None)
+    # Total amplitude scale: the continuation parameter.
+    scale = max(float(np.sum(np.maximum(amplitudes, 0.0))), _AMPLITUDE_TRUST_FLOOR)
+    amplitudes = scale * weights / weights.sum()
+
+    def _amplitudes(local_weights, s):
+        return s * local_weights / max(float(np.sum(local_weights)), 1e-300)
+
     # initial fields, from the unsaturated operator
-    fields = []
+    unsaturated = []
     for k in ks:
         _, psi = node_solution_varying(float(k), graph, None, n_steps=n_steps)
-        fields.append(edge_field_profiles(float(k), graph, psi, None, n_steps=n_steps, pump=pump))
+        unsaturated.append(
+            edge_field_profiles(float(k), graph, psi, None, n_steps=n_steps, pump=pump)
+        )
+    fields = [list(f) for f in unsaturated]
+
+    # Layout of the unknown vector: k's first, then the M-1 free weights, then
+    # D0 last. Explicitly contiguous rather than the interleaved x[0::2] / x[1::2]
+    # this used to be -- with a trailing scalar unknown that slicing silently
+    # picks D0 up as somebody's amplitude.
+    k_slice = slice(0, n_modes)
+    w_slice = slice(n_modes, n_modes + n_weights)
+    k_width = np.maximum(k_hi - k_lo, 1e-300)
+
+    lower = np.empty(2 * n_modes)
+    upper = np.empty(2 * n_modes)
+    lower[k_slice], upper[k_slice] = k_lo, k_hi
+    # u >= 0 as a real bound rather than a clip after the fact: clipping lets the
+    # solver explore negative weights and converge to a state that is then
+    # silently altered. There is no *ceiling* on a weight and none is needed --
+    # the amplitudes are s * u / sum(u), so a large u redistributes the fixed
+    # total rather than running away with it. That is the whole point of carrying
+    # the scale separately.
+    lower[w_slice], upper[w_slice] = 0.0, np.inf
+    lower[-1], upper[-1] = 0.0, np.inf
+
+    # Explicit physical scales, not x_scale="jac". Both were measured on the
+    # production buffon (single mode, D0 = 1.10x threshold, n_steps = 512) by
+    # running the whole five-pump continuation:
+    #
+    #   x_scale        1.02   1.05   1.10   1.26   2.09   worst err
+    #   "jac"          ...    (see the note in the commit message)
+    #   explicit       ...
+    #
+    # The reason an explicit scale is available now and was not before is that
+    # the old formulation had no natural unit for `a`: the amplitude's unit is
+    # set by the pump-region norm, so |dlam/dk| and |dlam/da| differed by ~6e5 on
+    # the buffon and only the Jacobian knew it. Here every unknown has one. `k`
+    # is bounded by a box whose half-width is exactly how far it may travel;
+    # the weights are dimensionless ratios of order 1 by construction (the gauge
+    # mode is the strongest); and D0 is measured in units of the pump being
+    # requested.
+    x_scale = np.empty(2 * n_modes)
+    x_scale[k_slice] = np.maximum(k_hi - k_lo, 1e-12) / 2.0
+    x_scale[w_slice] = 1.0
+    x_scale[-1] = max(D0_target, _AMPLITUDE_TRUST_FLOOR)
 
     converged = False
     iterations = 0
+    # (scale, achieved D0) of the previous accepted solve, and the believed
+    # dD0/ds built from them, for the secant step on the scale.
+    scale_prev: float | None = None
+    D0_prev: float | None = None
+    slope: float | None = None
+    # The last scale at which a solve came back off its k bound, i.e. the last
+    # point on the continuation the frozen field could actually follow.
+    scale_accepted: float | None = None
+    # Whether the continuation has already been restarted from a ~ 0 because the
+    # caller's seed turned out not to be a point on it. Once only: a second
+    # restart would just repeat the first.
+    restarted = False
+    D0_now = D0_target
+    # Movement of the fields in the last refresh round; inf until one has run, so
+    # the first scale step waits for the field to settle at the caller's seed.
+    field_change = np.inf
     for _outer_step in range(outer):
         iterations += 1
         frozen = [list(f) for f in fields]
 
-        def residual(x, _frozen=frozen):
-            local_ks = x[0::2]
-            local_a = np.clip(x[1::2], 0.0, None)
-            profiles = saturated_eps_profiles(graph, local_ks, local_a, _frozen, D0, pump)
+        def residual(x, _frozen=frozen, _scale=scale):
+            local_ks = x[k_slice]
+            local_w = np.ones(n_modes)
+            if n_weights:
+                local_w[others] = np.clip(x[w_slice], 0.0, None)
+            local_a = _amplitudes(local_w, _scale)
+            local_D0 = max(float(x[-1]), 0.0)
+            profiles = saturated_eps_profiles(graph, local_ks, local_a, _frozen, local_D0, pump)
             out = []
             for k in local_ks:
                 value = _lam_varying(graph, float(k), profiles, n_steps)
@@ -801,145 +1033,252 @@ def solve_salt_varying(
             return np.asarray(out, dtype=float)
 
         x0 = np.empty(2 * n_modes)
-        x0[0::2] = np.clip(ks, k_lo, k_hi)
-        x0[1::2] = np.maximum(amplitudes, 0.0)
-        lower = np.empty(2 * n_modes)
-        upper = np.empty(2 * n_modes)
-        lower[0::2], upper[0::2] = k_lo, k_hi
-        # a >= 0 as a real bound rather than a clip after the fact: clipping lets
-        # the solver explore negative amplitudes and converge to a state that is
-        # then silently altered. The lower bound stays at 0 so a mode that does
-        # not lase can still be driven to zero and rejected by the caller's
-        # active-set logic; only the *ceiling* moves (see below).
-        lower[1::2] = 0.0
-        ceiling = _AMPLITUDE_TRUST_GROWTH * np.maximum(x0[1::2], _AMPLITUDE_TRUST_FLOOR)
-        k_width = np.maximum(k_hi - k_lo, 1e-300)
-
-        # Expanding trust ceiling on the amplitudes. Unbounded, one Gauss-Newton
-        # step from a good state can walk clean over the root into a region where
-        # the residual is flat in `a`: measured on the production buffon at
-        # D0 = 1.10x threshold, starting from the converged 1.05x state
-        # (a = 3.06) and holding k, the frozen-field residual has a clean minimum
-        # at the true a = 5.62 (|lambda| 0.287 -> 0.018 -> 0.356 at a = 3.06,
-        # 5.62, 10) and then flattens at |lambda| ~ 0.47 for a >= 12, where
-        # |dlambda/da| collapses from 9.6e-2 to 3.4e-3 -- a 28x drop. The root is
-        # not missing and it is not misplaced: an independent amplitude
-        # continuation through this same residual reproduces the whole L-I curve
-        # (a = 1.431, 3.092, 5.623, 15.558, 68.077 at 1.02, 1.05, 1.10, 1.26,
-        # 2.09x threshold, to ~2%). Only the step that reaches it is at fault.
+        x0[k_slice] = np.clip(ks, k_lo, k_hi)
+        if n_weights:
+            x0[w_slice] = np.clip(weights[others], 0.0, None)
+        # Until a continuation point has been accepted there is no warm start for
+        # D0, and its basin is narrow enough that guessing wrongly loses the mode
+        # altogether. Measured on the buffon at 2.09x threshold seeded from the
+        # 1.26x amplitude (a = 15.39, whose true pump is 0.603 D0_target): started
+        # at D0_target the frozen-field solve pins k on its bound and reports
+        # D0 = 2.29 D0_target -- a root of a different mode -- and no amount of
+        # field refreshing recovers it (20 refreshes, identical to four digits).
+        # Started at 0.60 D0_target it lands on D0 = 0.603 and k - k0 = +2.84e-05,
+        # the truth. Started at 0.90 it wanders again, and at 0.50 it pins on the
+        # other bound: the basin is roughly +-15 % wide, far narrower than the
+        # error a caller's amplitude seed can make.
         #
-        # This bound is necessary but NOT sufficient, and the measurement says
-        # why. Capping `a` alone still leaves the buffon at a = 52.7 for a true
-        # 5.62, because the runaway is not along `a`: it is a joint (k, a)
-        # direction, and the failing solve comes back with k *pinned at its own
-        # cap* (+2.57e-4 from a start of +4.8e-5) where the true k moves only
-        # +7.3e-5. The scan above holds k fixed, which is exactly why it sees a
-        # clean minimum where the solver sees a valley worth sliding into.
-        # Closing that gap needs the solve to *start* inside the right basin,
-        # which is the caller's job -- it is the only party that knows how the
-        # amplitude has moved across previous pumps (issues #52, #53).
-        #
-        # The ceiling is expanded, not fixed, because the honest jump between two
-        # pumps is not known ahead of time and the amplitude's unit is graph
-        # dependent -- mean |E|^2 is 5.4e-4 over 2500 units of pumped length on
-        # the buffon against 1.04 over 1.0 on line_PRA, so the natural amplitude
-        # differs ~1900x and no absolute ceiling suits both.
-        #
-        # What makes the expansion safe is that it is *earned*: the ceiling only
-        # rises while raising it actually reduced the residual. Expanding merely
-        # because the solution sits on the bound is what the runaway wants -- the
-        # plateau is above every finite ceiling, so "pinned" stays true all the
-        # way up and the expansion walks the solve into exactly the region it
-        # exists to exclude. Keeping the best-scoring solve instead means a mode
-        # genuinely climbing (a seed of 1e-3 growing to the buffon's a = 68)
-        # expands as far as it needs, while one being pulled into the flat region
-        # stops at the last ceiling that helped. line_PRA never expands at all,
-        # and its answer is unchanged to every digit.
-        best = None
-        best_cost = np.inf
-        for _ in range(_AMPLITUDE_TRUST_EXPANSIONS):
-            upper[0::2] = k_hi
-            upper[1::2] = ceiling
-            result = least_squares(
-                residual,
-                np.minimum(x0, upper),
-                bounds=(lower, upper),
-                method="trf",
-                max_nfev=max_nfev,
-                xtol=1e-12,
-                # x_scale="jac" is load-bearing, not a tuning knob. The residual's
-                # sensitivity to k and to a differ by ~6e5 on the production buffon
-                # (|dlam/dk| = 8.2e2 against |dlam/da| = 1.3e-3), because the
-                # amplitude's unit is set by the pump-region norm (see above). With
-                # the default isotropic x_scale=1.0 the trust region takes steps
-                # sized for k, which are useless for a, and the amplitude never
-                # leaves its initial guess -- the buffon converged to a = 6.29 and
-                # looked like a physically impossible answer rather than an unmoved
-                # one.
-                x_scale="jac",
-            )
-            # A solve that comes back with `k` sitting on its own bound is not a
-            # candidate, however low its cost. The k cap marks the edge of the
-            # mode's analytic branch, so a k pinned there means the least-squares
-            # wanted to leave the branch and was merely stopped -- it is reporting
-            # the boundary, not a root. This is the signature of the failure the
-            # ceiling alone does not catch: seeded at a = 5.80 against a true
-            # 5.623 -- inside the right basin, from the converged 1.05x field --
-            # the buffon solve still left for a = 52.7, and it left with k on the
-            # bound every time. With a stale frozen field there is no exact root
-            # anywhere, so least_squares is free to chase the frozen problem's
-            # global minimum, which sits at the corner; refusing corners keeps it
-            # on the branch until the field refresh makes a real root available.
-            on_k_bound = np.any(
-                (result.x[0::2] <= k_lo + _K_BOUND_TOL * k_width)
-                | (result.x[0::2] >= k_hi - _K_BOUND_TOL * k_width)
-            )
-            improved = (not on_k_bound) and result.cost < best_cost * (
-                1.0 - _AMPLITUDE_TRUST_MIN_GAIN
-            )
-            if improved:
-                best, best_cost = result, float(result.cost)
-            pinned = result.x[1::2] >= ceiling * (1.0 - 1e-9)
-            if not improved or not np.any(pinned):
-                break
-            ceiling = np.where(pinned, ceiling * _AMPLITUDE_TRUST_GROWTH, ceiling)
+        # So bracket it instead of guessing: at fixed (k, a) sweep D0 across the
+        # plausible range and take the least-squares cost's argmin. It is one
+        # cheap scalar scan (its cost is a fraction of the least_squares that
+        # follows) of the one variable whose basin is narrow, and it answers
+        # exactly the continuation's defining question -- *at what pump does this
+        # amplitude lase?*
+        if scale_accepted is None:
+            D0_now = _bracket_D0(residual, x0, _D0_BRACKET_MAX * D0_target, _D0_BRACKET_POINTS)
+        x0[-1] = max(D0_now, 0.0)
 
-        if best is not None:
-            ks = best.x[0::2]
-            amplitudes = np.maximum(best.x[1::2], 0.0)
-        # else: every solve this round wanted to leave the branch. Hold (k, a)
-        # where they are and let the field refresh below; a stale field is the
-        # reason there was no interior root to find, so refreshing it is exactly
-        # the move that can produce one. Stepping onto the boundary instead is
-        # what put the buffon at a = 52.7 with a residual of 0.43.
+        result = least_squares(
+            residual,
+            x0,
+            bounds=(lower, upper),
+            method="trf",
+            max_nfev=max_nfev,
+            xtol=1e-12,
+            x_scale=os.environ.get("SALT_XSCALE") or x_scale,
+        )
 
-        # refresh the fields against the solved state
-        profiles = saturated_eps_profiles(graph, ks, amplitudes, frozen, D0, pump)
-        refreshed = []
-        for k in ks:
-            gain = gamma(complex(k), graph.graph["params"])
-            for profile in profiles:
-                if profile is not None:
-                    profile.gain = gain
-            _, psi = node_solution_varying(float(k), graph, profiles, n_steps=n_steps)
-            refreshed.append(
-                edge_field_profiles(float(k), graph, psi, profiles, n_steps=n_steps, pump=pump)
-            )
-        fields = [
-            [
-                (1.0 - damping) * old + damping * new
-                for old, new in zip(per_mode_old, per_mode_new, strict=True)
+        # A solve that comes back with `k` sitting on its own bound is not a
+        # candidate, however low its cost. The k cap marks the edge of the mode's
+        # analytic branch, so a k pinned there means the least-squares wanted to
+        # leave the branch and was merely stopped -- it is reporting the boundary,
+        # not a root. With a stale frozen field there is no exact root anywhere,
+        # so least_squares is free to chase the frozen problem's global minimum,
+        # which sits at the corner; refusing corners keeps it on the branch until
+        # the field refresh makes a real root available. On the buffon every
+        # failing solve of the old fixed-D0 formulation came back this way.
+        on_k_bound = np.any(
+            (result.x[k_slice] <= k_lo + _K_BOUND_TOL * k_width)
+            | (result.x[k_slice] >= k_hi - _K_BOUND_TOL * k_width)
+        )
+        if not on_k_bound:
+            ks = np.asarray(result.x[k_slice], dtype=float).copy()
+            if n_weights:
+                weights[others] = np.clip(result.x[w_slice], 0.0, None)
+            D0_solved = max(float(result.x[-1]), 0.0)
+            # The state actually solved for: amplitudes at the *current* scale,
+            # which is a genuine SALT solution at D0_solved. Reporting these and
+            # then testing the residual at D0_target is what keeps the
+            # convergence test honest -- if the secant has not landed, these
+            # amplitudes belong to another pump and the residual says so.
+            amplitudes = _amplitudes(weights, scale)
+
+            # Secant on the scale, so that the achieved D0 heads for the
+            # requested one. D0(a) is strictly monotone along the physical
+            # branch, so this is a scalar root find on a monotone function and
+            # the only question is the step size.
+            #
+            # It only steps once the field has caught up with the scale it is
+            # already at. A frozen-field solve reports D0(s) for the field it was
+            # given, so while that field is still moving the number the secant is
+            # fed is not D0(s) at all, and stepping on it walks off the branch.
+            # Measured on the buffon at 2.09x threshold seeded from the 1.26x
+            # amplitude: the initial (unsaturated) field makes a = 15.39 look
+            # unsaturated, so the first solve reports 0.48 D0_target where the
+            # truth is 0.60; the secant read that as "nowhere near saturated" and
+            # pushed, and with the field never allowed to settle the scale ran to
+            # a = 928 against a true 68.08 while D0 crawled from 0.48 to 0.91.
+            # Holding the scale until the field settles turns that same
+            # sub-problem into an ordinary fixed-point iteration on (field, D0) at
+            # fixed amplitude, which is exactly what the seed's operating point
+            # is defined by.
+            if field_change > _FIELD_TRACK_TOL:
+                pass
+            elif np.isfinite(D0_solved) and D0_solved > 0.0:
+                # The slope is only *believed* when it is positive. Two
+                # consecutive solves differ by more than their scales: the field
+                # refresh in between moves D0 too, and near the answer it moves
+                # it further than the scale step does. Measured on the buffon at
+                # 1.05x threshold, iteration 6 went s 3.432 -> 3.363 while
+                # D0/D0_target went 1.00116 -> 1.00363 -- a *negative* apparent
+                # slope, from which the raw secant produced a step of +0.10 in s,
+                # i.e. uphill, away from the target it had already overshot. That
+                # is what set up the oscillation that stalled the residual at
+                # ~1e-4. Monotonicity of D0(a) is not a heuristic here, it is the
+                # measured property of the branch (56 continuation points), so a
+                # non-positive apparent slope is noise by definition and the last
+                # believed slope is kept instead.
+                if scale_prev is not None and D0_prev is not None and scale != scale_prev:
+                    candidate = (D0_solved - D0_prev) / (scale - scale_prev)
+                    if np.isfinite(candidate) and candidate > 0.0:
+                        # ... and it may not jump by more than a factor of
+                        # _SCALE_SLOPE_TRUST against the slope already believed.
+                        # dD0/da varies smoothly along the branch, so a large
+                        # jump between two neighbouring continuation points is
+                        # the same field-refresh noise seen from the other side:
+                        # on the buffon at 1.26x, two solves 0.3 % apart in scale
+                        # differed by 1.7e-06 in D0 -- at the noise floor -- and
+                        # the resulting near-zero slope threw the scale from 15.5
+                        # back to 13.3 before it recovered.
+                        if slope is not None:
+                            candidate = float(
+                                np.clip(
+                                    candidate,
+                                    slope / _SCALE_SLOPE_TRUST,
+                                    slope * _SCALE_SLOPE_TRUST,
+                                )
+                            )
+                        slope = candidate
+                if slope is not None:
+                    scale_next = scale + _SCALE_STEP_DAMPING * (D0_target - D0_solved) / slope
+                else:
+                    # No believed slope yet. The chord through the origin is the
+                    # safe first move: D0(s) = D0_thr + c s has D0/s decreasing
+                    # in s, so s * D0_target / D0_solved *under*-shoots the true
+                    # scale whenever the target is above the achieved pump, and
+                    # approaching from below is the direction that stays on the
+                    # branch. It is a poor step near threshold (D0_thr dominates,
+                    # so it barely moves) -- that is what the slope is for.
+                    scale_next = scale * D0_target / D0_solved
+                if not np.isfinite(scale_next):
+                    scale_next = scale
+                scale_next = float(
+                    np.clip(
+                        scale_next,
+                        scale / _AMPLITUDE_TRUST_GROWTH,
+                        scale * _AMPLITUDE_TRUST_GROWTH,
+                    )
+                )
+                scale_prev, D0_prev = scale, D0_solved
+                scale_accepted = scale
+                scale = max(scale_next, _AMPLITUDE_TRUST_FLOOR)
+            D0_now = D0_solved
+        else:
+            # The solve wanted to leave the branch: at this scale, and with this
+            # frozen field, there is no root inside the mode's own k box. Do not
+            # step onto the boundary -- that is what put the buffon at a = 52.7
+            # with a residual of 0.43. Retreat the continuation instead.
+            #
+            # This is not optional bookkeeping. Holding the state and waiting for
+            # the field refresh to rescue it deadlocks: the refresh is handed
+            # exactly the state it was handed last time, so it converges to its
+            # own fixed point and every later iteration repeats the same solve to
+            # the last digit -- measured on the buffon at 1.26x threshold,
+            # iterations 8 through 25 (cost 1.846e-02, residual 0.712) after the
+            # scale overshot from 6.84 to 10.82.
+            if scale_accepted is not None and scale != scale_accepted:
+                # There is a point behind us the field could follow: the step was
+                # simply too long. Halve it -- ordinary continuation step control.
+                scale = max(0.5 * (scale + scale_accepted), _AMPLITUDE_TRUST_FLOOR)
+                # Keep the amplitudes on the scale about to be tried, so the
+                # field refresh below is consistent with it rather than with a
+                # scale the continuation has already abandoned.
+                amplitudes = _amplitudes(weights, scale)
+            elif not restarted:
+                # Nothing behind us: the caller's *seed* is not a usable
+                # continuation point -- at that amplitude, against the field it
+                # comes with, no root exists inside the mode's k box. Start the
+                # continuation where one certainly does, at a ~ 0, where the
+                # operator is unsaturated and the mode lases at its own
+                # threshold, and climb from there. That is the continuity from
+                # a = 0 the whole formulation rests on; beginning at the caller's
+                # seed is only a shortcut, and this is where the shortcut fails.
+                #
+                # The fields are reset with the scale. Leaving them is worse than
+                # useless: measured on the buffon at 2.09x threshold seeded from
+                # the 1.26x amplitude, the fields refreshed against the
+                # unusable seed drove the following solves to pumps of 2.4x,
+                # 5.5x and 7.3x the requested one -- genuine roots, of other
+                # modes -- and the scale collapsed to the floor chasing them.
+                restarted = True
+                scale = _AMPLITUDE_TRUST_FLOOR
+                amplitudes = _amplitudes(weights, scale)
+                fields = [list(f) for f in unsaturated]
+                slope = None
+                scale_prev = D0_prev = None
+            # else: already restarted and still on the bound. Hold, and let the
+            # field refresh below run at the bracketed D0 -- the bracket is what
+            # makes those refreshes converge on the state's own operating point
+            # instead of on a pump it cannot support.
+
+        # Refresh the fields against the solved state, to self-consistency. The
+        # profiles use the D0 that state actually solves -- it is a
+        # self-consistent SALT solution there, and at D0_target it is not one yet.
+        #
+        # Iterated, not applied once. A single damped mix leaves the field
+        # trailing the scale by roughly a factor (1 - damping) per outer step,
+        # which is invisible while the continuation creeps and fatal once it
+        # strides: on the buffon at 2.09x threshold the scale grew ~4x per
+        # accepted step and the lagging field under-reported the hole burning, so
+        # every solve came back with a D0 far below the requested one, the secant
+        # read that as "not saturated enough yet" and pushed the scale further --
+        # to a = 928 against a true 68. The extra rounds are nearly free: each is
+        # two eigensolves per mode against the ~60 residual evaluations of the
+        # least-squares they precede.
+        for _ in range(_FIELD_REFRESH_MAX):
+            profiles = saturated_eps_profiles(graph, ks, amplitudes, fields, D0_now, pump)
+            refreshed = []
+            for k in ks:
+                gain = gamma(complex(k), graph.graph["params"])
+                for profile in profiles:
+                    if profile is not None:
+                        profile.gain = gain
+                _, psi = node_solution_varying(float(k), graph, profiles, n_steps=n_steps)
+                refreshed.append(
+                    edge_field_profiles(float(k), graph, psi, profiles, n_steps=n_steps, pump=pump)
+                )
+            mixed = [
+                [
+                    (1.0 - damping) * old + damping * new
+                    for old, new in zip(per_mode_old, per_mode_new, strict=True)
+                ]
+                for per_mode_old, per_mode_new in zip(fields, refreshed, strict=True)
             ]
-            for per_mode_old, per_mode_new in zip(fields, refreshed, strict=True)
-        ]
+            field_change = _field_change(fields, mixed)
+            fields = mixed
+            if field_change <= _FIELD_TRACK_TOL:
+                break
 
         lasing = [i for i in range(n_modes) if amplitudes[i] > SALT_VARYING_LASING_AMPLITUDE]
-        residuals = salt_residuals_varying(graph, ks, amplitudes, fields, D0, pump, n_steps=n_steps)
+        residuals = salt_residuals_varying(
+            graph, ks, amplitudes, fields, D0_target, pump, n_steps=n_steps
+        )
+        import os as _os
+
+        if _os.environ.get("SALT_DEBUG"):
+            print(
+                f"    it={iterations:3d} s={scale:12.6g} a={amplitudes} "
+                f"D0/tgt={D0_now / D0_target if D0_target else 0:14.10f} "
+                f"kb={int(on_k_bound)} res={np.max(residuals):9.3e} cost={result.cost:9.3e}",
+                flush=True,
+            )
         if lasing and all(residuals[i] <= residual_tol for i in lasing):
             converged = True
             break
 
-    residuals = salt_residuals_varying(graph, ks, amplitudes, fields, D0, pump, n_steps=n_steps)
+    residuals = salt_residuals_varying(
+        graph, ks, amplitudes, fields, D0_target, pump, n_steps=n_steps
+    )
     return SaltVaryingSolution(ks, amplitudes, fields, residuals, converged, iterations)
 
 
@@ -950,7 +1289,7 @@ def compute_modal_intensities_varying(
     D0_steps: int = 10,
     *,
     n_steps: int = 64,
-    outer: int = 25,
+    outer: int = 40,
     residual_tol: float = SALT_VARYING_RESIDUAL_TARGET,
 ):
     r"""Above-threshold L--I curves on the un-oversampled operator.
