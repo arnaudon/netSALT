@@ -677,72 +677,65 @@ not that the shipped default has moved.
 
 ## 10. Update — which solution the varying solver lands on (issues #52, #53)
 
-§9 established that the per-edge-DtN operator removes the resolution wall, and
-showed the pump continuation converging at 15 of 15 pumps on a Fabry–Pérot
-fixture. On the **production buffon** it does not. This section records what the
-failure actually is, because three plausible explanations were measured and
-ruled out before the right one, and each of them looked convincing first.
+§9 established that the per-edge-DtN operator removes the resolution wall. On
+the **production buffon** the solver then landed on the wrong solution branch
+above ~1.05x threshold. This section records the diagnosis and the fix.
 
 Reproducer: `examples/audit/probe_varying_amplitude_branch.py`, on
-`examples/buffon/buffon_narrow` (208 nodes, 243 edges, `n_steps = 512`, lowest
-mode at `k = 10.67933130`).
+`examples/buffon/buffon_narrow` (208 nodes, 243 edges, `n_steps = 512`).
 
-| D0/D0_thr | branch (truth) | solver | residual | converged |
+| D0/D0_thr | branch | solver, before | solver, now | k − k0 now |
 | --- | --- | --- | --- | --- |
-| 1.02 | 1.431 | 1.419 | 8.3e-07 | yes |
-| 1.05 | 3.092 | 3.063 | 6.9e-07 | yes |
-| 1.10 | 5.623 | **22.73** | 6.8e-07 | **yes** |
-| 1.26 | 15.558 | 85.67 | 6.6e-01 | no |
-| 2.09 | 68.077 | 412.2 | 5.8e-01 | no |
+| 1.02 | 1.431 | 1.419 | 1.419 | +1.59e-05 |
+| 1.05 | 3.092 | 3.063 | 3.063 | +4.76e-05 |
+| 1.10 | 5.623 | **22.73, converged** | 5.576 | +7.32e-05 |
+| 1.26 | 15.558 | 85.67, failed | 15.388 | +2.82e-05 |
+| 2.09 | 68.077 | 412.2, failed | **still fails** | +2.91e-05 |
 
-**The equations are right.** Fixing `a` and solving for `(k, D0)` — the same two
-equations `Re/Im lambda_1 = 0`, the same `_lam_varying` residual, only a
-different pair of unknowns held — reproduces the whole curve to ~2%. It is
-independently anchored: near-threshold slope 75.5 against the analytic
-`1/T00 = 74.01`, and `max |k - k0| = 7.3e-05` over the entire continuation,
-inside the `2.09e-04` k cap, so it never leaves the mode.
+**The equations were never the problem.** Fixing `a` and solving for `(k, D0)` —
+the same two equations, the same `_lam_varying` residual, a different pair of
+unknowns held — traces a `D0(a)` that is **strictly increasing** at all 56
+continuation points from `a = 0.2` to `70`. Monotone means bijective: the target
+pump has exactly one amplitude on the branch, and the continuation places the
+old solver's `a = 22.73` at `D0 = 1.38x`, not the `1.10x` requested. It was
+returning the amplitude of a *different pump*, at a residual of 6.8e-07. **A
+small residual is not evidence for this class of failure.**
 
-**`D0(a)` is strictly increasing** at all 56 continuation points from `a = 0.2`
-to `a = 70`. A strictly monotone `D0(a)` is a bijection, so each pump has
-exactly one amplitude on this branch — and the continuation places the solver's
-`a = 22.73` at `D0 = 1.38x` threshold, not the `1.10x` it was asked for. The
-solver returns the amplitude belonging to a *different pump*.
+**What that branch column is worth.** It is not an independent solver — it runs
+through netsalt's own varying operator, so it validates *branch selection*, not
+the model. Its independent anchors are the linear competition matrix's onset
+slope near threshold (`1/T00 = 74.01` against a measured 75.5, a different code
+path) and, for the model itself, `independent_salt/` — see §11.
 
-So this is a solver problem, not an equations problem, and **a small residual is
-not evidence here**: the 1.10x row converges to 6.8e-07 and is wrong by 300%.
+**The fix** (landed): continue in the *total* amplitude and solve for the pump.
+Unknowns become `(k_0..k_{M-1}, u_1..u_{M-1}, D0)` with `a_mu = s·u_mu/Σu` and
+`u_g ≡ 1`, so `Σa ≡ s` by construction — no penalty term to weight against the
+residuals. `s` is the continuation parameter, `D0` is solved for, and a secant
+on `s` walks the achieved pump onto the requested one. Only the total scale is
+gauge-fixed: pinning a *single* mode's amplitude is the seemingly equivalent
+thing and is not — it left `line_PRA`'s first five pumps byte-identical, then
+collapsed mode 1 to zero and invented a third mode. `outer` was raised 25 → 40
+because the continuation needs more field refreshes and the 1.05x pump was
+consuming exactly 25.
 
-Ruled out along the way, each with a measurement:
+Ruled out before that, each by measurement: the frozen field misplacing the root
+(its residual minimum sits exactly on the truth), the initial guess being in the
+wrong basin (seeded *at* 5.80 against a true 5.623, the old solve still left for
+52.7), and amplitude runaway alone (capping it moved 1.10x from 52.7 to 22.7 and
+no further — every failing solve came back with `k` pinned on its own cap).
 
-* *The frozen field misplaces the root.* It does not. Holding `k`, the
-  frozen-field residual has a clean minimum exactly at the true `a = 5.62`
-  (`|lambda|` 0.287 → 0.018 → 0.356 at `a = 3.06, 5.62, 10`).
-* *The initial guess is in the wrong basin.* It is not. Seeded at `a = 5.80`
-  against a true 5.623, from the converged 1.05x field, the solve still left for
-  `a = 52.7`. Extrapolating the seed from previously solved pumps (landed, and
-  accurate — it predicts 5.80) did not change the answer.
-* *The amplitude runs away.* Only partly. Capping the amplitude excursion per
-  solve (landed) moved 1.10x from 52.7 to 22.7 but no further, because the
-  runaway is a joint `(k, a)` direction: every failing solve came back with `k`
-  pinned on its own cap. Refusing solves that sit on the k bound (landed) is
-  what removed the pinning and made 1.10x converge — to the wrong branch.
+**Still open.** The `2.09x` pump is a 4.4x amplitude step, too large for the
+secant to bridge: the solve holds at the incoming value and reports residual 1.2
+with `converged = False` — honest failure, not a wrong answer — after exhausting
+40 outer iterations in 38 minutes. The working range is now ~1.26x threshold,
+against ~1.05x before. Cost is ~2 min per pump against ~1 min.
 
-Two traps worth recording for anyone probing this, both of which produced
-confident wrong numbers here:
+Two traps for anyone probing this, both of which produced confident wrong
+numbers here: a probe that lets `k` travel silently measures the **neighbouring
+mode** (a genuine root sits at `k − k0 = +6.5e-04`, three times the cap); and
+scanning `|lambda|` at real `k` cannot answer a branch question, because for an
+`a` that is not a solution there is no real-k root and the number reported is
+the bound `k` ran into.
 
-* A probe that lets `k` travel silently ends up measuring the **neighbouring
-  mode**. At `a = 20` there is a genuine root at `k - k0 = +6.5e-04`, three
-  times the cap. Two probe versions tracked it and reported smooth, monotone,
-  entirely meaningless curves.
-* Scanning `|lambda|` at *real* `k` cannot answer a branch question: for an `a`
-  that is not a solution there is no real-k root, so `k` runs to its bound and
-  the number reported is the bound.
-
-**Remaining.** Selecting the physical branch requires continuity from `a = 0`,
-which is what the continuation does and what the fixed-`D0` solve cannot. Wiring
-that into the sweep is not a drop-in: pinning one mode's amplitude changes which
-branch a *multimode* set selects, and doing it naively regressed `line_PRA` (its
-first five pumps stayed byte-identical, then mode 1 dropped to zero and a
-spurious third mode appeared). `line_PRA` remains correct and unchanged
-throughout — two lasing modes, 8/8 pumps converged, worst residual 8.02e-07 —
-so the defect is specific to the dense-spectrum, large-amplitude regime the
-buffon sits in. #52 and #53 stay open.
+`line_PRA` is unchanged to every printed digit throughout — two lasing modes,
+8/8 pumps converged, worst residual 9.16e-07.

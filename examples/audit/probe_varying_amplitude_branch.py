@@ -1,48 +1,65 @@
 """Which lasing solution does the varying-operator SALT solver land on?
 
-Backs AUDIT.md section 10. The production solver gets the buffon's L--I curve
-right at 1.02x and 1.05x threshold and wrong above it; this script measures the
-*branch* rather than the solver, and shows the two disagree.
-
-Two things are computed on the same graph, through the same residual
-(``netsalt.salt_varying._lam_varying``):
+Backs AUDIT.md section 10. Two things are computed on the same graph, through
+the same residual (``netsalt.salt_varying._lam_varying``):
 
 ``branch``
     Amplitude continuation. Fix ``a``, solve for ``(k, D0)`` -- the same two
     equations ``Re/Im lambda_1 = 0``, a different pair of unknowns held -- and
-    walk ``a`` up from zero. This traces the physical branch, the one continuously
-    connected to ``a = 0`` at threshold, and reports ``D0(a)``.
+    walk ``a`` up from zero, tracing the solution continuously connected to
+    ``a = 0`` at threshold.
 
 ``solver``
     :func:`~netsalt.salt_varying.solve_salt_varying` at the same pumps, each
     started from the previous solution, exactly as the sweep drives it.
 
-Measured on ``examples/buffon/buffon_narrow`` (208 nodes, 243 edges,
-``n_steps = 512``, lowest mode at ``k = 10.67933130``):
-
-| D0/D0_thr | branch (truth) | solver | solver residual | converged |
-| --- | --- | --- | --- | --- |
-| 1.02 | 1.431 | 1.419 | 8.3e-07 | yes |
-| 1.05 | 3.092 | 3.063 | 6.9e-07 | yes |
-| 1.10 | 5.623 | 22.73 | 6.8e-07 | yes |
-| 1.26 | 15.558 | 85.67 | 6.6e-01 | no |
-| 2.09 | 68.077 | 412.2 | 5.8e-01 | no |
-
-The branch column is independently anchored: its near-threshold slope is 75.5
-against the analytic ``1/T00 = 74.01``, and ``max |k - k0| = 7.3e-05`` over the
-whole continuation, comfortably inside the ``2.09e-04`` k cap, so it never leaves
-this mode.
+**What the branch column is and is not.** It is *not* an independent solver: it
+runs through netsalt's own ``construct_laplacian_varying``,
+``saturated_eps_profiles`` and ``_lam_varying``. A systematic error in that
+operator would be shared by both columns and they would agree perfectly. What it
+independently checks is *which solution branch is selected* -- and that was
+exactly the defect, so two parametrisations of one model disagreeing by 300% was
+a genuine contradiction. Independent validation of the varying *model* lives in
+``independent_salt/`` (a solver sharing no code with netsalt); the near-threshold
+anchor is the linear competition matrix's onset slope ``1/T00 = 74.01``, which
+the continuation reproduces at 75.5.
 
 The load-bearing observation is that ``D0(a)`` is **strictly increasing** at all
 56 continuation points from ``a = 0.2`` to ``a = 70``. A strictly monotone
-``D0(a)`` is a bijection, so each pump has exactly one amplitude on this branch --
-and the continuation places the solver's ``a = 22.73`` at ``D0 = 1.38x``
-threshold, not at the ``1.10x`` it was asked for. The solver's answer is
-therefore off the physical branch, however small its residual: it is the
-amplitude belonging to a different pump.
+``D0(a)`` is a bijection, so the target pump has exactly one amplitude on this
+branch, and walking ``a`` up from zero is what picks it out.
 
-That is what makes this a solver problem rather than an equations problem, and
-it is why a small residual is not evidence here. Run it as::
+Measured on ``examples/buffon/buffon_narrow`` (208 nodes, 243 edges,
+``n_steps = 512``, lowest mode at ``k = 10.67933130``), before and after the
+continuation landed in ``solve_salt_varying``:
+
+| D0/D0_thr | branch | solver, before | solver, now | k - k0 now |
+| --- | --- | --- | --- | --- |
+| 1.02 | 1.431 | 1.419 | 1.419 | +1.59e-05 |
+| 1.05 | 3.092 | 3.063 | 3.063 | +4.76e-05 |
+| 1.10 | 5.623 | 22.73 (converged!) | 5.576 | +7.32e-05 |
+| 1.26 | 15.558 | 85.67 (failed) | 15.388 | +2.82e-05 |
+| 2.09 | 68.077 | 412.2 (failed) | **still fails** | +2.91e-05 |
+
+Before the fix, the ``1.10x`` row converged to a residual of 6.8e-07 and was
+wrong by 300%: the continuation places its ``a = 22.73`` at ``D0 = 1.38x``, not
+the ``1.10x`` asked for. **A small residual is not evidence for this class of
+failure** -- it was the amplitude of a different pump.
+
+The ``2.09x`` row is still unsolved. It is a 4.4x amplitude step from the
+previous pump, too large for the secant to bridge; the solve holds at the
+incoming value, reports residual 1.2 and ``converged = False`` -- an honest
+failure rather than a wrong answer -- after exhausting all 40 outer iterations
+in 38 minutes. So the working range extends to ~1.26x threshold, not to 2x.
+
+Two traps worth recording, both of which produced confident wrong numbers here:
+a probe that lets ``k`` travel silently measures the **neighbouring mode** (at
+``a = 20`` there is a genuine root at ``k - k0 = +6.5e-04``, three times the
+cap); and scanning ``|lambda|`` at real ``k`` cannot answer a branch question,
+because for an ``a`` that is not a solution there is no real-k root and the
+number reported is the bound ``k`` ran into.
+
+Run it as::
 
     OMP_NUM_THREADS=1 python probe_varying_amplitude_branch.py <out-dir>
 
