@@ -424,6 +424,22 @@ _SCALE_STEP_DAMPING = 0.6
 #: keeps one bad pair from throwing the scale across the branch.
 _SCALE_SLOPE_TRUST = 2.0
 
+#: Pump ratio above which a failed solve is retried as two half-steps. The
+#: continuation walks the amplitude and reads off the pump it lases at, so the
+#: distance it must travel is set by how far ``D0_target`` is from the pump the
+#: caller's seed actually solves. Measured on the buffon: a 1.26x -> 2.09x
+#: request is a 4.4x climb in amplitude (15.4 -> 68) from a seed whose own pump
+#: is 0.60 of the target, and the secant does not bridge it in 40 outer
+#: iterations -- it holds at the seed and reports failure. Splitting the
+#: interval geometrically and solving the midpoint first turns one impossible
+#: step into two ordinary ones.
+_SUBSTEP_MIN_RATIO = 1.35
+
+#: How many times the pump interval may be halved. Each level doubles the number
+#: of solves, so this bounds the retry at 2**4 = 16 sub-solves; a request that
+#: still fails at that depth is failing for a reason sub-stepping cannot fix.
+_SUBSTEP_MAX_DEPTH = 4
+
 #: How close to its own ``k`` bound a solve may sit before it is read as having
 #: been stopped by the bound rather than having found a root there, as a fraction
 #: of the box width. The failing buffon solves land exactly on the bound, so this
@@ -778,6 +794,7 @@ def solve_salt_varying(
     residual_tol: float = SALT_VARYING_RESIDUAL_TARGET,
     max_nfev: int = 60,
     k_window_cap: float | None = None,
+    _substep_depth: int = 0,
 ) -> SaltVaryingSolution:
     r"""Solve SALT for a given set of lasing modes, without oversampling.
 
@@ -1011,6 +1028,10 @@ def solve_salt_varying(
     # restart would just repeat the first.
     restarted = False
     D0_now = D0_target
+    # the caller's seed, kept intact for the sub-step retry below
+    seed_ks = [float(k) for k in ks]
+    seed_amplitudes = [float(a) for a in amplitudes]
+    D0_bracketed: float | None = None
     # Movement of the fields in the last refresh round; inf until one has run, so
     # the first scale step waits for the field to settle at the caller's seed.
     field_change = np.inf
@@ -1056,6 +1077,8 @@ def solve_salt_varying(
         # amplitude lase?*
         if scale_accepted is None:
             D0_now = _bracket_D0(residual, x0, _D0_BRACKET_MAX * D0_target, _D0_BRACKET_POINTS)
+            if D0_bracketed is None:
+                D0_bracketed = D0_now
         x0[-1] = max(D0_now, 0.0)
 
         result = least_squares(
@@ -1279,7 +1302,46 @@ def solve_salt_varying(
     residuals = salt_residuals_varying(
         graph, ks, amplitudes, fields, D0_target, pump, n_steps=n_steps
     )
-    return SaltVaryingSolution(ks, amplitudes, fields, residuals, converged, iterations)
+    if converged or _substep_depth >= _SUBSTEP_MAX_DEPTH:
+        return SaltVaryingSolution(ks, amplitudes, fields, residuals, converged, iterations)
+
+    # Sub-step. The continuation failed to walk from the seed's own pump to the
+    # requested one in a single solve; if the two are far apart that is a step
+    # length problem rather than a solvability one, so bridge it. The midpoint is
+    # geometric because the amplitude climbs multiplicatively -- the buffon's
+    # 1.26x -> 2.09x request is a 4.4x climb, and its geometric midpoint splits
+    # that into two of 2.1x.
+    start = D0_bracketed if D0_bracketed and np.isfinite(D0_bracketed) else None
+    if start is None or start <= 0.0:
+        return SaltVaryingSolution(ks, amplitudes, fields, residuals, converged, iterations)
+    ratio = D0_target / start
+    if not np.isfinite(ratio) or ratio < _SUBSTEP_MIN_RATIO:
+        return SaltVaryingSolution(ks, amplitudes, fields, residuals, converged, iterations)
+
+    kwargs = {
+        "n_steps": n_steps,
+        "outer": outer,
+        "damping": damping,
+        "residual_tol": residual_tol,
+        "max_nfev": max_nfev,
+        "k_window_cap": k_window_cap,
+        "_substep_depth": _substep_depth + 1,
+    }
+    middle = solve_salt_varying(
+        graph, seed_ks, seed_amplitudes, float(start * np.sqrt(ratio)), pump, **kwargs
+    )
+    if not middle.converged:
+        return SaltVaryingSolution(ks, amplitudes, fields, residuals, converged, iterations)
+    final = solve_salt_varying(
+        graph, middle.ks, middle.amplitudes, float(D0_target), pump, **kwargs
+    )
+    total = iterations + middle.iterations + final.iterations
+    if not final.converged and float(np.max(residuals)) <= float(np.max(final.residuals)):
+        # the sub-stepped attempt is no better than what we already had
+        return SaltVaryingSolution(ks, amplitudes, fields, residuals, converged, total)
+    return SaltVaryingSolution(
+        final.ks, final.amplitudes, final.fields, final.residuals, final.converged, total
+    )
 
 
 def compute_modal_intensities_varying(
