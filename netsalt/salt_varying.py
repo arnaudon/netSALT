@@ -408,6 +408,48 @@ _FIELD_REFRESH_MAX = 40
 #: refresh loop).
 _FIELD_TRACK_TOL = 1e-3
 
+#: Factor by which the field refresh under-relaxes when it stops converging, and
+#: the floor it stops at.
+#:
+#: The refresh is a fixed-point iteration on the hole-burning field, and at a
+#: high enough amplitude the shipped ``damping = 0.7`` makes it *diverge*.
+#: Measured on the buffon at 2.09x threshold, seeded from the converged 1.26x
+#: state: the relative field movement pins at 6.618e-01 and stays there to four
+#: digits for every one of the 40 outer iterations, against a 1e-3 tolerance --
+#: the field is being replaced wholesale each round rather than settling. Since
+#: the scale may only step once the field has caught up, the continuation is
+#: frozen at the seed and the solve reports failure without ever having moved.
+#:
+#: Under-relaxing fixes it outright. At ``damping = 0.3`` the same state settles
+#: to 8.6e-04 by the third outer iteration, the gate opens, and the scale climbs
+#: 15.4 -> 25.6 -> 50.7 -> 60.5 with the residual falling 1.15 -> 0.68 within six
+#: iterations. ``damping = 0.1`` lands in the same place (a = 50.83 against
+#: 50.73) but takes longer, so the cure is under-relaxation rather than a
+#: uniformly smaller step.
+#:
+#: Halving on demand rather than lowering the default keeps every case where 0.7
+#: already converges bit-identical -- ``line_PRA`` never triggers it.
+_RELAX_BACKOFF = 0.5
+_RELAX_MIN = 0.05
+
+#: A refresh round must cut the field movement by at least this factor to count
+#: as converging. Anything slower is treated as a stalled iteration and answered
+#: with more under-relaxation.
+_RELAX_IMPROVE = 0.95
+
+#: Factor by which the under-relaxation is eased back up after a refresh that
+#: settled immediately. Without it the backoff is a ratchet: one hard state
+#: early in a sweep permanently slows every later one. Measured on the buffon,
+#: a ratcheted relax left 1.26x -- which converges in 21 iterations at the
+#: shipped damping -- burning all 40 and reporting failure with the right answer
+#: (a = 15.406 against 15.558). Recovery is deliberately slower than the
+#: backoff, so a state that needs under-relaxation keeps it.
+_RELAX_RECOVER = 1.5
+
+#: Refresh rounds at or below which the field is considered to have settled
+#: immediately, and the under-relaxation may be eased.
+_RELAX_RECOVER_ROUNDS = 2
+
 #: Fraction of the Newton step on ``s`` that is actually taken. The believed
 #: ``dD0/ds`` is a secant over two continuation points, and on the buffon at
 #: 1.05x threshold consecutive estimates disagreed by up to 1.7x (0.0203 against
@@ -773,7 +815,7 @@ def solve_salt_varying(
     pump,
     *,
     n_steps: int = 64,
-    outer: int = 40,
+    outer: int = 80,
     damping: float = 0.7,
     residual_tol: float = SALT_VARYING_RESIDUAL_TARGET,
     max_nfev: int = 60,
@@ -1014,6 +1056,11 @@ def solve_salt_varying(
     # Movement of the fields in the last refresh round; inf until one has run, so
     # the first scale step waits for the field to settle at the caller's seed.
     field_change = np.inf
+    # Under-relaxation actually used by the field refresh. Starts at the
+    # caller's `damping` and is halved whenever the refresh stops converging;
+    # kept across outer iterations so a state known to need it does not pay
+    # the discovery cost again every round.
+    relax = float(damping)
     for _outer_step in range(outer):
         iterations += 1
         frozen = [list(f) for f in fields]
@@ -1235,7 +1282,10 @@ def solve_salt_varying(
         # to a = 928 against a true 68. The extra rounds are nearly free: each is
         # two eigensolves per mode against the ~60 residual evaluations of the
         # least-squares they precede.
+        previous_change = np.inf
+        rounds = 0
         for _ in range(_FIELD_REFRESH_MAX):
+            rounds += 1
             profiles = saturated_eps_profiles(graph, ks, amplitudes, fields, D0_now, pump)
             refreshed = []
             for k in ks:
@@ -1249,7 +1299,7 @@ def solve_salt_varying(
                 )
             mixed = [
                 [
-                    (1.0 - damping) * old + damping * new
+                    (1.0 - relax) * old + relax * new
                     for old, new in zip(per_mode_old, per_mode_new, strict=True)
                 ]
                 for per_mode_old, per_mode_new in zip(fields, refreshed, strict=True)
@@ -1258,6 +1308,17 @@ def solve_salt_varying(
             fields = mixed
             if field_change <= _FIELD_TRACK_TOL:
                 break
+            # Not converging: under-relax and keep going. Without this the loop
+            # spends its whole budget replacing the field wholesale, the gate
+            # below never opens, and the continuation never leaves the seed.
+            if field_change >= _RELAX_IMPROVE * previous_change and relax > _RELAX_MIN:
+                relax = max(relax * _RELAX_BACKOFF, _RELAX_MIN)
+            previous_change = field_change
+        else:
+            rounds = _FIELD_REFRESH_MAX
+        if rounds <= _RELAX_RECOVER_ROUNDS and relax < damping:
+            # settled at once: give the step size back, or the backoff ratchets
+            relax = min(relax * _RELAX_RECOVER, float(damping))
 
         lasing = [i for i in range(n_modes) if amplitudes[i] > SALT_VARYING_LASING_AMPLITUDE]
         residuals = salt_residuals_varying(
@@ -1269,7 +1330,8 @@ def solve_salt_varying(
             print(
                 f"    it={iterations:3d} s={scale:12.6g} a={amplitudes} "
                 f"D0/tgt={D0_now / D0_target if D0_target else 0:14.10f} "
-                f"kb={int(on_k_bound)} res={np.max(residuals):9.3e} cost={result.cost:9.3e}",
+                f"kb={int(on_k_bound)} dfield={field_change:9.3e} "
+                f"res={np.max(residuals):9.3e} cost={result.cost:9.3e}",
                 flush=True,
             )
         if lasing and all(residuals[i] <= residual_tol for i in lasing):
@@ -1289,7 +1351,7 @@ def compute_modal_intensities_varying(
     D0_steps: int = 10,
     *,
     n_steps: int = 64,
-    outer: int = 40,
+    outer: int = 80,
     residual_tol: float = SALT_VARYING_RESIDUAL_TARGET,
 ):
     r"""Above-threshold L--I curves on the un-oversampled operator.
