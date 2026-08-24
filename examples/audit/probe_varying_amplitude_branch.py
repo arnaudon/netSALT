@@ -38,19 +38,35 @@ continuation landed in ``solve_salt_varying``:
 | 1.02 | 1.431 | 1.419 | 1.419 | +1.59e-05 |
 | 1.05 | 3.092 | 3.063 | 3.063 | +4.76e-05 |
 | 1.10 | 5.623 | 22.73 (converged!) | 5.576 | +7.32e-05 |
-| 1.26 | 15.558 | 85.67 (failed) | 15.388 | +2.82e-05 |
-| 2.09 | 68.077 | 412.2 (failed) | **still fails** | +2.91e-05 |
+| 1.26 | 15.558 | 85.67 (failed) | 15.387 | +2.82e-05 |
+| 2.09 | 68.077 | 412.2 (failed) | 66.781 | -3.21e-05 |
+
+Every pump now converges, worst error 1.9%, residuals 9.2e-08 .. 4.7e-07.
 
 Before the fix, the ``1.10x`` row converged to a residual of 6.8e-07 and was
 wrong by 300%: the continuation places its ``a = 22.73`` at ``D0 = 1.38x``, not
 the ``1.10x`` asked for. **A small residual is not evidence for this class of
 failure** -- it was the amplitude of a different pump.
 
-The ``2.09x`` row is still unsolved. It is a 4.4x amplitude step from the
-previous pump, too large for the secant to bridge; the solve holds at the
-incoming value, reports residual 1.2 and ``converged = False`` -- an honest
-failure rather than a wrong answer -- after exhausting all 40 outer iterations
-in 38 minutes. So the working range extends to ~1.26x threshold, not to 2x.
+The ``2.09x`` row was the last to fall, and not for the reason it looked like.
+It is a 4.4x amplitude step, so "the step is too large" was the obvious reading
+-- and it was wrong: sub-stepping through the geometric midpoint failed too,
+while the 2.8x step from 1.10x to 1.26x had always succeeded. A smaller step
+failing where a larger one succeeded ruled out step length.
+
+What it actually was: the *field refresh* diverges at high amplitude. The
+relative field movement pinned at 6.6e-01 against a 1e-3 tolerance, unchanged
+to four digits for all 40 outer iterations, so the gate that lets the scale step
+never opened and the continuation stayed frozen at its seed -- while the inner
+solve converged perfectly (cost 1e-26, off its k bound) to the pump that seed
+amplitude really lases at, 0.51 D0_target. Under-relaxing the refresh fixes it;
+see ``_RELAX_BACKOFF`` in ``netsalt/salt_varying.py``.
+
+Note the solved ``k - k0 = -3.21e-05`` at 2.09x, against the branch's -2.6e-05.
+The frequency pull *reverses* along this branch -- it peaks at +7.3e-05 near
+a = 5.6 and comes back down through zero -- so landing on the far side of that
+turn is evidence the solver follows the branch rather than merely arriving at a
+similar amplitude.
 
 Two traps worth recording, both of which produced confident wrong numbers here:
 a probe that lets ``k`` travel silently measures the **neighbouring mode** (at
