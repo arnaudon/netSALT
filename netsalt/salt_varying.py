@@ -1330,7 +1330,7 @@ def solve_salt_varying(
             print(
                 f"    it={iterations:3d} s={scale:12.6g} a={amplitudes} "
                 f"D0/tgt={D0_now / D0_target if D0_target else 0:14.10f} "
-                f"kb={int(on_k_bound)} dfield={field_change:9.3e} "
+                f"kb={int(on_k_bound)} dfield={field_change:9.3e} relax={relax:.4f} "
                 f"res={np.max(residuals):9.3e} cost={result.cost:9.3e}",
                 flush=True,
             )
