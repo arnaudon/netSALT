@@ -788,3 +788,57 @@ Not covered: a single `n_steps` with no Richardson extrapolation, so the `k`
 agreement (4.4e-06 against the oversampled path's Richardson-extrapolated
 2.7e-07) is limited by discretisation on both sides rather than by either
 solver.
+
+## 12. Multimode: how many modes full SALT actually solves
+
+Issue #54 asks whether the solver handles three or more co-lasing modes. Nothing
+in the repo had ever reached that: `line_PRA` lases two by construction, and
+`independent_salt/`'s README explains why its Fabry–Pérot cannot reach three at
+all (uniform index and uniform pump make the competition nearly rank-1, so gain
+clamping locks out the third). The buffon is the first case with a spectrum
+dense enough to ask the question.
+
+Fixture: `examples/buffon/buffon_narrow`'s graph over the *production* k window
+(10.35–11.0, Weyl ≈ 778 modes), uniform pump, candidate set capped at 12. All
+twelve thresholds fall within **4.7 %** of each other (0.003046 … 0.003189), so
+which modes lase is decided by competition rather than by threshold ordering —
+the regime the Nat. Commun. paper works in.
+
+**Six co-lasing modes, converged**, at `D0 = 1.05 x` the lowest threshold,
+`n_steps = 128`, residual 5.0e-07 in 17 iterations (364 s):
+
+| mode | k | full SALT `a` | linear `I` | diff |
+| --- | --- | ---: | ---: | ---: |
+| 0 | 10.67933 | 1.529 | 1.63 | −6.2 % |
+| 1 | 10.70432 | 13.48 | 13.18 | +2.3 % |
+| 2 | 10.66070 | 5.06 | 4.933 | +2.6 % |
+| 3 | 10.68009 | 1.538 | 1.65 | −6.8 % |
+| 4 | 10.68746 | 2.174 | 2.053 | +5.9 % |
+| 5 | 10.74082 | 2.083 | 2.078 | +0.2 % |
+
+The linear column is `compute_mode_competition_matrix` — a different code path
+with no transfer matrices and no varying operator — so ±7 % agreement is a real
+cross-check rather than a self-consistency one. The signs are right too: SALT
+sits *above* linear on the strong modes and *below* on the weak ones, which is
+the competition correction the linearised model omits.
+
+Worth noting the intensity ordering, because it looks wrong and is not: mode 1
+carries ~9x mode 0 despite sitting *closer* to its own threshold. Both solvers
+agree on it, so it is the mode's overlap with the pump, not a solver artefact.
+
+**Counts.** The linear model lases 6 of 12 at 1.05 x and 11 of 12 at 3.28 x.
+Full SALT is confirmed at 6. What limits it is cost, not convergence — every
+mode count from 1 to 6 converged on the first attempt.
+
+**Cost.** ~M^1.55, measured 1..4 before the speed-up work of §11; the 6-mode
+solve is 364 s at `n_steps = 128` on 4 cores. The two optimisations that landed
+(per-object interpolation cache, sampling the field at the propagator's
+abscissae) together give 2.48x on a 3-mode solve, which is what made 6 tractable
+in the first place.
+
+**Seeding matters.** Seed the set from the linear competition matrix rather than
+from `a = 1e-3`: it costs 0.6 s and starts the continuation near the answer.
+Seeding cold, or asking for six modes at a pump where only one lases (1.01 x),
+both leave the solver driving most of the set to zero and are far slower — the
+6-mode solve at 1.01 x had not finished in 14 minutes, against 6 minutes for the
+same set at the pump where all six genuinely lase.
