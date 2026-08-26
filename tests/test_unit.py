@@ -12,7 +12,6 @@ import networkx as nx
 import numpy as np
 import pandas as pd
 import pytest
-from scipy.integrate import simpson
 
 from netsalt.algorithm import clean_duplicate_modes
 from netsalt.pump import pump_cost
@@ -3583,13 +3582,12 @@ class TestSaltVarying:
             existing = np.abs(_single_mode_field_intensity(graph, [k, 1e-7], mask))
         _, psi = node_solution_varying(k, graph, None, n_steps=512)
         profiles = edge_field_profiles(k, graph, psi, None, n_steps=512, pump=pump)
-        lengths = np.asarray(graph.graph["lengths"], dtype=float)
-        mine = np.array(
-            [
-                np.trapezoid(p, dx=L / (len(p) - 1)) / L
-                for p, L in zip(profiles, lengths, strict=True)
-            ]
-        )
+        # The profiles are sampled at the propagator's Magnus abscissae, not on a
+        # uniform grid, so a uniform-grid quadrature would be summarising them
+        # with the wrong rule. Two-point Gauss carries EQUAL weights h/2 on every
+        # sub-interval, so the edge mean is exactly the arithmetic mean of the
+        # samples -- no lengths needed.
+        mine = np.array([float(np.mean(p)) for p in profiles])
         assert np.allclose(mine, existing, rtol=2e-5)
 
     def test_field_profile_converges_with_resolution(self):
@@ -3604,17 +3602,13 @@ class TestSaltVarying:
 
         graph, pump = self._graph()
         k = 10.2
-        lengths = np.asarray(graph.graph["lengths"], dtype=float)
 
         def means(n_steps):
             _, psi = node_solution_varying(k, graph, None, n_steps=n_steps)
             profiles = edge_field_profiles(k, graph, psi, None, n_steps=n_steps, pump=pump)
-            return np.array(
-                [
-                    simpson(p, dx=L / (len(p) - 1)) / L
-                    for p, L in zip(profiles, lengths, strict=True)
-                ]
-            )
+            # Arithmetic mean, not Simpson: the samples sit on the Magnus
+            # abscissae, where two-point Gauss weights every sample equally.
+            return np.array([float(np.mean(p)) for p in profiles])
 
         coarse, mid, fine = means(64), means(128), means(256)
         first = np.max(np.abs(coarse - fine))

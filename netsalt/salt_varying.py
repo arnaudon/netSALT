@@ -41,7 +41,12 @@ from scipy.integrate import simpson
 from scipy.interpolate import CubicSpline
 
 from .contour import optical_length
-from .edge_propagator import edge_field_samples, edge_transfer_matrix, propagator_constant_eps
+from .edge_propagator import (
+    _magnus_sample_points,
+    edge_field_samples,
+    edge_transfer_matrix,
+    propagator_constant_eps,
+)
 from .physics import gamma
 from .varying_laplacian import construct_laplacian_varying
 
@@ -207,6 +212,35 @@ def _edge_transfer(graph, k_over_c, edge_index, u, v, profile, length, n_steps, 
     return edge_transfer_matrix(k_over_c, length, profile, n_steps=n_steps, method=method)
 
 
+def _abscissa_grid(length: float, n_steps: int, method: str) -> np.ndarray:
+    """The positions the propagator will ask a profile for, concatenated."""
+    _, points = _magnus_sample_points(float(length), int(n_steps), method)
+    return np.concatenate(points)
+
+
+def _at_abscissae(samples, length: float, n_steps: int, method: str) -> np.ndarray:
+    r"""Resample a uniform-grid profile onto the propagator's abscissae.
+
+    ``edge_field_samples`` returns :math:`\psi` at the sub-interval *boundaries*;
+    the Magnus propagator evaluates the permittivity at Gauss points *inside*
+    each sub-interval. Those grids differ, so something has to bridge them.
+
+    Doing it here, on :math:`|E|^2`, costs one cubic interpolation per edge per
+    field refresh. Doing it on the far side -- interpolating the saturated
+    ``D0_eff`` inside the profile callable, as this did originally -- costs one
+    per edge per mode per residual evaluation, which is where 69 % of a
+    multimode solve went.
+
+    The interpolation is the same order either way, but not the same operation:
+    this resamples :math:`|E|^2` and then forms the saturation pointwise at the
+    abscissae, where before the *result* of the saturation was resampled. Both
+    are fourth-order accurate; the answers differ in the last digits.
+    """
+    values = np.asarray(samples, dtype=float)
+    grid = np.linspace(0.0, float(length), len(values))
+    return CubicSpline(grid, values)(_abscissa_grid(length, n_steps, method))
+
+
 def edge_field_profiles(
     wavenumber: complex,
     graph,
@@ -270,7 +304,7 @@ def edge_field_profiles(
         _, psi = edge_field_samples(
             k_over_c, length, eps_for_samples, psi_u, dpsi_u, n_steps=n_steps, method=method
         )
-        profiles.append(np.abs(psi) ** 2)
+        profiles.append(_at_abscissae(np.abs(psi) ** 2, length, n_steps, method))
         raw_fields.append(psi)
 
     if not normalise:
@@ -346,7 +380,9 @@ def saturated_eps_profiles(
             out.append(None)
             continue
         n_samples = len(field_profiles[0][edge_index]) if field_profiles else 2
-        grid = np.linspace(0.0, float(lengths[edge_index]), n_samples)
+        grid = _abscissa_grid(float(lengths[edge_index]), max(n_samples // 2, 1), "magnus4")
+        if len(grid) != n_samples:  # profiles from a different n_steps or method
+            grid = np.linspace(0.0, float(lengths[edge_index]), n_samples)
         denom = np.ones(n_samples)
         for clamp, a_nu, per_edge in zip(clamps, amplitudes, field_profiles, strict=True):
             denom = denom + clamp * float(a_nu) * np.asarray(per_edge[edge_index], dtype=float)
@@ -542,14 +578,41 @@ class _SaturatedEdgeProfile:
     the only thing that changes as the solver moves ``k`` at fixed fields.
     """
 
-    __slots__ = ("_d0_eff", "_eps", "_hi", "_interpolated", "_lo", "_n_samples", "gain")
+    __slots__ = (
+        "_d0_eff",
+        "_eps",
+        "_grid",
+        "_halves",
+        "_hi",
+        "_interpolated",
+        "_lo",
+        "_n_samples",
+        "gain",
+    )
 
     def __init__(self, grid, d0_eff, eps_edge):
         self._d0_eff = np.asarray(d0_eff, dtype=float)
         self._eps = eps_edge
-        self._lo, self._hi = float(grid[0]), float(grid[-1])
+        grid = np.asarray(grid, dtype=float)
+        self._lo, self._hi = float(np.min(grid)), float(np.max(grid))
         self._n_samples = len(grid)
+        self._grid = grid
         self.gain = 0.0 + 0.0j  # set by the caller, which knows k
+        # `grid` is normally the propagator's OWN abscissae, in the order it
+        # asks for them -- magnus4's two Gauss sets concatenated -- because the
+        # field is now sampled there. A query is then exactly one of those
+        # halves and needs no interpolation at all. `_halves` maps a query's
+        # (size, first, last) onto the matching slice; anything that does not
+        # match falls through to the spline, which is what keeps a caller mixing
+        # resolutions correct rather than merely fast.
+        self._halves: dict[tuple, np.ndarray] = {}
+        if self._n_samples % 2 == 0 and self._n_samples:
+            half = self._n_samples // 2
+            for start in (0, half):
+                piece = grid[start : start + half]
+                self._halves[(half, float(piece[0]), float(piece[-1]))] = self._d0_eff[
+                    start : start + half
+                ]
         # D0_eff already interpolated onto a set of query points, keyed by a
         # cheap signature of those points.
         #
@@ -571,7 +634,12 @@ class _SaturatedEdgeProfile:
         self._interpolated: dict[tuple, np.ndarray] = {}
 
     def __call__(self, x):
-        clipped = np.clip(np.asarray(x, dtype=float), self._lo, self._hi)
+        query = np.asarray(x, dtype=float)
+        if query.ndim == 1 and query.size:
+            direct = self._halves.get((query.size, float(query[0]), float(query[-1])))
+            if direct is not None:
+                return self._eps + self.gain * direct
+        clipped = np.clip(query, self._lo, self._hi)
         shape = np.shape(clipped)
         flat = np.ascontiguousarray(np.ravel(clipped))
         if flat.size:
@@ -580,12 +648,8 @@ class _SaturatedEdgeProfile:
             key = (shape, 0)
         values = self._interpolated.get(key)
         if values is None:
-            weights = _cubic_resampling_weights(self._n_samples, self._lo, self._hi, flat.tobytes())
-            if weights is None:
-                grid = np.linspace(self._lo, self._hi, self._n_samples)
-                values = CubicSpline(grid, self._d0_eff)(clipped)
-            else:
-                values = (weights @ self._d0_eff).reshape(shape)
+            order = np.argsort(self._grid)
+            values = CubicSpline(self._grid[order], self._d0_eff[order])(clipped)
             self._interpolated[key] = values
         return self._eps + self.gain * values
 
