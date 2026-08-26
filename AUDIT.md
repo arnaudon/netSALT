@@ -631,3 +631,214 @@ far above threshold. The blocking item is the within-edge resolution (#52) —
 until the oversampling is set from `k_max` and edge length rather than a flat
 node budget, the residual on a large graph cannot get small and the cost
 figures cannot be re-measured meaningfully.
+
+
+---
+
+## 9. Update — the within-edge resolution wall (issues #52, #53)
+
+§8 concluded that full SALT was unusable at production size, and attributed it to
+a flat oversampling node budget. That diagnosis was **wrong**, and the correction
+matters because it changes what the fix is.
+
+`construct_weight_matrix` uses one `k_e` per edge, and
+`1/(exp(2i k_e l_e) - 1)` is the exact edge solution *only for constant epsilon*
+— it is what makes the quantum-graph secular matrix exact. Spatial hole burning
+makes epsilon vary *within* an edge, breaking that assumption outright.
+`oversample_graph` restores piecewise-constancy by subdividing, and pays for it
+in the size of the **eigenproblem**. On the buffon that is ~76600 nodes against
+243 edges, so the default cap leaves 0.47 samples per wavelength: aliased, not
+coarse. No budget tuning fixes an O(h^2) scheme sampling below Nyquist.
+
+**The fix is to stop discretising the graph.** `L` is a sum of per-edge 2x2
+Dirichlet-to-Neumann blocks, and the DtN map of a varying-epsilon edge follows
+from its transfer matrix, `D = (1/M12) [[M11, -1], [-1, M22]]`. The matrix then
+stays one node per vertex while the resolution lives in per-edge transfer
+matrices. Landed as `netsalt/edge_propagator.py`,
+`netsalt/varying_laplacian.py` and `netsalt/salt_varying.py`, with:
+
+* exact reduction to `construct_laplacian` (1e-12) on the closed and open models,
+  so it can replace the closed form without touching passive behaviour;
+* oversampling converging **to** the DtN answer at a clean O(h^2) (ratios 3.88,
+  3.99), i.e. the two solve the same problem;
+* fourth-order Magnus needing 6400 sub-intervals for 1e-8 where the
+  piecewise-constant scheme — which *is* second-order Magnus — needs 819200;
+* the production buffon resolved at **18.5 samples per wavelength** (against
+  0.47) in a 208x208 matrix, ~2 s per operator build;
+* pump continuation converging at **15 of 15** pumps to 3x threshold, residuals
+  3e-7..9e-7, amplitude strictly monotone — against the oversampled solver's
+  non-monotone output and 1e-2 residuals.
+
+**Remaining:** the new path is a public API but is not yet what
+`intensity_method: full_salt_newton` runs, and it has not been cross-checked
+against `examples/audit/independent_salt/`. Until both land, #52 and #53 stay
+open — what has changed is that the wall is understood and demonstrably passable,
+not that the shipped default has moved.
+
+## 10. Update — which solution the varying solver lands on (issues #52, #53)
+
+§9 established that the per-edge-DtN operator removes the resolution wall. On
+the **production buffon** the solver then landed on the wrong solution branch
+above ~1.05x threshold. This section records the diagnosis and the fix.
+
+Reproducer: `examples/audit/probe_varying_amplitude_branch.py`, on
+`examples/buffon/buffon_narrow` (208 nodes, 243 edges, `n_steps = 512`).
+
+| D0/D0_thr | branch | solver, before | solver, now | k − k0 now |
+| --- | --- | --- | --- | --- |
+| 1.02 | 1.431 | 1.419 | 1.419 | +1.59e-05 |
+| 1.05 | 3.092 | 3.063 | 3.063 | +4.76e-05 |
+| 1.10 | 5.623 | **22.73, converged** | 5.576 | +7.32e-05 |
+| 1.26 | 15.558 | 85.67, failed | 15.388 | +2.82e-05 |
+| 2.09 | 68.077 | 412.2, failed | **still fails** | +2.91e-05 |
+
+**The equations were never the problem.** Fixing `a` and solving for `(k, D0)` —
+the same two equations, the same `_lam_varying` residual, a different pair of
+unknowns held — traces a `D0(a)` that is **strictly increasing** at all 56
+continuation points from `a = 0.2` to `70`. Monotone means bijective: the target
+pump has exactly one amplitude on the branch, and the continuation places the
+old solver's `a = 22.73` at `D0 = 1.38x`, not the `1.10x` requested. It was
+returning the amplitude of a *different pump*, at a residual of 6.8e-07. **A
+small residual is not evidence for this class of failure.**
+
+**What that branch column is worth.** It is not an independent solver — it runs
+through netsalt's own varying operator, so it validates *branch selection*, not
+the model. Its independent anchors are the linear competition matrix's onset
+slope near threshold (`1/T00 = 74.01` against a measured 75.5, a different code
+path) and, for the model itself, `independent_salt/` — see §11.
+
+**The fix** (landed): continue in the *total* amplitude and solve for the pump.
+Unknowns become `(k_0..k_{M-1}, u_1..u_{M-1}, D0)` with `a_mu = s·u_mu/Σu` and
+`u_g ≡ 1`, so `Σa ≡ s` by construction — no penalty term to weight against the
+residuals. `s` is the continuation parameter, `D0` is solved for, and a secant
+on `s` walks the achieved pump onto the requested one. Only the total scale is
+gauge-fixed: pinning a *single* mode's amplitude is the seemingly equivalent
+thing and is not — it left `line_PRA`'s first five pumps byte-identical, then
+collapsed mode 1 to zero and invented a third mode. `outer` was raised 25 → 40
+because the continuation needs more field refreshes and the 1.05x pump was
+consuming exactly 25.
+
+Ruled out before that, each by measurement: the frozen field misplacing the root
+(its residual minimum sits exactly on the truth), the initial guess being in the
+wrong basin (seeded *at* 5.80 against a true 5.623, the old solve still left for
+52.7), and amplitude runaway alone (capping it moved 1.10x from 52.7 to 22.7 and
+no further — every failing solve came back with `k` pinned on its own cap).
+
+**Still open.** The `2.09x` pump is a 4.4x amplitude step, too large for the
+secant to bridge: the solve holds at the incoming value and reports residual 1.2
+with `converged = False` — honest failure, not a wrong answer — after exhausting
+40 outer iterations in 38 minutes. The working range is now ~1.26x threshold,
+against ~1.05x before. Cost is ~2 min per pump against ~1 min.
+
+Two traps for anyone probing this, both of which produced confident wrong
+numbers here: a probe that lets `k` travel silently measures the **neighbouring
+mode** (a genuine root sits at `k − k0 = +6.5e-04`, three times the cap); and
+scanning `|lambda|` at real `k` cannot answer a branch question, because for an
+`a` that is not a solution there is no real-k root and the number reported is
+the bound `k` ran into.
+
+`line_PRA` is unchanged to every printed digit throughout — two lasing modes,
+8/8 pumps converged, worst residual 9.16e-07.
+
+## 11. The varying operator, against an independent solver
+
+§10 leaned on a reference curve traced through netsalt's *own* varying operator,
+which checks branch selection and not the model. This closes that gap:
+`examples/audit/independent_salt/` is a SALT solver written from the equations,
+sharing **no code** with netsalt (numpy and scipy only), verified to 0–4e-15
+against the closed-form Fabry–Pérot spectrum and O(h²) with successive-ratio
+4.00. It had only ever been run against netsalt's *oversampled* path. The
+varying path has now been run through the same comparison.
+
+Reproducers: `independent_salt/step5v_netsalt_varying_run.py` (the varying sweep,
+emitting step 5's schema) and `step8v_compare_varying.py` (the comparison — no
+Richardson stage, since the varying path converges in `n_steps` rather than an
+oversampling resolution).
+
+Fabry–Pérot, `n_steps = 64`, D0 = 0.58 … 1.40, **two co-lasing modes**, 72
+(pump, mode) comparisons of the convention-free quantities:
+
+| quantity | median rel. diff | max rel. diff |
+| --- | ---: | ---: |
+| lasing frequency `k_μ` | **4.4e-06** | 5.7e-06 |
+| modal intensity `I_μ` | **1.1e-04** | 7.8e-03 |
+
+These are **absolute** intensities, not ratios: `∫|Ψ_μ|² dx` on both sides, so
+SALT's denominator fixes the scale and there is no free normalisation. At
+D0 = 0.70 the varying path gives 7.804615e-2 against the independent solver's
+7.804230e-2.
+
+For comparison, the oversampled path's published figures on the same case are
+median 1.6e-4 / max 8.1e-3 in intensity — so the varying operator matches
+independent truth at least as well, on a matrix that never grows. The worst
+point (7.8e-3, D0 = 0.82, mode 2) sits in the pump steps straddling the second
+mode's turn-on, where its intensity is near zero — the same place the
+oversampled path's 8.1e-3 outliers sit, i.e. the discretisations rather than a
+bias.
+
+**What this does and does not license.** It validates the varying *model* —
+`construct_laplacian_varying`, `saturated_eps_profiles`, the per-edge
+propagators — above threshold and multimode, on a 1D Fabry–Pérot. It does not
+independently validate the buffon, whose geometry is far harsher (dense
+spectrum, tens of wavelengths per edge). What it does mean is that §10's
+continuation reference is no longer resting only on self-consistency: the
+operator underneath it now has independent backing on a case where truth exists.
+
+Not covered: a single `n_steps` with no Richardson extrapolation, so the `k`
+agreement (4.4e-06 against the oversampled path's Richardson-extrapolated
+2.7e-07) is limited by discretisation on both sides rather than by either
+solver.
+
+## 12. Multimode: how many modes full SALT actually solves
+
+Issue #54 asks whether the solver handles three or more co-lasing modes. Nothing
+in the repo had ever reached that: `line_PRA` lases two by construction, and
+`independent_salt/`'s README explains why its Fabry–Pérot cannot reach three at
+all (uniform index and uniform pump make the competition nearly rank-1, so gain
+clamping locks out the third). The buffon is the first case with a spectrum
+dense enough to ask the question.
+
+Fixture: `examples/buffon/buffon_narrow`'s graph over the *production* k window
+(10.35–11.0, Weyl ≈ 778 modes), uniform pump, candidate set capped at 12. All
+twelve thresholds fall within **4.7 %** of each other (0.003046 … 0.003189), so
+which modes lase is decided by competition rather than by threshold ordering —
+the regime the Nat. Commun. paper works in.
+
+**Six co-lasing modes, converged**, at `D0 = 1.05 x` the lowest threshold,
+`n_steps = 128`, residual 5.0e-07 in 17 iterations (364 s):
+
+| mode | k | full SALT `a` | linear `I` | diff |
+| --- | --- | ---: | ---: | ---: |
+| 0 | 10.67933 | 1.529 | 1.63 | −6.2 % |
+| 1 | 10.70432 | 13.48 | 13.18 | +2.3 % |
+| 2 | 10.66070 | 5.06 | 4.933 | +2.6 % |
+| 3 | 10.68009 | 1.538 | 1.65 | −6.8 % |
+| 4 | 10.68746 | 2.174 | 2.053 | +5.9 % |
+| 5 | 10.74082 | 2.083 | 2.078 | +0.2 % |
+
+The linear column is `compute_mode_competition_matrix` — a different code path
+with no transfer matrices and no varying operator — so ±7 % agreement is a real
+cross-check rather than a self-consistency one. The signs are right too: SALT
+sits *above* linear on the strong modes and *below* on the weak ones, which is
+the competition correction the linearised model omits.
+
+Worth noting the intensity ordering, because it looks wrong and is not: mode 1
+carries ~9x mode 0 despite sitting *closer* to its own threshold. Both solvers
+agree on it, so it is the mode's overlap with the pump, not a solver artefact.
+
+**Counts.** The linear model lases 6 of 12 at 1.05 x and 11 of 12 at 3.28 x.
+Full SALT is confirmed at 6. What limits it is cost, not convergence — every
+mode count from 1 to 6 converged on the first attempt.
+
+**Cost.** ~M^1.55, measured 1..4 before the speed-up work of §11; the 6-mode
+solve is 364 s at `n_steps = 128` on 4 cores. The two optimisations that landed
+(per-object interpolation cache, sampling the field at the propagator's
+abscissae) together give 2.48x on a 3-mode solve, which is what made 6 tractable
+in the first place.
+
+**Seeding matters.** Seed the set from the linear competition matrix rather than
+from `a = 1e-3`: it costs 0.6 s and starts the continuation near the answer.
+Seeding cold, or asking for six modes at a pump where only one lases (1.01 x),
+both leave the solver driving most of the set to zero and are far slower — the
+6-mode solve at 1.01 x had not finished in 14 minutes, against 6 minutes for the
+same set at the pump where all six genuinely lase.

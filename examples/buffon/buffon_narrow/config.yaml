@@ -1,0 +1,19 @@
+defaults: ../_base.yaml
+
+# A narrow k window around k_a = 10.68, so only a handful of modes are
+# candidates. The point of this variant is the *solver*, not a survey of the
+# buffon's spectrum: it is the smallest production-sized case that exercises
+# full SALT on the per-edge-DtN operator, and it is the fixture behind
+# examples/audit/probe_varying_amplitude_branch.py and AUDIT.md section 10.
+#
+# Weyl gives ~120 modes in this window; the mode search returns 4. That gap is
+# why the k cap in salt_varying is keyed off the Weyl spacing rather than off
+# the candidate list -- see the comment in compute_modal_intensities_varying.
+k_min: 10.63
+k_max: 10.73
+n_modes_max: 4
+n_workers: 4
+
+intensity_method: full_salt_varying
+salt_D0_steps: 6
+intensity_varying_n_steps: 128

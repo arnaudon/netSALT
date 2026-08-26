@@ -499,6 +499,16 @@ def step_compute_modal_intensities(
         qg = _attach_pump_to_graph(p, qg, pump)
     if method == "linear":
         modes_df = compute_modal_intensities(threshold_modes_df, D0_max, competition_matrix)
+    elif method == "full_salt_varying":
+        from netsalt.salt_varying import compute_modal_intensities_varying
+
+        modes_df = compute_modal_intensities_varying(
+            qg,
+            threshold_modes_df,
+            D0_max,
+            D0_steps=p.get("salt_D0_steps") or 10,
+            n_steps=p.get("intensity_varying_n_steps") or 64,
+        )
     elif method == "full_salt_newton":
         modes_df = compute_modal_intensities_full_salt_newton(
             qg,
@@ -514,7 +524,8 @@ def step_compute_modal_intensities(
         )
     else:  # pragma: no cover - guarded by the NetSaltParams Literal
         raise ValueError(
-            f"Unknown intensity_method {method!r}; expected 'linear' or 'full_salt_newton'."
+            f"Unknown intensity_method {method!r}; expected 'linear', "
+            "'full_salt_newton' or 'full_salt_varying'."
         )
     save_modes(modes_df, filename=str(out))
     return modes_df
