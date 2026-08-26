@@ -542,7 +542,7 @@ class _SaturatedEdgeProfile:
     the only thing that changes as the solver moves ``k`` at fixed fields.
     """
 
-    __slots__ = ("_d0_eff", "_eps", "_hi", "_lo", "_n_samples", "gain")
+    __slots__ = ("_d0_eff", "_eps", "_hi", "_interpolated", "_lo", "_n_samples", "gain")
 
     def __init__(self, grid, d0_eff, eps_edge):
         self._d0_eff = np.asarray(d0_eff, dtype=float)
@@ -550,15 +550,44 @@ class _SaturatedEdgeProfile:
         self._lo, self._hi = float(grid[0]), float(grid[-1])
         self._n_samples = len(grid)
         self.gain = 0.0 + 0.0j  # set by the caller, which knows k
+        # D0_eff already interpolated onto a set of query points, keyed by a
+        # cheap signature of those points.
+        #
+        # ``_d0_eff`` is fixed for the life of the object -- a new one is built
+        # whenever the amplitudes or fields move -- so the interpolation depends
+        # only on *where* it is asked. What changes between calls is ``gain``,
+        # which the caller rebinds as it moves k, and which multiplies the
+        # interpolated values rather than entering them.
+        #
+        # The access pattern makes this worth caching. ``saturated_eps_profiles``
+        # builds these once per residual evaluation and ``_lam_varying`` then
+        # rebinds the gain and rebuilds the operator once per mode, so each
+        # object is called ``2M`` times per residual (magnus4 asks for two Gauss
+        # point sets) against only **two** distinct query arrays, alternating.
+        # Interpolating on every call therefore repeats identical work M times
+        # over; holding both sets collapses it to two. A single-entry cache is
+        # useless here precisely because the two sets alternate -- measured at
+        # exactly 1.00x on the buffon before this was widened.
+        self._interpolated: dict[tuple, np.ndarray] = {}
 
     def __call__(self, x):
         clipped = np.clip(np.asarray(x, dtype=float), self._lo, self._hi)
+        shape = np.shape(clipped)
         flat = np.ascontiguousarray(np.ravel(clipped))
-        weights = _cubic_resampling_weights(self._n_samples, self._lo, self._hi, flat.tobytes())
-        if weights is None:
-            grid = np.linspace(self._lo, self._hi, self._n_samples)
-            return self._eps + self.gain * CubicSpline(grid, self._d0_eff)(clipped)
-        return self._eps + self.gain * (weights @ self._d0_eff).reshape(np.shape(clipped))
+        if flat.size:
+            key = (shape, flat.size, float(flat[0]), float(flat[flat.size // 2]), float(flat[-1]))
+        else:
+            key = (shape, 0)
+        values = self._interpolated.get(key)
+        if values is None:
+            weights = _cubic_resampling_weights(self._n_samples, self._lo, self._hi, flat.tobytes())
+            if weights is None:
+                grid = np.linspace(self._lo, self._hi, self._n_samples)
+                values = CubicSpline(grid, self._d0_eff)(clipped)
+            else:
+                values = (weights @ self._d0_eff).reshape(shape)
+            self._interpolated[key] = values
+        return self._eps + self.gain * values
 
 
 def _spline_profile(grid, d0_eff, eps_edge, params):
