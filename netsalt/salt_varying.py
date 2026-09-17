@@ -486,6 +486,31 @@ _RELAX_RECOVER = 1.5
 #: immediately, and the under-relaxation may be eased.
 _RELAX_RECOVER_ROUNDS = 2
 
+#: Floor under a free weight, as a fraction of the gauge mode's weight (which is
+#: 1 by construction). Zero is an ABSORBING boundary: a mode at zero amplitude
+#: contributes nothing to the residual, so once the solve touches that bound
+#: there is no gradient to bring it back, and the mode is gone for good.
+#:
+#: That is not a theoretical worry. Measured on the production buffon at
+#: 1.0846x threshold with six modes: two of them sit 7.60e-04 apart in k, which
+#: is 660x closer than the gain linewidth gamma_perp = 0.5, so their gain is
+#: effectively identical. Saturation pins the PAIR's total intensity but barely
+#: constrains how it divides between them -- a flat direction. The solve wandered
+#: it (the two amplitudes alternating 5.45 / 2.88 / 4.20 / 2.74 over four
+#: iterations while the other four modes stood still), touched the bound, and one
+#: of the pair stuck at 1e-22 for every iteration after. The remaining five-mode
+#: problem is well conditioned, so it converged to 4.3e-07 and reported success:
+#: a mode silently lost, with a clean residual.
+#:
+#: A positive floor keeps the derivative alive. It is small enough not to hold up
+#: a mode that genuinely does not lase -- the caller's active-set logic rejects
+#: those on the amplitude threshold, which is far above this.
+_WEIGHT_FLOOR = 1e-9
+
+#: Relative distance from the weight floor within which a weight counts as
+#: pinned on it.
+_WEIGHT_FLOOR_TOL = 1e-6
+
 #: Fraction of the Newton step on ``s`` that is actually taken. The believed
 #: ``dD0/ds`` is a secant over two continuation points, and on the buffon at
 #: 1.05x threshold consecutive estimates disagreed by up to 1.7x (0.0203 against
@@ -1107,7 +1132,9 @@ def solve_salt_varying(
     # the amplitudes are s * u / sum(u), so a large u redistributes the fixed
     # total rather than running away with it. That is the whole point of carrying
     # the scale separately.
-    lower[w_slice], upper[w_slice] = 0.0, np.inf
+    # A positive floor, not zero: see _WEIGHT_FLOOR. Zero is absorbing, and a
+    # near-degenerate pair will find it.
+    lower[w_slice], upper[w_slice] = _WEIGHT_FLOOR, np.inf
     lower[-1], upper[-1] = 0.0, np.inf
 
     # Explicit physical scales, not x_scale="jac". Both were measured on the
@@ -1131,6 +1158,12 @@ def solve_salt_varying(
     x_scale[w_slice] = 1.0
     x_scale[-1] = max(D0_target, _AMPLITUDE_TRUST_FLOOR)
 
+    # The amplitudes the caller handed in. "Was lasing" is judged on these
+    # against the lasing floor, not on the weight against its own floor: the
+    # caller's grow step seeds a candidate at a small but non-zero amplitude
+    # precisely so the solve can reject it, and driving such a candidate to zero
+    # is the correct outcome, not a lost mode.
+    entering_amplitudes = np.array(amplitudes, dtype=float, copy=True)
     converged = False
     iterations = 0
     # (scale, achieved D0) of the previous accepted solve, and the believed
@@ -1162,7 +1195,7 @@ def solve_salt_varying(
             local_ks = x[k_slice]
             local_w = np.ones(n_modes)
             if n_weights:
-                local_w[others] = np.clip(x[w_slice], 0.0, None)
+                local_w[others] = np.clip(x[w_slice], _WEIGHT_FLOOR, None)
             local_a = _amplitudes(local_w, _scale)
             local_D0 = max(float(x[-1]), 0.0)
             profiles = saturated_eps_profiles(graph, local_ks, local_a, _frozen, local_D0, pump)
@@ -1175,7 +1208,7 @@ def solve_salt_varying(
         x0 = np.empty(2 * n_modes)
         x0[k_slice] = np.clip(ks, k_lo, k_hi)
         if n_weights:
-            x0[w_slice] = np.clip(weights[others], 0.0, None)
+            x0[w_slice] = np.clip(weights[others], _WEIGHT_FLOOR, None)
         # Until a continuation point has been accepted there is no warm start for
         # D0, and its basin is narrow enough that guessing wrongly loses the mode
         # altogether. Measured on the buffon at 2.09x threshold seeded from the
@@ -1224,7 +1257,7 @@ def solve_salt_varying(
         if not on_k_bound:
             ks = np.asarray(result.x[k_slice], dtype=float).copy()
             if n_weights:
-                weights[others] = np.clip(result.x[w_slice], 0.0, None)
+                weights[others] = np.clip(result.x[w_slice], _WEIGHT_FLOOR, None)
             D0_solved = max(float(result.x[-1]), 0.0)
             # The state actually solved for: amplitudes at the *current* scale,
             # which is a genuine SALT solution at D0_solved. Reporting these and
@@ -1413,6 +1446,22 @@ def solve_salt_varying(
             # settled at once: give the step size back, or the backoff ratchets
             relax = min(relax * _RELAX_RECOVER, float(damping))
 
+        # A mode that came in lasing and left on the weight floor has not been
+        # found dark -- the solve stopped solving for it. The floor is where a
+        # mode contributes nothing to the residual, so the REMAINING set is well
+        # conditioned and converges happily, and the run reports a clean answer
+        # with a mode silently missing. Measured on the buffon at 1.0846x: two
+        # modes 7.60e-04 apart in k (660x inside gamma_perp) have a nearly flat
+        # intensity split, the solve wanders it, one lands on the floor, and the
+        # five-mode remainder converges to 4.3e-07.
+        #
+        # Refusing to call that converged is not a fix for the degeneracy -- the
+        # six-mode solution is still not being found -- but it stops the failure
+        # being reported as physics, which is what made it hard to see.
+        lost = n_weights and np.any(
+            (np.asarray(weights[others]) <= _WEIGHT_FLOOR * (1.0 + _WEIGHT_FLOOR_TOL))
+            & (np.asarray(entering_amplitudes[others]) > SALT_VARYING_LASING_AMPLITUDE)
+        )
         lasing = [i for i in range(n_modes) if amplitudes[i] > SALT_VARYING_LASING_AMPLITUDE]
         residuals = salt_residuals_varying(
             graph, ks, amplitudes, fields, D0_target, pump, n_steps=n_steps
@@ -1427,7 +1476,7 @@ def solve_salt_varying(
                 f"res={np.max(residuals):9.3e} cost={result.cost:9.3e}",
                 flush=True,
             )
-        if lasing and all(residuals[i] <= residual_tol for i in lasing):
+        if lasing and not lost and all(residuals[i] <= residual_tol for i in lasing):
             converged = True
             break
 
