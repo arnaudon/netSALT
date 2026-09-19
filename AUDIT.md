@@ -901,8 +901,24 @@ forbids: a mode that came in lasing and left on the weight floor is put through
 reported as the solution when it comes back lossy. A mode with *net* gain on
 that background is still a failure, and still refuses to converge.
 
-**Consequence for callers.** A mode that has gone dark has λ ≠ 0 by definition,
-so leaving it in the active set leaves a residual row that can never be zeroed:
-it pins the least-squares cost (measured 6.9e-04, i.e. |λ| ≈ 0.037) and
-dominates `max(residuals)` while the lasing modes are converged. Drop
-extinguished modes from the set before stepping the pump.
+**Consequence for the set.** A mode that has gone dark has λ ≠ 0 by definition,
+so leaving it in the set leaves two residual rows that can never be driven to
+zero — and `least_squares` minimises the *sum*, so it trades the live modes'
+residuals against the irreducible one and settles on a compromise. The damage is
+not confined to `max(residuals)`. Measured at 1.0846 x with the dead mode still
+in the set: 80 iterations, no convergence, and the five *live* modes stuck at
+2.3e-03 / 2.6e-03 / 3.6e-03 / 1.5e-02 / 1.2e-02. The same five solved on their
+own converge to 8.5e-07 in 21 iterations.
+
+So `solve_salt_varying` drops a mode the admission test has confirmed dark and
+re-solves the reduced set, warm-started from the state the loop has reached.
+Dropped modes come back at zero amplitude, preserving the caller's indexing;
+their returned residual is *not* a SALT residual and is not small, because
+λ ≠ 0 is what being dark means. Judge such a solve by `converged`, and read the
+residuals of the modes with non-zero amplitude.
+
+With that, the pump ladder walks through the extinction: six modes converged at
+1.0769 x (residuals ≤ 4.4e-07), the sixth dropped at 1.0846 x, five modes
+converged there (residuals ≤ 7.3e-07) at
+`a = 2.253 / 23.980 / 9.699 / — / 8.976 / 9.726`, which reproduces the
+independently solved five-mode set to four figures.
