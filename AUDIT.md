@@ -842,3 +842,67 @@ Seeding cold, or asking for six modes at a pump where only one lases (1.01 x),
 both leave the solver driving most of the set to zero and are far slower — the
 6-mode solve at 1.01 x had not finished in 14 minutes, against 6 minutes for the
 same set at the pump where all six genuinely lase.
+
+## 13. A mode going dark is an answer, not a failure
+
+§12 leaves the six-mode solve at `1.05 x` the lowest threshold. Pushing the pump
+higher runs into the question this section settles: at `1.0846 x`, one of the six
+is driven to zero and the remaining five converge cleanly. Is that a mode the
+solver lost, or a mode the laser turned off?
+
+It matters which, because the two are indistinguishable from the residual. The
+amplitude floor is exactly where a mode stops contributing to the least-squares,
+so the surviving set is well conditioned and converges happily either way, and
+the run reports a clean number with a mode missing from it.
+
+**The measurement.** `net_gain_alpha` walks a candidate's root off the real axis
+on a given saturated background — the admission test the caller already uses to
+let modes *in*, here pointed at a mode on its way *out*. Run on the background
+the five survivors burn at that pump (`examples/audit/` reproducer; the
+five-mode set solved independently converges there to 8.5e-07):
+
+| slot | k | α | |
+| ---: | --- | ---: | --- |
+| 0 | 10.679331 | +2.68e-10 | incumbent |
+| 1 | 10.704320 | −2.22e-11 | incumbent |
+| 2 | 10.660697 | +5.50e-11 | incumbent |
+| **3** | **10.680091** | **+4.35e-05** | **excluded — lossy** |
+| 4 | 10.687460 | −1.13e-09 | incumbent |
+| 5 | 10.740817 | −4.45e-10 | incumbent |
+
+The five incumbents sit at |α| ≤ 1.1e-09, which is what a lasing mode must do
+and what calibrates the test's noise floor. The departing mode is lossy by four
+orders of magnitude more than that, and its root is pulled toward its
+near-degenerate partner at 10.679331 — 7.60e-04 away, 660x inside
+`gamma_perp = 0.5`. Of two modes drawing on the same gain, one wins. **Five
+modes is the physical answer at 1.0846 x**, and the linear model's six is an
+overcount.
+
+That is the interesting disagreement, and it is where a linearised competition
+matrix should be expected to fail: near degeneracy the correction it omits is
+the one that decides which of the pair survives.
+
+**Two alternatives ruled out first**, since "the solver lost it" was the prior:
+
+* *Field lag.* At the six-mode state, the hole-burning field was driven to its
+  own fixed point at frozen `(k, a, D0)` — fixed-point residual 3.6e+00 down to
+  1.3e-06, a factor of 3e6. The per-mode λ residuals did not move, to five
+  significant figures (5.2e-2 / 4.2e-2 / 3.2e-2 / 1.0e-1 / 3.3e-2 / 2.0e-2). The
+  six-mode state is not a SALT solution and no field refinement makes it one.
+* *A mis-split degenerate pair.* The residual was spread across all six modes
+  rather than carried by the pair, which is not what a wrong split looks like.
+  A continuity regularisation on the split was written, measured and reverted:
+  at full strength it tracked the unpenalised run to four digits for five
+  iterations and collapsed the same mode at the same iteration.
+
+**Consequence for the solver.** `solve_salt_varying` now verifies rather than
+forbids: a mode that came in lasing and left on the weight floor is put through
+`net_gain_alpha` against the survivors' background, and the reduced set is
+reported as the solution when it comes back lossy. A mode with *net* gain on
+that background is still a failure, and still refuses to converge.
+
+**Consequence for callers.** A mode that has gone dark has λ ≠ 0 by definition,
+so leaving it in the active set leaves a residual row that can never be zeroed:
+it pins the least-squares cost (measured 6.9e-04, i.e. |λ| ≈ 0.037) and
+dominates `max(residuals)` while the lasing modes are converged. Drop
+extinguished modes from the set before stepping the pump.
