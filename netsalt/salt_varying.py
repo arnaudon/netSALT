@@ -511,40 +511,6 @@ _WEIGHT_FLOOR = 1e-9
 #: pinned on it.
 _WEIGHT_FLOOR_TOL = 1e-6
 
-#: Strength of the continuity penalty on the intensity split, as a residual per
-#: unit relative change in a weight, at the first outer iteration.
-#:
-#: The floor above stops a lost mode being *reported* as a solution; it does not
-#: find the solution. What makes the split ill-conditioned is that two modes
-#: 660x inside ``gamma_perp`` see the same gain, so saturation pins their sum and
-#: leaves the split nearly free -- a flat direction in the least-squares, along
-#: which the solve wanders until one end of it hits a bound.
-#:
-#: Continuity fixes the direction that physics does not: the split is a
-#: continuous function of the pump, so the previous pump's converged split is a
-#: point on the same branch a small step away. Penalising the distance from it
-#: adds curvature to the flat direction and nothing anywhere else -- along every
-#: well-conditioned direction the lambda residual is already far steeper than
-#: this.
-#:
-#: Sized against the residual, not against the weights: 1e-2 is the scale of the
-#: lambda residual in the early iterations of a six-mode buffon solve, so at the
-#: first iteration a 100 % change in a weight costs about as much as failing to
-#: solve, and by the fourth it costs an eighth of that.
-_CONTINUITY_WEIGHT = 1e-2
-
-#: Per-outer-iteration decay of the continuity penalty. It has to vanish, not
-#: merely be small: at the true solution the lambda residual is zero while
-#: ``u - u_prev`` is not, so any penalty surviving to convergence biases the
-#: answer towards the previous pump by exactly the amount it is worth. Decaying
-#: it makes the bias a property of the early iterations only -- it chooses the
-#: basin, and the converged point inside that basin is the unpenalised one.
-_CONTINUITY_DECAY = 0.5
-
-#: Penalty below which it is dropped entirely rather than carried as a set of
-#: rows that contribute nothing.
-_CONTINUITY_MIN = 1e-8
-
 #: Fraction of the Newton step on ``s`` that is actually taken. The believed
 #: ``dD0/ds`` is a secant over two continuation points, and on the buffon at
 #: 1.05x threshold consecutive estimates disagreed by up to 1.7x (0.0203 against
@@ -1198,14 +1164,6 @@ def solve_salt_varying(
     # precisely so the solve can reject it, and driving such a candidate to zero
     # is the correct outcome, not a lost mode.
     entering_amplitudes = np.array(amplitudes, dtype=float, copy=True)
-    # ... and the split those amplitudes carry, which is the previous pump's
-    # converged split whenever the caller is walking a ladder. The continuity
-    # penalty is measured from here (see _CONTINUITY_WEIGHT). The unit is the
-    # entering weight itself where that is large and 1 where it is small, so a
-    # weight of 20 is penalised on its relative change while one near the floor
-    # is not held there by its own smallness.
-    entering_weights = np.array(weights[others], dtype=float, copy=True)
-    weight_unit = np.maximum(np.abs(entering_weights), 1.0)
     converged = False
     iterations = 0
     # (scale, achieved D0) of the previous accepted solve, and the believed
@@ -1233,11 +1191,7 @@ def solve_salt_varying(
         iterations += 1
         frozen = [list(f) for f in fields]
 
-        penalty = _CONTINUITY_WEIGHT * _CONTINUITY_DECAY**_outer_step if n_weights else 0.0
-        if penalty < _CONTINUITY_MIN:
-            penalty = 0.0
-
-        def residual(x, _frozen=frozen, _scale=scale, _penalty=penalty):
+        def residual(x, _frozen=frozen, _scale=scale):
             local_ks = x[k_slice]
             local_w = np.ones(n_modes)
             if n_weights:
@@ -1249,12 +1203,6 @@ def solve_salt_varying(
             for k in local_ks:
                 value = _lam_varying(graph, float(k), profiles, n_steps)
                 out.extend((value.real, value.imag))
-            if _penalty:
-                # Extra residual rows, not a modified objective: least_squares
-                # sees them as more equations to satisfy, so the Gauss-Newton
-                # step gets the curvature without any change of method. They are
-                # independent of D0, so the D0 bracket above is unaffected.
-                out.extend(_penalty * (local_w[others] - entering_weights) / weight_unit)
             return np.asarray(out, dtype=float)
 
         x0 = np.empty(2 * n_modes)
