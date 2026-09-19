@@ -1505,6 +1505,48 @@ def solve_salt_varying(
         lost = bool(floored) and not _floored_modes_are_dark(
             graph, ks, amplitudes, fields, floored, lasing, D0_target, pump, n_steps
         )
+        if floored and not lost and lasing:
+            # Extinguished, and confirmed so. It has to leave the *problem*, not
+            # just the verdict: this solver asks lambda_1(k_mu) = 0 of every mode
+            # in the set, and a mode below threshold has lambda_1 != 0 by
+            # definition, so its two rows can never be driven to zero. Carrying
+            # them does not merely pin max(residuals) -- least_squares minimises
+            # the sum, so it trades the live modes' residuals against an
+            # irreducible one and settles on a compromise. Measured on the buffon
+            # at 1.0846x with the dead mode still in the set: 80 iterations, the
+            # five live modes stuck at 2.3e-03 .. 1.5e-02, against 8.5e-07 in 21
+            # iterations for the same five solved on their own.
+            #
+            # So drop it and re-solve, warm-started from here -- the state this
+            # loop has reached is a good seed for the reduced set, and the
+            # reduced set is the one with a solution. The dropped modes come back
+            # at zero amplitude, keeping the caller's indexing.
+            keep = [i for i in range(n_modes) if i not in floored]
+            sub = solve_salt_varying(
+                graph,
+                [ks[i] for i in keep],
+                [amplitudes[i] for i in keep],
+                D0_target,
+                pump,
+                n_steps=n_steps,
+                outer=max(outer - iterations, 1),
+                damping=damping,
+                residual_tol=residual_tol,
+                max_nfev=max_nfev,
+                k_window_cap=k_window_cap,
+            )
+            for slot, i in enumerate(keep):
+                ks[i] = sub.ks[slot]
+                amplitudes[i] = sub.amplitudes[slot]
+                fields[i] = sub.fields[slot]
+            for i in floored:
+                amplitudes[i] = 0.0
+            residuals = salt_residuals_varying(
+                graph, ks, amplitudes, fields, D0_target, pump, n_steps=n_steps
+            )
+            return SaltVaryingSolution(
+                ks, amplitudes, fields, residuals, sub.converged, iterations + sub.iterations
+            )
         residuals = salt_residuals_varying(
             graph, ks, amplitudes, fields, D0_target, pump, n_steps=n_steps
         )
