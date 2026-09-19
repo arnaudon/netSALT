@@ -781,6 +781,34 @@ def _lam_varying(graph, k, profiles, n_steps):
 SALT_VARYING_GAIN_MARGIN = -1e-6
 
 
+def _floored_modes_are_dark(
+    graph, ks, amplitudes, fields, floored, lasing, D0: float, pump, n_steps: int
+) -> bool:
+    """Are the modes on the weight floor extinguished, or merely dropped?
+
+    Builds the saturated background from the modes still lasing and asks
+    :func:`net_gain_alpha` what each floored mode does on it. Returns ``True``
+    only if every one of them is lossy there, i.e. the surviving set really has
+    burnt them out. With no survivors to burn anything there is no background to
+    test against, so nothing is declared dark.
+    """
+    if not lasing:
+        return False
+    profiles = saturated_eps_profiles(
+        graph,
+        [ks[i] for i in lasing],
+        [amplitudes[i] for i in lasing],
+        [fields[i] for i in lasing],
+        D0,
+        pump,
+    )
+    for i in floored:
+        _, alpha = net_gain_alpha(graph, float(ks[i]), profiles, n_steps=n_steps)
+        if alpha < 0.0:
+            return False
+    return True
+
+
 def net_gain_alpha(
     graph,
     k0: float,
@@ -1446,23 +1474,37 @@ def solve_salt_varying(
             # settled at once: give the step size back, or the backoff ratchets
             relax = min(relax * _RELAX_RECOVER, float(damping))
 
-        # A mode that came in lasing and left on the weight floor has not been
-        # found dark -- the solve stopped solving for it. The floor is where a
-        # mode contributes nothing to the residual, so the REMAINING set is well
-        # conditioned and converges happily, and the run reports a clean answer
-        # with a mode silently missing. Measured on the buffon at 1.0846x: two
-        # modes 7.60e-04 apart in k (660x inside gamma_perp) have a nearly flat
-        # intensity split, the solve wanders it, one lands on the floor, and the
-        # five-mode remainder converges to 4.3e-07.
+        # A mode that came in lasing and left on the weight floor is ambiguous,
+        # and the two readings need telling apart before the run is called a
+        # success. The floor is where a mode contributes nothing to the residual,
+        # so the REMAINING set is well conditioned and converges happily either
+        # way -- a clean residual is reported whether the mode went dark for
+        # physical reasons or the solve simply stopped solving for it.
         #
-        # Refusing to call that converged is not a fix for the degeneracy -- the
-        # six-mode solution is still not being found -- but it stops the failure
-        # being reported as physics, which is what made it hard to see.
-        lost = n_weights and np.any(
-            (np.asarray(weights[others]) <= _WEIGHT_FLOOR * (1.0 + _WEIGHT_FLOOR_TOL))
-            & (np.asarray(entering_amplitudes[others]) > SALT_VARYING_LASING_AMPLITUDE)
-        )
+        # So ask. `net_gain_alpha` walks the candidate's root off the real axis
+        # on the background the SURVIVORS burn: a mode the others have
+        # extinguished comes back lossy, one the solve merely dropped comes back
+        # with net gain. It is the same admission test the caller uses to let
+        # modes in, applied to a mode on its way out, and it costs one local
+        # two-variable root find only when a mode is actually on the floor.
+        #
+        # Measured on the buffon at 1.0846x, where two modes sit 7.60e-04 apart
+        # in k (660x inside gamma_perp) and one is driven to the floor: on the
+        # five survivors' background the departing mode is at alpha = +4.35e-05,
+        # lossy, against |alpha| <= 1.1e-09 for the five incumbents -- four
+        # orders of magnitude outside the test's own noise floor -- and its root
+        # is pulled towards its near-degenerate partner. It is extinguished, the
+        # five-mode set is the answer, and the solve found it.
+        floored = [
+            i
+            for i in (others if n_weights else [])
+            if weights[i] <= _WEIGHT_FLOOR * (1.0 + _WEIGHT_FLOOR_TOL)
+            and entering_amplitudes[i] > SALT_VARYING_LASING_AMPLITUDE
+        ]
         lasing = [i for i in range(n_modes) if amplitudes[i] > SALT_VARYING_LASING_AMPLITUDE]
+        lost = bool(floored) and not _floored_modes_are_dark(
+            graph, ks, amplitudes, fields, floored, lasing, D0_target, pump, n_steps
+        )
         residuals = salt_residuals_varying(
             graph, ks, amplitudes, fields, D0_target, pump, n_steps=n_steps
         )
