@@ -798,8 +798,11 @@ all (uniform index and uniform pump make the competition nearly rank-1, so gain
 clamping locks out the third). The buffon is the first case with a spectrum
 dense enough to ask the question.
 
-Fixture: `examples/buffon/buffon_narrow`'s graph over the *production* k window
-(10.35–11.0, Weyl ≈ 778 modes), uniform pump, candidate set capped at 12. All
+Fixture: `examples/buffon/buffon_competition` — the buffon over the *production*
+k window (10.35–11.0, Weyl ≈ 778 modes), uniform pump, candidate set capped at
+12. (Earlier drafts of this section credited `buffon_narrow`; that variant cuts
+the window to 10.63–10.73 and 4 modes and is not what these numbers were run
+on.) All
 twelve thresholds fall within **4.7 %** of each other (0.003046 … 0.003189), so
 which modes lase is decided by competition rather than by threshold ordering —
 the regime the Nat. Commun. paper works in.
@@ -922,3 +925,88 @@ With that, the pump ladder walks through the extinction: six modes converged at
 converged there (residuals ≤ 7.3e-07) at
 `a = 2.253 / 23.980 / 9.699 / — / 8.976 / 9.726`, which reproduces the
 independently solved five-mode set to four figures.
+
+## 14. What the linear model misses, measured
+
+§13 established that full SALT extinguishes a mode the linear competition matrix
+keeps. That is the qualitative difference; it is not the largest one. Two
+separable failures, both measured on the `buffon_competition` fixture over the
+pump ladder 1.0769 … 1.1616 x (12 pumps, 0.77 % steps, every one converged to
+≤ 1e-6 on the live modes).
+
+### 14.1 The mode count is nearly irrelevant to the intensities
+
+Full SALT's five surviving modes run 22–82 % above linear's by the top of the
+range. The obvious explanation — linear is spreading the gain over six modes
+instead of five — is wrong. Striking the extinguished mode from linear's
+*candidate set* and re-running it (`examples/audit/` reproducer) gives:
+
+| D0/thr | SALT vs linear-6 | SALT vs linear-5 |
+| --- | ---: | ---: |
+| 1.0846 | +7.5 % | +4.9 % |
+| 1.1077 | +8.9 % | +6.0 % |
+| 1.1308 | +11.8 % | +10.7 % |
+| 1.1616 | +16.8 % | **+16.4 %** |
+
+At the top of the range, correcting the mode count recovers 0.4 of the 16.8
+points. What linear actually misses is that **full SALT extracts more power from
+the same pump**, by a margin that grows monotonically with it.
+
+The sign is the one the algebra demands. The linear model expands the
+hole-burning denominator to first order, 1/(1 + u) ≈ 1 − u, and 1/(1+u) > 1 − u
+for every u > 0 — so the expansion always *overestimates* gain depletion, clamps
+too hard, and under-predicts output. The error is O(u²), i.e. quadratic in
+intensity, which is the observed growth from +4.9 % to +16.4 % across an 8 %
+pump range. Profile deformation (§14.2) pushes the same way: a saturated
+eigenvector can redistribute towards unsaturated gain, a frozen one cannot.
+
+It is not a uniform rescaling either. At 1.0846 x the per-mode spread against
+linear-5 runs −11 % … +20 %: gain is being *redistributed* between modes, not
+just added.
+
+### 14.2 The extinction is profile deformation, and nothing else
+
+`net_gain_alpha` takes the saturated background as an argument, so the
+background can be built the way either model would build it, at the same five
+amplitudes, and the candidate's net gain read off each:
+
+| background | profiles | k | α | verdict |
+| --- | --- | --- | ---: | --- |
+| A | saturated | pulled | +4.3482e-05 | dark |
+| B | threshold | pulled | −7.3351e-05 | lases |
+| C | threshold | threshold | −7.3341e-05 | lases |
+
+B and C agree to four significant figures, so **frequency pulling accounts for
+~0.01 % of the difference**. The whole swing — α from −7.3e-05 to +4.3e-05 — is
+profile deformation.
+
+What that deformation is:
+
+| mode | dk | \|Δprofile\| |
+| --- | ---: | ---: |
+| **10.679331** (the partner) | +2.99e-05 | **4.007** |
+| 10.704320 | +7.03e-06 | 0.819 |
+| 10.660697 | +9.34e-06 | 0.151 |
+| 10.687460 | +2.00e-05 | 0.375 |
+| 10.740817 | +8.23e-06 | 0.999 |
+
+The extinguished mode's near-degenerate partner deforms by 400 % of its own
+peak, five times more than any other mode in the set, and the pair's
+pump-weighted overlap **collapses from 0.68 to 0.29**.
+
+So the two modes, spatially near-identical at threshold (68 % overlap, 7.60e-04
+apart in k, 660x inside `gamma_perp`), **segregate** under saturation: the winner
+re-shapes to capture the pump-rich region and the loser is left with the
+depleted remainder. The overlap falls not because the competition weakened but
+because it was resolved. A competition matrix built once from threshold profiles
+sees only the 0.68 and cannot represent any of this.
+
+### 14.3 The existing conditioning diagnostic does not catch it
+
+`compute_modal_intensities` warns when the competition submatrix is
+ill-conditioned, on the reasoning that a near-degenerate pair leaves the split
+between them unresolvable. On this fixture it stays quiet, and rightly so by its
+own measure: `competition_conditioning` is 19.3 over all 12 candidates and
+**2.4** restricted to the pair that linear gets wrong. The failure is not
+ill-conditioning of `T`. It is that `T` — threshold profiles, first-order
+saturation — is the wrong operator. No conditioning test on `T` can detect that.
