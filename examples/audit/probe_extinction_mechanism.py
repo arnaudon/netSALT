@@ -73,6 +73,7 @@ thr0 = float(np.nanmin(thr))
 all_k = [float(np.real(tlm[i])) for i in order]
 pump = np.asarray(pump, dtype=float)
 
+OUT_DATA = "out/extinction_mechanism.npz"
 DOOMED = 3  # k = 10.680091, the mode full SALT extinguishes
 PARTNER = 0  # k = 10.679331, 7.60e-04 away
 keep = [0, 1, 2, 4, 5]
@@ -98,7 +99,7 @@ n_steps = _resolved_n_steps(qg, float(np.max(np.abs(sol.ks))), 128, pump)
 # --- how far did the survivors' profiles and frequencies actually move? -------
 print("\nwhat the pump did to the five survivors:", flush=True)
 print(f"  {'k(thr)':>11} {'k(SALT)':>11} {'dk':>11} {'|dprofile|':>11}", flush=True)
-frozen_shapes, pulled_frozen_shapes = [], []
+frozen_shapes, pulled_frozen_shapes, dprofiles = [], [], []
 for slot, j in enumerate(keep):
     k_thr, k_sat = all_k[j], float(sol.ks[slot])
     # threshold shape at the threshold k -- what the linear model uses
@@ -110,6 +111,7 @@ for slot, j in enumerate(keep):
         edge_field_profiles(k_sat, qg, psi, None, n_steps=n_steps, pump=pump)
     )
     dprof = _field_change([pulled_frozen_shapes[-1]], [sol.fields[slot]])
+    dprofiles.append(dprof)
     print(f"  {k_thr:11.6f} {k_sat:11.6f} {k_sat - k_thr:+11.2e} {dprof:11.3e}", flush=True)
 
 # --- the candidate's net gain on each background -------------------------------
@@ -143,6 +145,11 @@ def overlap(fa, fb):
 
 
 print("\noverlap of the candidate with its partner (k = 10.679331), pump-weighted:", flush=True)
+saved = {
+    "alpha": np.array([alphas[key] for key in "ABC"]),
+    "dk": np.array([float(sol.ks[i]) - all_k[j] for i, j in enumerate(keep)]),
+    "k_keep": np.array([all_k[j] for j in keep]),
+}
 for name, fields, ks_bg in cases:
     profiles = saturated_eps_profiles(qg, list(ks_bg), amps, fields, D0, pump)
     k_root, _ = net_gain_alpha(qg, all_k[DOOMED], profiles, n_steps=n_steps)
@@ -150,4 +157,15 @@ for name, fields, ks_bg in cases:
     f_doomed = edge_field_profiles(k_root, qg, psi, profiles, n_steps=n_steps, pump=pump)
     f_partner = fields[keep.index(PARTNER)]
     print(f"  {name:<54} {overlap(f_doomed, f_partner):8.4f}", flush=True)
+    # per-sample intensities of the pair, for the segregation scatter
+    saved[f"overlap_{name[0]}"] = overlap(f_doomed, f_partner)
+    saved[f"doomed_{name[0]}"] = np.concatenate([np.asarray(a) for a in f_doomed])
+    saved[f"partner_{name[0]}"] = np.concatenate([np.asarray(a) for a in f_partner])
+    saved[f"pumpmask_{name[0]}"] = np.concatenate(
+        [np.full(len(a), float(pump[e])) for e, a in enumerate(f_doomed)]
+    )
+
+saved["dprofile"] = np.array(dprofiles)
+np.savez(OUT_DATA, **saved)
+print(f"\nwrote {OUT_DATA}", flush=True)
 print("DONE", flush=True)

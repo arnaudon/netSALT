@@ -71,7 +71,7 @@ log = []
 def traced_alpha(graph, k0, profiles, **kw):
     out = real_alpha(graph, k0, profiles, **kw)
     log.append((float(traced_alpha.D0), float(k0), float(out[1])))
-    np.save("reignite_alpha.npy", np.array(log))
+    np.save("out/reignite_alpha.npy", np.array(log))
     return out
 
 
@@ -102,7 +102,7 @@ print(f"TOTAL {time.time() - t0:.0f}s", flush=True)
 cols = [c for c in out.columns if c[0] == "modal_intensities"]
 salt = np.nan_to_num(out[cols].to_numpy(dtype=float))
 d0s = np.array([float(c[1]) for c in cols])
-np.savez("reignite.npz", salt=salt, d0=d0s, thr0=thr0, thr=thr, k=kk, alpha=np.array(log))
+np.savez("out/reignite.npz", salt=salt, d0=d0s, thr0=thr0, thr=thr, k=kk, alpha=np.array(log))
 print(out.attrs["salt_varying_diagnostics"].to_string(), flush=True)
 print("\nlasing count per pump:", (salt > 1e-4).sum(axis=0).tolist(), flush=True)
 print("DONE", flush=True)
