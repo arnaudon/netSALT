@@ -116,15 +116,74 @@ The failure is not ill-conditioning of `T`. It is that `T` — threshold profile
 first-order saturation — is the wrong operator, and no conditioning test on `T`
 can detect that.
 
+## 5. The extinguished mode re-ignites
+
+![re-ignition](reignition.png)
+
+An extinguished mode is dark because the survivors burnt a hole where it lives.
+Their profiles keep deforming as the pump rises, so nothing forbids its net gain
+climbing back through zero. §3's mechanism predicted it would not — deformation
+grows with pump, and deformation is what killed it, so it should get *more*
+dark.
+
+**That prediction is wrong.** Running the sweep that admits and drops modes by
+net gain (`probe_mode_reignition.py`, which re-screens every candidate at every
+pump, dropped ones included) and reading the α of the extinguished mode's
+branch:
+
+| D0/thr | α | |
+| --- | --- | --- |
+| 1.0846 | +6.06e-05 | dark |
+| 1.1000 | +3.15e-05 | dark |
+| 1.1154 | +1.81e-05 | dark |
+| 1.1308 | +6.53e-06 | dark |
+| 1.1385 | +2.68e-06 | dark |
+| 1.1462 | +2.62e-07 | dark |
+| **1.1538** | **−2.59e-06** | **lases** |
+| 1.1615 | −5.98e-06 | lases |
+
+From 1.10× the α decays smoothly across two orders of magnitude and crosses zero
+near **1.150×**. The hole does not deepen over the loser indefinitely: past a
+point the winner reshapes away from it and the loser recovers.
+
+Below 1.09× the same α swings either side of zero several times, so this is not
+one extinction and one return — the cluster goes in and out repeatedly.
+
+**The mode count is correspondingly non-monotone**: about 6 at 1.085×, dipping
+to 5, then climbing to **9** by 1.1385×, as modes both die and re-ignite. Linear,
+which cannot extinguish a mode once it has won, has no mechanism for any of this.
+
+### What this does not establish
+
+* **Which cluster member re-ignites is unresolved.** From 1.1000× on, probes
+  started at k = 10.680054 and k = 10.679976 return *identical* α to five
+  significant figures — both root finds converge to the same root. The test says
+  a mode at k ≈ 10.68005 regains gain, not which one.
+* **The crossing location wants finer steps.** α at 1.1462× is 2.6e-07, about
+  100x the noise floor measured on converged incumbents (~1e-9). The sign is
+  solid; 1.150× is bracketed only to within one 0.77 % pump step.
+* **These backgrounds are not the ladder's.** This sweep admits by net gain from
+  the bottom, so its active set at a given pump differs from §1's forced
+  6-candidate ladder. At 1.0846× it finds k = 10.68009 with net gain where the
+  ladder found it dark — different background, not a contradiction. Whether a
+  mode lases depends on which set already does, which is the multistability point
+  below showing up in the data.
+* **The sweep is partial.** It was interrupted at 1.1615× of a 1.30× target and
+  never wrote its final intensities; the α log is what survived. A 10-mode solve
+  at 1.1538× refused to converge on two attempts, 6692 s and 7126 s, against
+  ~1000 s for 9 modes — that is the current cost wall.
+
 ## Open questions
 
-* **Does an extinguished mode come back?** It is dark because the survivors burnt
-  a hole where it lives, but their profiles keep deforming with pump, so nothing
-  forbids its net gain climbing back through zero. The mechanism above predicts
-  it gets *more* dark, since deformation grows with pump — if α turns back toward
-  zero instead, the deformation saturates or reverses, which would be the more
-  interesting answer. `probe_mode_reignition.py` records the α of every candidate
-  at every pump; it was still running when these results were written.
+* **Which mode re-ignites, and exactly where.** §5 answers the yes/no; it does
+  not separate the members of the near-degenerate cluster, because both probes
+  land on the same root. Resolving that needs a k window narrow enough to keep
+  them apart, and finer pump steps around 1.150x.
+* **Above 1.16x.** The sweep never got there. Whether the count keeps climbing,
+  and whether the re-ignited mode stays on, is unmeasured.
+* **The M = 10 wall.** Two attempts at 1.1538x, ~2 h each, both non-convergent,
+  against ~1000 s at M = 9. Until that is understood the sweep cannot be pushed
+  much further.
 * **It is a triplet, not a pair.** `k = 10.6793, 10.6800, 10.6801` all sit inside
   1e-3, and the third turns on at 1.0355×. Three modes competing for the same
   gain is a richer situation than the two-mode picture above.
@@ -154,7 +213,8 @@ python examples/audit/compare_linear_same_modes.py                 # seconds -> 
 python examples/audit/plot_linear_gap.py                           # figure 2
 python examples/audit/probe_extinction_mechanism.py                # ~5 min -> out/extinction_mechanism.npz
 python examples/audit/plot_extinction_mechanism.py                 # figure 3
-python examples/audit/probe_mode_reignition.py 1.30 40             # hours; the open question above
+python examples/audit/probe_mode_reignition.py 1.30 40             # hours -> out/reignite_alpha.npy
+python examples/audit/plot_reignition.py                           # figure 4
 ```
 
 `data/` holds the arrays these figures were drawn from, so they can be redrawn
