@@ -3188,3 +3188,539 @@ class TestOversampleAliasingWarning:
         # the figure quoted must exceed the cap it is being compared against
         needed = int(re.search(r"would need (\d+) nodes", message).group(1))
         assert needed > 3000
+
+
+class TestEdgePropagator:
+    """The variable-permittivity edge propagator (issue #52).
+
+    The properties that matter are: it reproduces the closed form exactly when
+    eps is constant (so it can replace it without changing passive behaviour),
+    second-order Magnus *is* the piecewise-constant scheme oversampling uses,
+    and fourth order converges as h^4 so it needs far fewer sub-intervals.
+    """
+
+    @staticmethod
+    def _rippled(eps0=2.25, ripple=0.04, q0=16.05):
+        return lambda x: eps0 / (1.0 + ripple * np.cos(q0 * np.asarray(x)) ** 2)
+
+    def test_constant_eps_matches_the_closed_form_exactly(self):
+        from netsalt.edge_propagator import edge_transfer_matrix, propagator_constant_eps
+
+        k, eps, length = 10.7, 2.25, 11.0
+        closed = propagator_constant_eps(k * np.sqrt(eps), length)
+        for method in ("magnus2", "magnus4"):
+            got = edge_transfer_matrix(
+                k,
+                length,
+                lambda x, e=eps: np.full_like(np.asarray(x, dtype=float), e),
+                n_steps=32,
+                method=method,
+            )
+            assert np.allclose(got, closed, rtol=1e-11, atol=1e-11), method
+
+    def test_scalar_eps_bypasses_discretisation(self):
+        from netsalt.edge_propagator import edge_transfer_matrix, propagator_constant_eps
+
+        k, eps, length = 3.0, 4.0, 2.0
+        got = edge_transfer_matrix(k, length, eps, n_steps=1)
+        assert np.allclose(got, propagator_constant_eps(k * np.sqrt(eps), length))
+
+    def test_propagator_is_unimodular_for_real_eps(self):
+        """Wronskian conservation: det = 1 for any lossless profile."""
+        from netsalt.edge_propagator import edge_transfer_matrix
+
+        got = edge_transfer_matrix(10.7, 11.0, self._rippled(), n_steps=256)
+        assert np.linalg.det(got) == pytest.approx(1.0, abs=1e-10)
+
+    def test_magnus2_is_the_piecewise_constant_scheme(self):
+        """Oversampling freezes eps per sub-edge; that is 2nd-order Magnus."""
+        from netsalt.edge_propagator import edge_transfer_matrix, propagator_constant_eps
+
+        k, length, n_steps = 10.7, 11.0, 128
+        eps = self._rippled()
+        h = length / n_steps
+        piecewise = np.eye(2, dtype=complex)
+        for i in range(n_steps):
+            q = k * np.sqrt(complex(eps(np.array([(i + 0.5) * h]))[0]))
+            piecewise = propagator_constant_eps(q, h) @ piecewise
+        magnus = edge_transfer_matrix(k, length, eps, n_steps=n_steps, method="magnus2")
+        assert np.allclose(magnus, piecewise, rtol=1e-10, atol=1e-10)
+
+    def test_fourth_order_converges_faster_than_second(self):
+        from netsalt.edge_propagator import edge_transfer_matrix
+
+        k, length, eps = 10.7, 11.0, self._rippled()
+        reference = edge_transfer_matrix(k, length, eps, n_steps=40000, method="magnus4")
+        scale = np.linalg.norm(reference)
+
+        def error(n, method):
+            got = edge_transfer_matrix(k, length, eps, n_steps=n, method=method)
+            return np.linalg.norm(got - reference) / scale
+
+        # observed order over a doubling, well inside the asymptotic regime
+        e2 = [error(n, "magnus2") for n in (800, 1600)]
+        e4 = [error(n, "magnus4") for n in (800, 1600)]
+        assert np.log2(e2[0] / e2[1]) == pytest.approx(2.0, abs=0.4)
+        assert np.log2(e4[0] / e4[1]) == pytest.approx(4.0, abs=0.4)
+        # and it is the reason this is worth doing at all
+        assert e4[1] < e2[1] / 100.0
+
+    def test_rejects_bad_arguments(self):
+        from netsalt.edge_propagator import edge_transfer_matrix
+
+        with pytest.raises(ValueError, match="n_steps"):
+            edge_transfer_matrix(1.0, 1.0, self._rippled(), n_steps=0)
+        with pytest.raises(ValueError, match="magnus"):
+            edge_transfer_matrix(1.0, 1.0, self._rippled(), method="rk4")
+
+
+class TestVaryingLaplacian:
+    """Secular matrix assembled from per-edge DtN blocks (issue #52).
+
+    The load-bearing property is exact reduction: with every edge constant, this
+    must reproduce `construct_laplacian` to round-off, on every boundary model.
+    Without that it cannot replace the closed form, and the varying-eps result
+    means nothing either.
+    """
+
+    @staticmethod
+    def _graph(open_model, n_edges=5):
+        import networkx as nx
+
+        import netsalt
+        from netsalt.physics import dispersion_relation_dielectric
+        from netsalt.quantum_graph import create_quantum_graph, set_total_length
+
+        g = nx.cycle_graph(n_edges) if open_model == "closed" else nx.path_graph(n_edges + 1)
+        positions = np.array([[float(i), 0.0] for i in range(len(g))])
+        params = {
+            "open_model": open_model,
+            "c": 1.0,
+            "dielectric_params": {
+                "method": "uniform",
+                "inner_value": 4.0,
+                "loss": 0.0,
+                "outer_value": 1.0,
+            },
+        }
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            create_quantum_graph(g, params, positions=positions, noise_level=0.0)
+        set_total_length(g, 3.0)
+        netsalt.set_dielectric_constant(g, g.graph["params"])
+        netsalt.set_dispersion_relation(g, dispersion_relation_dielectric)
+        return g
+
+    @pytest.mark.parametrize("open_model", ["closed", "open"])
+    def test_reduces_to_construct_laplacian_exactly(self, open_model):
+        from netsalt.quantum_graph import construct_laplacian
+        from netsalt.varying_laplacian import construct_laplacian_varying
+
+        graph = self._graph(open_model)
+        k = 2.3
+        reference = np.asarray(construct_laplacian(k, graph).todense())
+        got = np.asarray(construct_laplacian_varying(k, graph).todense())
+        assert np.max(np.abs(got - reference)) < 1e-12
+
+    def test_constant_profile_matches_no_profile(self):
+        """A callable that happens to be constant must agree with the closed form."""
+        from netsalt.quantum_graph import construct_laplacian
+        from netsalt.varying_laplacian import construct_laplacian_varying
+
+        graph = self._graph("closed")
+        k = 2.3
+        eps = float(np.real(graph.graph["params"]["dielectric_constant"][0]))
+        profiles = [
+            (lambda x, e=eps: np.full_like(np.asarray(x, dtype=float), e)) for _ in graph.edges
+        ]
+        reference = np.asarray(construct_laplacian(k, graph).todense())
+        got = np.asarray(construct_laplacian_varying(k, graph, profiles, n_steps=48).todense())
+        assert np.max(np.abs(got - reference)) < 1e-9
+
+    def test_varying_profile_converges_in_n_steps(self):
+        from netsalt.varying_laplacian import construct_laplacian_varying
+
+        graph = self._graph("closed")
+        k = 2.3
+        eps = float(np.real(graph.graph["params"]["dielectric_constant"][0]))
+
+        def profile(x, e=eps):
+            x = np.asarray(x, dtype=float)
+            return e / (1.0 + 0.05 * np.cos(4.0 * x) ** 2)
+
+        profiles = [profile for _ in graph.edges]
+        fine = np.asarray(construct_laplacian_varying(k, graph, profiles, n_steps=2048).todense())
+        errors = [
+            np.max(
+                np.abs(
+                    np.asarray(construct_laplacian_varying(k, graph, profiles, n_steps=n).todense())
+                    - fine
+                )
+            )
+            for n in (32, 64)
+        ]
+        assert errors[1] < errors[0] / 8.0  # fourth order, comfortably
+
+    def test_varying_profile_actually_differs_from_constant(self):
+        """Guards the test above from passing on a no-op."""
+        from netsalt.quantum_graph import construct_laplacian
+        from netsalt.varying_laplacian import construct_laplacian_varying
+
+        graph = self._graph("closed")
+        k = 2.3
+        eps = float(np.real(graph.graph["params"]["dielectric_constant"][0]))
+        profiles = [
+            (lambda x, e=eps: e / (1.0 + 0.05 * np.cos(4.0 * np.asarray(x)) ** 2))
+            for _ in graph.edges
+        ]
+        constant = np.asarray(construct_laplacian(k, graph).todense())
+        varying = np.asarray(construct_laplacian_varying(k, graph, profiles, n_steps=256).todense())
+        assert np.max(np.abs(varying - constant)) > 1e-3
+
+    def test_rejects_directed_models(self):
+        from netsalt.varying_laplacian import construct_laplacian_varying
+
+        graph = self._graph("open")
+        graph.graph["params"]["open_model"] = "directed"
+        with pytest.raises(ValueError, match="directed"):
+            construct_laplacian_varying(2.3, graph)
+
+    def test_rejects_a_varying_profile_on_a_boundary_edge(self):
+        from netsalt.varying_laplacian import construct_laplacian_varying
+
+        graph = self._graph("open")
+        profiles = [None] * len(graph.edges)
+        profiles[0] = lambda x: np.full_like(np.asarray(x, dtype=float), 4.0)
+        with pytest.raises(ValueError, match="outgoing-wave|boundary"):
+            construct_laplacian_varying(2.3, graph, profiles)
+
+    def test_rejects_wrong_profile_count(self):
+        from netsalt.varying_laplacian import construct_laplacian_varying
+
+        graph = self._graph("closed")
+        with pytest.raises(ValueError, match="entries"):
+            construct_laplacian_varying(2.3, graph, [None])
+
+
+class TestEdgeFieldSamples:
+    """Field sampled inside an edge, which is what the hole-burning profile needs."""
+
+    @staticmethod
+    def _rippled(eps0=2.25, ripple=0.04, q0=16.05):
+        return lambda x: eps0 / (1.0 + ripple * np.cos(q0 * np.asarray(x)) ** 2)
+
+    def test_step_propagators_multiply_to_the_transfer_matrix(self):
+        from netsalt.edge_propagator import edge_step_propagators, edge_transfer_matrix
+
+        k, length, eps, n = 10.7, 11.0, self._rippled(), 128
+        steps = edge_step_propagators(k, length, eps, n_steps=n)
+        assert len(steps) == n
+        total = np.eye(2, dtype=complex)
+        for step in steps:
+            total = step @ total
+        assert np.allclose(total, edge_transfer_matrix(k, length, eps, n_steps=n))
+
+    def test_constant_eps_field_is_the_analytic_solution(self):
+        """psi(0)=1, psi'(0)=0 gives cos(qx) exactly."""
+        from netsalt.edge_propagator import edge_field_samples
+
+        k, eps, length = 3.0, 4.0, 2.0
+        q = k * np.sqrt(eps)
+        x, psi = edge_field_samples(k, length, eps, 1.0, 0.0, n_steps=64)
+        assert np.allclose(psi, np.cos(q * x), atol=1e-10)
+
+    def test_endpoints_match_the_transfer_matrix(self):
+        from netsalt.edge_propagator import edge_field_samples, edge_transfer_matrix
+
+        k, length, eps = 10.7, 11.0, self._rippled()
+        psi0, dpsi0 = 0.3 + 0.2j, -1.1 + 0.4j
+        x, psi = edge_field_samples(k, length, eps, psi0, dpsi0, n_steps=256)
+        transfer = edge_transfer_matrix(k, length, eps, n_steps=256)
+        assert psi[0] == pytest.approx(psi0)
+        assert psi[-1] == pytest.approx((transfer @ np.array([psi0, dpsi0]))[0])
+        assert x[0] == 0.0 and x[-1] == pytest.approx(length)
+
+    def test_sample_count_follows_n_steps(self):
+        from netsalt.edge_propagator import edge_field_samples
+
+        for n in (1, 8, 64):
+            x, psi = edge_field_samples(10.7, 11.0, self._rippled(), 1.0, 0.0, n_steps=n)
+            assert len(x) == len(psi) == n + 1
+
+
+class TestVaryingLaplacianSpeedOfLight:
+    """`q = k sqrt(eps) / c`, so varying edges must be propagated at `k / c`.
+
+    Every other test here uses `c = 1`, where the bug is invisible.
+    """
+
+    @staticmethod
+    def _graph(c):
+        import networkx as nx
+
+        import netsalt
+        from netsalt.physics import dispersion_relation_dielectric
+        from netsalt.quantum_graph import create_quantum_graph, set_total_length
+
+        g = nx.cycle_graph(5)
+        positions = np.array(
+            [[np.cos(2 * np.pi * i / 5), np.sin(2 * np.pi * i / 5)] for i in range(5)]
+        )
+        params = {
+            "open_model": "closed",
+            "c": c,
+            "dielectric_params": {
+                "method": "uniform",
+                "inner_value": 4.0,
+                "loss": 0.0,
+                "outer_value": 1.0,
+            },
+        }
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            create_quantum_graph(g, params, positions=positions, noise_level=0.0)
+        set_total_length(g, 3.0)
+        netsalt.set_dielectric_constant(g, g.graph["params"])
+        netsalt.set_dispersion_relation(g, dispersion_relation_dielectric)
+        return g
+
+    @pytest.mark.parametrize("c", [1.0, 2.5, 0.4])
+    def test_constant_profile_matches_closed_form_for_any_c(self, c):
+        from netsalt.quantum_graph import construct_laplacian
+        from netsalt.varying_laplacian import construct_laplacian_varying
+
+        graph = self._graph(c)
+        k = 2.3
+        eps = float(np.real(graph.graph["params"]["dielectric_constant"][0]))
+        profiles = [
+            (lambda x, e=eps: np.full_like(np.asarray(x, dtype=float), e)) for _ in graph.edges
+        ]
+        reference = np.asarray(construct_laplacian(k, graph).todense())
+        got = np.asarray(construct_laplacian_varying(k, graph, profiles, n_steps=64).todense())
+        assert np.max(np.abs(got - reference)) < 1e-9
+
+
+class TestSaltVarying:
+    """SALT carried on the per-edge-DtN operator (issues #52, #53).
+
+    What is pinned here is the reduction and the normalisation convention. The
+    saturated *solve* is not covered: comparing the two paths at an arbitrary
+    (D0, a) is not a valid test, because such a state is not a SALT solution and
+    |lambda_1| never approaches zero -- the argmin of a non-vanishing residual is
+    not a physical quantity, and the two discretisations have no reason to agree
+    on it. A meaningful saturated comparison needs a self-consistent solution.
+    """
+
+    @staticmethod
+    def _graph(n_inner=5):
+        import networkx as nx
+
+        import netsalt
+        from netsalt.physics import dispersion_relation_pump
+        from netsalt.quantum_graph import create_quantum_graph, set_total_length
+
+        n_edges = n_inner + 2
+        g = nx.path_graph(n_edges + 1)
+        pos = np.array([[float(i), 0.0] for i in range(n_edges + 1)])
+        params = {
+            "open_model": "open",
+            "c": 1.0,
+            "k_a": 10.0,
+            "gamma_perp": 3.0,
+            "dielectric_params": {
+                "method": "uniform",
+                "inner_value": 9.0,
+                "loss": 0.0,
+                "outer_value": 1.0,
+            },
+        }
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            create_quantum_graph(g, params, positions=pos, noise_level=0.0)
+        set_total_length(g, 1.0, inner=True)
+        netsalt.set_dielectric_constant(g, g.graph["params"])
+        netsalt.set_dispersion_relation(g, dispersion_relation_pump)
+        pump = np.array([0.0 if not g[u][v]["inner"] else 1.0 for u, v in g.edges])
+        g.graph["params"]["pump"] = pump
+        return g, pump
+
+    def test_zero_amplitude_matches_the_existing_residual(self):
+        """Saturation off: both paths must be the same operator, exactly."""
+        from netsalt.modes import salt_residuals
+        from netsalt.salt_varying import (
+            edge_field_profiles,
+            node_solution_varying,
+            salt_residuals_varying,
+        )
+
+        graph, pump = self._graph()
+        k, D0 = 10.2, 0.05
+        _, psi = node_solution_varying(k, graph, None, n_steps=32)
+        profiles = edge_field_profiles(k, graph, psi, None, n_steps=32, pump=pump)
+        zero = [np.zeros_like(p) for p in profiles]
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            varying = salt_residuals_varying(graph, [k], [0.0], [zero], D0, pump, n_steps=32)
+            existing = salt_residuals(graph, [k], [0.0], [np.zeros(len(graph.edges))], D0, pump)
+        assert varying[0] == pytest.approx(existing[0], rel=1e-10)
+
+    def test_normalisation_matches_the_existing_convention(self):
+        """Per-edge mean of the within-edge profile == the existing per-edge value.
+
+        The existing path divides |E|^2 by an *unconjugated* pump norm
+        (`_graph_norm` contracts with `.T`); using int|psi|^2 instead leaves a
+        constant ~2 % offset, which this pins down.
+        """
+        from netsalt.modes import _get_mask_matrices, _single_mode_field_intensity
+        from netsalt.salt_varying import edge_field_profiles, node_solution_varying
+
+        graph, pump = self._graph()
+        k = 10.2
+        mask = _get_mask_matrices(graph.graph["params"])[1]
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            existing = np.abs(_single_mode_field_intensity(graph, [k, 1e-7], mask))
+        _, psi = node_solution_varying(k, graph, None, n_steps=512)
+        profiles = edge_field_profiles(k, graph, psi, None, n_steps=512, pump=pump)
+        # The profiles are sampled at the propagator's Magnus abscissae, not on a
+        # uniform grid, so a uniform-grid quadrature would be summarising them
+        # with the wrong rule. Two-point Gauss carries EQUAL weights h/2 on every
+        # sub-interval, so the edge mean is exactly the arithmetic mean of the
+        # samples -- no lengths needed.
+        mine = np.array([float(np.mean(p)) for p in profiles])
+        assert np.allclose(mine, existing, rtol=2e-5)
+
+    def test_field_profile_converges_with_resolution(self):
+        """The profile must converge, and fast -- a rate check, not an equality.
+
+        Asserting two resolutions are equal to a fixed tolerance conflates the
+        field's accuracy with the quadrature used to summarise it. What matters
+        is that refining converges, at better than second order now that the
+        pump norm uses Simpson rather than trapezoid.
+        """
+        from netsalt.salt_varying import edge_field_profiles, node_solution_varying
+
+        graph, pump = self._graph()
+        k = 10.2
+
+        def means(n_steps):
+            _, psi = node_solution_varying(k, graph, None, n_steps=n_steps)
+            profiles = edge_field_profiles(k, graph, psi, None, n_steps=n_steps, pump=pump)
+            # Arithmetic mean, not Simpson: the samples sit on the Magnus
+            # abscissae, where two-point Gauss weights every sample equally.
+            return np.array([float(np.mean(p)) for p in profiles])
+
+        coarse, mid, fine = means(64), means(128), means(256)
+        first = np.max(np.abs(coarse - fine))
+        second = np.max(np.abs(mid - fine))
+        assert second < first / 4.0  # at least fourth order over the doubling
+
+    def test_unpumped_edges_get_no_profile(self):
+        """Leads carry no pump, so their eps is exactly constant -- no discretisation."""
+        from netsalt.salt_varying import saturated_eps_profiles
+
+        graph, pump = self._graph()
+        fields = [[np.ones(9) for _ in graph.edges]]
+        profiles = saturated_eps_profiles(graph, [10.2], [0.5], fields, 0.05, pump)
+        for edge_index, profile in enumerate(profiles):
+            assert (profile is None) == (pump[edge_index] <= 0.0)
+
+
+class TestSolveSaltVarying:
+    """The self-consistent solve on the un-oversampled operator (#52, #53)."""
+
+    def test_converges_to_a_genuine_solution_above_threshold(self):
+        """Residual driven below target, on a graph that is never oversampled."""
+        from netsalt.salt_varying import _lam_varying, saturated_eps_profiles, solve_salt_varying
+
+        graph, pump = TestSaltVarying._graph()
+        n_steps = 32
+
+        # locate the threshold: D0 where the unsaturated operator turns singular
+        def min_lam(D0):
+            zero = [[np.zeros(n_steps + 1) for _ in graph.edges]]
+            profiles = saturated_eps_profiles(graph, [10.0], [0.0], zero, D0, pump)
+            grid = np.linspace(9.5, 11.0, 41)
+            values = np.array([abs(_lam_varying(graph, k, profiles, n_steps)) for k in grid])
+            i = int(np.argmin(values))
+            return values[i], grid[i]
+
+        grid = np.linspace(0.2, 0.7, 11)
+        pairs = [min_lam(D0) for D0 in grid]
+        i = int(np.argmin([v for v, _ in pairs]))
+        d0_thr, k0 = grid[i], pairs[i][1]
+        assert pairs[i][0] < 0.5, "fixture does not reach threshold in the scanned window"
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            solution = solve_salt_varying(
+                graph, [k0], [0.05], 1.5 * d0_thr, pump, n_steps=n_steps, outer=25
+            )
+        assert solution.converged
+        assert solution.residuals[0] < 1e-6
+        assert solution.amplitudes[0] > 0.0
+        assert len(graph) == 8  # never oversampled
+
+    def test_with_no_pump_it_reports_failure_rather_than_a_number(self):
+        """D0 = 0 has no lasing solution, and the solve must say so.
+
+        With no gain the operator does not depend on the amplitude at all, so the
+        residual has no gradient in ``a`` and least-squares leaves it wherever it
+        started. That is correct for an unconstrained sub-problem -- what matters
+        is that the result is *flagged*: ``converged`` is False and the residual
+        stays large, so a caller reading only ``amplitudes`` is reading a number
+        the solver never claimed to have solved for.
+        """
+        from netsalt.salt_varying import solve_salt_varying
+
+        graph, pump = TestSaltVarying._graph()
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            solution = solve_salt_varying(graph, [10.45], [0.05], 0.0, pump, n_steps=32, outer=6)
+        assert not solution.converged
+        assert solution.residuals[0] > 1.0
+
+
+class TestSaltVaryingKWindow:
+    """The k bound, whose absence produces *converged* wrong answers.
+
+    Both failure modes it prevents report success, which is why they need
+    pinning: an unbounded single-mode solve walks to k ~ 0 where the operator is
+    degenerate and reports a tiny residual for something that is not a lasing
+    mode; and two modes drifting onto the same k leave any split of intensity
+    between them satisfying the equations.
+    """
+
+    def test_single_mode_k_stays_near_its_start(self):
+        from netsalt.salt_varying import solve_salt_varying
+
+        graph, pump = TestSaltVarying._graph()
+        k0 = 10.45
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            solution = solve_salt_varying(graph, [k0], [0.05], 0.0, pump, n_steps=32, outer=6)
+        assert abs(solution.ks[0] - k0) < 0.1 * k0
+        assert solution.ks[0] > 1.0  # emphatically not the k ~ 0 degenerate root
+
+    def test_two_modes_cannot_collapse_onto_one_k(self):
+        from netsalt.salt_varying import solve_salt_varying
+
+        graph, pump = TestSaltVarying._graph()
+        ks = [10.30, 10.60]
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            solution = solve_salt_varying(graph, ks, [0.05, 0.05], 0.5, pump, n_steps=32, outer=6)
+        separation = abs(solution.ks[0] - solution.ks[1])
+        assert separation > 0.5 * abs(ks[0] - ks[1])
+
+    def test_explicit_cap_is_honoured(self):
+        from netsalt.salt_varying import solve_salt_varying
+
+        graph, pump = TestSaltVarying._graph()
+        k0 = 10.45
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            solution = solve_salt_varying(
+                graph, [k0], [0.05], 0.5, pump, n_steps=32, outer=4, k_window_cap=1e-3
+            )
+        assert abs(solution.ks[0] - k0) <= 1e-3 + 1e-9

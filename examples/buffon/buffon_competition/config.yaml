@@ -1,0 +1,26 @@
+defaults: ../_base.yaml
+
+# `buffon_uniform` with the candidate set widened to 12 and the varying-operator
+# SALT solver selected. The point of this variant is mode *competition*: over the
+# production k window inherited from _base.yaml (10.35 - 11.0) all twelve
+# thresholds land within 4.7 % of each other, so which modes lase is decided by
+# how they burn each other's gain rather than by threshold ordering.
+#
+# The fixture behind AUDIT.md sections 12-14, where full SALT and the linear
+# competition matrix disagree on both the lasing mode count (5 against 6 above
+# 1.085 x threshold) and the intensities (+16 % total by 1.16 x). Reproducers:
+# examples/audit/compare_linear_same_modes.py,
+# examples/audit/probe_extinction_mechanism.py and
+# examples/audit/probe_mode_reignition.py, all of which expect `bash run.sh`
+# to have built out/ here first.
+#
+# Contrast buffon_narrow, which cuts the window to a handful of modes to
+# exercise the solver rather than the physics, and buffon_multimode/, which
+# drives an *optimised* pump at hand-picked mode ids.
+pump_mode: uniform
+n_modes_max: 12
+n_workers: 4
+
+intensity_method: full_salt_varying
+salt_D0_steps: 6
+intensity_varying_n_steps: 128

@@ -125,3 +125,5 @@ examples/line_PRA/index.yaml
 examples/line_PRA/pump.yaml
 # agent worktrees
 .claude/
+examples/audit/independent_salt/results_*.json
+examples/audit/independent_salt/*.h5

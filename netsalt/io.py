@@ -167,7 +167,12 @@ def load_graph(filename: str = "graph.json", *, allow_pickle: bool = False, as_c
 
 
 #: ``modes_df.attrs`` keys holding a dataframe rather than a scalar.
-_MODES_ATTR_FRAME_KEYS = ("salt_diagnostics",)
+#:
+#: A key missing from this tuple does not fail loudly -- it is serialised by the
+#: payload's ``default=str`` fallback and comes back as a *string*, so the
+#: diagnostic silently stops being a dataframe after one round trip. Any new
+#: attrs frame must be added here.
+_MODES_ATTR_FRAME_KEYS = ("salt_diagnostics", "salt_varying_diagnostics")
 
 
 def _attrs_path(filename: str) -> Path:

@@ -118,8 +118,16 @@ class NetSaltParams(BaseModel):
     #     nonlinear eigenproblem for the active modes' ``(k, a)`` (real k,
     #     amplitude), capturing gain-clamping mode suppression. Validated against
     #     Ge-Chong-Stone on examples/line_PRA; slower.
+    #   ``"full_salt_varying"`` — the same operator-level SALT, but carried on
+    #     the per-edge Dirichlet-to-Neumann operator
+    #     (``netsalt.varying_laplacian``) so the graph is never oversampled: the
+    #     matrix stays one node per vertex while the within-edge hole burning is
+    #     resolved by per-edge transfer matrices. This is what makes production-
+    #     size graphs reachable — on the buffon, 18.5 samples per wavelength in a
+    #     208x208 matrix, against 0.47 and ~76600 nodes for full_salt_newton.
+    #     See issues #52 and #53.
     # See doc/source/lasing.rst and issue #42.
-    intensity_method: Literal["linear", "full_salt_newton"] | None = None
+    intensity_method: Literal["linear", "full_salt_newton", "full_salt_varying"] | None = None
     # full_salt_newton knobs:
     intensity_max_iter: int | None = None
     intensity_tol: float | None = None
@@ -134,6 +142,10 @@ class NetSaltParams(BaseModel):
     # there; raise it (slower) when the modal magnitudes matter.
     intensity_oversample_resolution: int | None = None
     intensity_oversample_node_cap: int | None = None
+    # full_salt_varying: sub-intervals per edge in the transfer-matrix propagator.
+    # Local to each edge -- it does *not* enter the eigenproblem, which is the
+    # whole point of that method.
+    intensity_varying_n_steps: int | None = None
 
     # --- Infrastructure ----------------------------------------------------
     n_workers: int | None = None

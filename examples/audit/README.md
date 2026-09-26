@@ -203,3 +203,159 @@ modes, ~1e-6 on thresholds, 2.7e-7 on lasing frequencies and 1.6e-4 on modal
 intensities (median over 122 pump points), with cross-residuals passing in both
 directions. It also found the `inner`-on-oversampled-graphs bug and quantified
 the default oversampling's +2.8 % intensity bias. See that directory's README.
+
+## `probe_edge_propagator.py`
+
+Groundwork for #52. The reason full SALT cannot reach production size is not a
+badly-chosen node budget: it is that the quantum-graph secular matrix requires
+one permittivity per edge (`1/(exp(2i k_e l_e) - 1)` is the exact solution only
+for constant eps), while spatial hole burning makes eps vary *within* an edge.
+`oversample_graph` restores piecewise-constancy by subdividing, and pays for it
+in the size of the eigenproblem.
+
+A per-edge transfer matrix keeps the eigenproblem at its original size and makes
+the sub-interval count local. This script measures what that count must be, on a
+buffon-like edge (~28 oscillations, 4 % saturation ripple), against a DOP853
+reference at rtol 1e-13:
+
+| sub-intervals | magnus2 (= oversampling) | magnus4 |
+| ---: | ---: | ---: |
+| 200 | 5.152e-02 | 7.785e-03 |
+| 400 | 1.360e-02 | 5.226e-04 |
+| 800 | 3.449e-03 | 3.321e-05 |
+| 1600 | 8.655e-04 | 2.084e-06 |
+| **for 1e-8** | **819200** | **6400** |
+
+Two results:
+
+* **Oversampling is second-order Magnus.** Freezing eps at each sub-edge
+  midpoint and multiplying constant-eps propagators is exactly
+  `exp(h A(x_mid))` for this system — the two agree to round-off, which is what
+  makes the comparison fair. It also means the current scheme is O(h^2) and
+  cannot be improved by tuning the budget.
+* **Fourth order needs 128x fewer sub-intervals** for the same accuracy, on top
+  of moving the count out of the matrix.
+
+`netsalt/edge_propagator.py` provides the propagator
+(`edge_transfer_matrix`, `propagator_constant_eps`). It reproduces the closed
+form exactly for constant eps, so it can replace it without changing passive
+behaviour. Wiring it into `construct_incidence_matrix` / `construct_weight_matrix`
+— which is where the open and directed boundary models have to be handled — is
+the follow-up.
+
+## `probe_varying_operator.py`
+
+The load-bearing check for #52/#53: does the per-edge-DtN operator
+(`netsalt/varying_laplacian.py`) actually reproduce what oversampling computes,
+with a matrix the size of the original graph?
+
+A 5-edge ring carrying a deliberately strong 10 % standing-wave ripple in eps
+(far deeper than real hole burning, so the effect is unmistakable):
+
+```
+uniform-eps mode:      k = 5.235987748  |lambda_min| = 1.84e-07   (matrix 5x5)
+varying, per-edge DtN: k = 5.415002428  |lambda_min| = 1.11e-13   (matrix 5x5)
+  ripple shifts the mode by 1.790e-01
+```
+
+| sub-edges/edge | matrix | k | \|k − DtN\| | ratio |
+| ---: | ---: | ---: | ---: | ---: |
+| 16 | 80 | 5.414378858 | 6.24e-04 | |
+| 32 | 160 | 5.414841847 | 1.61e-04 | 3.88 |
+| 64 | 320 | 5.414962004 | 4.04e-05 | 3.99 |
+
+The oversampled answer converges **to** the DtN answer at a clean O(h²) — they
+are solving the same problem — and the DtN operator arrives there directly, at
+`|lambda_min| = 1e-13`, with a 5×5 matrix instead of 320×320. On the buffon the
+equivalent subdivision is 76803 nodes against 243 edges.
+
+Two traps this script now guards against, both of which produced convincing
+nonsense first:
+
+* **A minimum on the bracket boundary is not a mode.** An earlier version took a
+  fixed window around a guess; every configuration returned its own endpoint and
+  they "agreed" to 1e-13 without any of them having found a root. `find_mode`
+  now requires an *interior* minimum and raises otherwise.
+* **Sub-edge eps must be placed geometrically.** Accumulating sub-edge lengths in
+  `work.edges` order assumes that order walks each parent edge end to end. It
+  does not; doing so scrambles the profile and the reference lands on a
+  different mode (6.42 instead of 5.42).
+
+## `probe_varying_continuation.py`
+
+Pump continuation through `netsalt.salt_varying.solve_salt_varying`, which never
+oversamples. This is the direct answer to #53's complaint about the oversampled
+solver: a non-monotone summed output (−40.8 % across one pump step on
+`mini_buffon`) with residuals of 1e-2 deep above threshold.
+
+Fabry-Perot fixture, 8-node matrix throughout, 15 pumps from 1.05x to 3.0x
+threshold:
+
+| D0/thr | k | a | residual | converged |
+| ---: | ---: | ---: | ---: | :---: |
+| 1.05 | 10.4410520 | 0.0372679 | 3.22e-07 | yes |
+| 1.61 | 10.4411674 | 0.4053469 | 8.75e-07 | yes |
+| 2.03 | 10.4411873 | 0.6906345 | 3.88e-07 | yes |
+| 2.58 | 10.4411733 | 1.0778356 | 4.77e-07 | yes |
+| 3.00 | 10.4411466 | 1.3715324 | 4.98e-07 | yes |
+
+**15 of 15 pumps converged**, residuals 3e-7..9e-7, amplitude strictly
+monotone, `k` stable to 1e-5 across the whole sweep, 11.4 s total.
+
+The continuation is load-bearing. Starting each pump from a scan-derived guess
+instead of from the previous solution makes the solver land on *different*
+modes (`k` jumping 11.4 -> 10.4 -> 9.5) — each a genuine root at residual
+< 1e-6, but not the same branch. Carrying the solution forward is what keeps it
+on one.
+
+## `probe_buffon_varying.py`
+
+The production buffon on the per-edge-DtN operator — the check that answers #52.
+
+Oversampling needs ~76600 nodes to reach lambda/12 here; the default cap of 3000
+gives **0.47 samples per wavelength**, four times below Nyquist, so the
+within-edge field is aliased rather than merely coarse. With the resolution
+moved into per-edge transfer matrices the matrix stays 208x208:
+
+| n_steps | samples/wavelength | matrix | build | \|lambda\| | delta |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 64 | 2.3 | 208x208 | 0.29s | 1.73132837 | |
+| 128 | 4.6 | 208x208 | 0.54s | 1.73130151 | 2.83e-05 |
+| 256 | 9.2 | 208x208 | 0.99s | 1.73129737 | 1.29e-05 |
+| 512 | 18.5 | 208x208 | 1.95s | 1.73129710 | 6.46e-07 |
+| 1024 | 36.9 | 208x208 | 3.96s | 1.73129709 | 3.34e-08 |
+
+**18.5 samples per wavelength against 0.47**, converged to 6e-7, in a matrix
+368x smaller than the equivalent subdivision, at ~2 s per operator build.
+
+One trap, because it produced a perfect-looking result first: running this at
+**zero amplitude** leaves the saturation denominator at 1, so the profile is
+constant, the propagator is exact at any `n_steps`, and `|lambda|` is identical
+to 1e-12 across the whole sweep — exercising none of the varying machinery. The
+sweep above uses a genuine saturated field.
+
+## `probe_varying_amplitude_branch.py`
+
+Which lasing solution the varying-operator SALT solver lands on, against the
+branch traced by amplitude continuation. Backs AUDIT.md §10.
+
+```bash
+cd ../buffon/buffon_narrow && bash run.sh && cd -
+OMP_NUM_THREADS=1 python probe_varying_amplitude_branch.py ../buffon/buffon_narrow/out
+```
+
+Measured on the narrow-window buffon (208 nodes, `n_steps = 512`):
+
+| D0/D0_thr | branch (truth) | solver | residual | converged |
+| --- | --- | --- | --- | --- |
+| 1.02 | 1.431 | 1.419 | 8.3e-07 | yes |
+| 1.05 | 3.092 | 3.063 | 6.9e-07 | yes |
+| 1.10 | 5.623 | 22.73 | 6.8e-07 | yes |
+| 1.26 | 15.558 | 85.67 | 6.6e-01 | no |
+| 2.09 | 68.077 | 412.2 | 5.8e-01 | no |
+
+`D0(a)` is strictly increasing at all 56 continuation points, so each pump has
+exactly one amplitude on the branch — and the continuation puts the solver's
+`a = 22.73` at `D0 = 1.38x`, not the `1.10x` asked for. Read: the residual is
+converged and the answer belongs to a different pump, so **a small residual is
+not evidence** for this class of failure.

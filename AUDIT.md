@@ -631,3 +631,444 @@ far above threshold. The blocking item is the within-edge resolution (#52) —
 until the oversampling is set from `k_max` and edge length rather than a flat
 node budget, the residual on a large graph cannot get small and the cost
 figures cannot be re-measured meaningfully.
+
+
+---
+
+## 9. Update — the within-edge resolution wall (issues #52, #53)
+
+§8 concluded that full SALT was unusable at production size, and attributed it to
+a flat oversampling node budget. That diagnosis was **wrong**, and the correction
+matters because it changes what the fix is.
+
+`construct_weight_matrix` uses one `k_e` per edge, and
+`1/(exp(2i k_e l_e) - 1)` is the exact edge solution *only for constant epsilon*
+— it is what makes the quantum-graph secular matrix exact. Spatial hole burning
+makes epsilon vary *within* an edge, breaking that assumption outright.
+`oversample_graph` restores piecewise-constancy by subdividing, and pays for it
+in the size of the **eigenproblem**. On the buffon that is ~76600 nodes against
+243 edges, so the default cap leaves 0.47 samples per wavelength: aliased, not
+coarse. No budget tuning fixes an O(h^2) scheme sampling below Nyquist.
+
+**The fix is to stop discretising the graph.** `L` is a sum of per-edge 2x2
+Dirichlet-to-Neumann blocks, and the DtN map of a varying-epsilon edge follows
+from its transfer matrix, `D = (1/M12) [[M11, -1], [-1, M22]]`. The matrix then
+stays one node per vertex while the resolution lives in per-edge transfer
+matrices. Landed as `netsalt/edge_propagator.py`,
+`netsalt/varying_laplacian.py` and `netsalt/salt_varying.py`, with:
+
+* exact reduction to `construct_laplacian` (1e-12) on the closed and open models,
+  so it can replace the closed form without touching passive behaviour;
+* oversampling converging **to** the DtN answer at a clean O(h^2) (ratios 3.88,
+  3.99), i.e. the two solve the same problem;
+* fourth-order Magnus needing 6400 sub-intervals for 1e-8 where the
+  piecewise-constant scheme — which *is* second-order Magnus — needs 819200;
+* the production buffon resolved at **18.5 samples per wavelength** (against
+  0.47) in a 208x208 matrix, ~2 s per operator build;
+* pump continuation converging at **15 of 15** pumps to 3x threshold, residuals
+  3e-7..9e-7, amplitude strictly monotone — against the oversampled solver's
+  non-monotone output and 1e-2 residuals.
+
+**Remaining:** the new path is a public API but is not yet what
+`intensity_method: full_salt_newton` runs, and it has not been cross-checked
+against `examples/audit/independent_salt/`. Until both land, #52 and #53 stay
+open — what has changed is that the wall is understood and demonstrably passable,
+not that the shipped default has moved.
+
+## 10. Update — which solution the varying solver lands on (issues #52, #53)
+
+§9 established that the per-edge-DtN operator removes the resolution wall. On
+the **production buffon** the solver then landed on the wrong solution branch
+above ~1.05x threshold. This section records the diagnosis and the fix.
+
+Reproducer: `examples/audit/probe_varying_amplitude_branch.py`, on
+`examples/buffon/buffon_narrow` (208 nodes, 243 edges, `n_steps = 512`).
+
+| D0/D0_thr | branch | solver, before | solver, now | k − k0 now |
+| --- | --- | --- | --- | --- |
+| 1.02 | 1.431 | 1.419 | 1.419 | +1.59e-05 |
+| 1.05 | 3.092 | 3.063 | 3.063 | +4.76e-05 |
+| 1.10 | 5.623 | **22.73, converged** | 5.576 | +7.32e-05 |
+| 1.26 | 15.558 | 85.67, failed | 15.388 | +2.82e-05 |
+| 2.09 | 68.077 | 412.2, failed | **still fails** | +2.91e-05 |
+
+**The equations were never the problem.** Fixing `a` and solving for `(k, D0)` —
+the same two equations, the same `_lam_varying` residual, a different pair of
+unknowns held — traces a `D0(a)` that is **strictly increasing** at all 56
+continuation points from `a = 0.2` to `70`. Monotone means bijective: the target
+pump has exactly one amplitude on the branch, and the continuation places the
+old solver's `a = 22.73` at `D0 = 1.38x`, not the `1.10x` requested. It was
+returning the amplitude of a *different pump*, at a residual of 6.8e-07. **A
+small residual is not evidence for this class of failure.**
+
+**What that branch column is worth.** It is not an independent solver — it runs
+through netsalt's own varying operator, so it validates *branch selection*, not
+the model. Its independent anchors are the linear competition matrix's onset
+slope near threshold (`1/T00 = 74.01` against a measured 75.5, a different code
+path) and, for the model itself, `independent_salt/` — see §11.
+
+**The fix** (landed): continue in the *total* amplitude and solve for the pump.
+Unknowns become `(k_0..k_{M-1}, u_1..u_{M-1}, D0)` with `a_mu = s·u_mu/Σu` and
+`u_g ≡ 1`, so `Σa ≡ s` by construction — no penalty term to weight against the
+residuals. `s` is the continuation parameter, `D0` is solved for, and a secant
+on `s` walks the achieved pump onto the requested one. Only the total scale is
+gauge-fixed: pinning a *single* mode's amplitude is the seemingly equivalent
+thing and is not — it left `line_PRA`'s first five pumps byte-identical, then
+collapsed mode 1 to zero and invented a third mode. `outer` was raised 25 → 40
+because the continuation needs more field refreshes and the 1.05x pump was
+consuming exactly 25.
+
+Ruled out before that, each by measurement: the frozen field misplacing the root
+(its residual minimum sits exactly on the truth), the initial guess being in the
+wrong basin (seeded *at* 5.80 against a true 5.623, the old solve still left for
+52.7), and amplitude runaway alone (capping it moved 1.10x from 52.7 to 22.7 and
+no further — every failing solve came back with `k` pinned on its own cap).
+
+**Still open.** The `2.09x` pump is a 4.4x amplitude step, too large for the
+secant to bridge: the solve holds at the incoming value and reports residual 1.2
+with `converged = False` — honest failure, not a wrong answer — after exhausting
+40 outer iterations in 38 minutes. The working range is now ~1.26x threshold,
+against ~1.05x before. Cost is ~2 min per pump against ~1 min.
+
+Two traps for anyone probing this, both of which produced confident wrong
+numbers here: a probe that lets `k` travel silently measures the **neighbouring
+mode** (a genuine root sits at `k − k0 = +6.5e-04`, three times the cap); and
+scanning `|lambda|` at real `k` cannot answer a branch question, because for an
+`a` that is not a solution there is no real-k root and the number reported is
+the bound `k` ran into.
+
+`line_PRA` is unchanged to every printed digit throughout — two lasing modes,
+8/8 pumps converged, worst residual 9.16e-07.
+
+## 11. The varying operator, against an independent solver
+
+§10 leaned on a reference curve traced through netsalt's *own* varying operator,
+which checks branch selection and not the model. This closes that gap:
+`examples/audit/independent_salt/` is a SALT solver written from the equations,
+sharing **no code** with netsalt (numpy and scipy only), verified to 0–4e-15
+against the closed-form Fabry–Pérot spectrum and O(h²) with successive-ratio
+4.00. It had only ever been run against netsalt's *oversampled* path. The
+varying path has now been run through the same comparison.
+
+Reproducers: `independent_salt/step5v_netsalt_varying_run.py` (the varying sweep,
+emitting step 5's schema) and `step8v_compare_varying.py` (the comparison — no
+Richardson stage, since the varying path converges in `n_steps` rather than an
+oversampling resolution).
+
+Fabry–Pérot, `n_steps = 64`, D0 = 0.58 … 1.40, **two co-lasing modes**, 72
+(pump, mode) comparisons of the convention-free quantities:
+
+| quantity | median rel. diff | max rel. diff |
+| --- | ---: | ---: |
+| lasing frequency `k_μ` | **4.4e-06** | 5.7e-06 |
+| modal intensity `I_μ` | **1.1e-04** | 7.8e-03 |
+
+These are **absolute** intensities, not ratios: `∫|Ψ_μ|² dx` on both sides, so
+SALT's denominator fixes the scale and there is no free normalisation. At
+D0 = 0.70 the varying path gives 7.804615e-2 against the independent solver's
+7.804230e-2.
+
+For comparison, the oversampled path's published figures on the same case are
+median 1.6e-4 / max 8.1e-3 in intensity — so the varying operator matches
+independent truth at least as well, on a matrix that never grows. The worst
+point (7.8e-3, D0 = 0.82, mode 2) sits in the pump steps straddling the second
+mode's turn-on, where its intensity is near zero — the same place the
+oversampled path's 8.1e-3 outliers sit, i.e. the discretisations rather than a
+bias.
+
+**What this does and does not license.** It validates the varying *model* —
+`construct_laplacian_varying`, `saturated_eps_profiles`, the per-edge
+propagators — above threshold and multimode, on a 1D Fabry–Pérot. It does not
+independently validate the buffon, whose geometry is far harsher (dense
+spectrum, tens of wavelengths per edge). What it does mean is that §10's
+continuation reference is no longer resting only on self-consistency: the
+operator underneath it now has independent backing on a case where truth exists.
+
+Not covered: a single `n_steps` with no Richardson extrapolation, so the `k`
+agreement (4.4e-06 against the oversampled path's Richardson-extrapolated
+2.7e-07) is limited by discretisation on both sides rather than by either
+solver.
+
+## 12. Multimode: how many modes full SALT actually solves
+
+Issue #54 asks whether the solver handles three or more co-lasing modes. Nothing
+in the repo had ever reached that: `line_PRA` lases two by construction, and
+`independent_salt/`'s README explains why its Fabry–Pérot cannot reach three at
+all (uniform index and uniform pump make the competition nearly rank-1, so gain
+clamping locks out the third). The buffon is the first case with a spectrum
+dense enough to ask the question.
+
+Fixture: `examples/buffon/buffon_competition` — the buffon over the *production*
+k window (10.35–11.0, Weyl ≈ 778 modes), uniform pump, candidate set capped at
+12. (Earlier drafts of this section credited `buffon_narrow`; that variant cuts
+the window to 10.63–10.73 and 4 modes and is not what these numbers were run
+on.) All
+twelve thresholds fall within **4.7 %** of each other (0.003046 … 0.003189), so
+which modes lase is decided by competition rather than by threshold ordering —
+the regime the Nat. Commun. paper works in.
+
+**Six co-lasing modes, converged**, at `D0 = 1.05 x` the lowest threshold,
+`n_steps = 128`, residual 5.0e-07 in 17 iterations (364 s):
+
+| mode | k | full SALT `a` | linear `I` | diff |
+| --- | --- | ---: | ---: | ---: |
+| 0 | 10.67933 | 1.529 | 1.63 | −6.2 % |
+| 1 | 10.70432 | 13.48 | 13.18 | +2.3 % |
+| 2 | 10.66070 | 5.06 | 4.933 | +2.6 % |
+| 3 | 10.68009 | 1.538 | 1.65 | −6.8 % |
+| 4 | 10.68746 | 2.174 | 2.053 | +5.9 % |
+| 5 | 10.74082 | 2.083 | 2.078 | +0.2 % |
+
+The linear column is `compute_mode_competition_matrix` — a different code path
+with no transfer matrices and no varying operator — so ±7 % agreement is a real
+cross-check rather than a self-consistency one. The signs are right too: SALT
+sits *above* linear on the strong modes and *below* on the weak ones, which is
+the competition correction the linearised model omits.
+
+Worth noting the intensity ordering, because it looks wrong and is not: mode 1
+carries ~9x mode 0 despite sitting *closer* to its own threshold. Both solvers
+agree on it, so it is the mode's overlap with the pump, not a solver artefact.
+
+**Counts.** The linear model lases 6 of 12 at 1.05 x and 11 of 12 at 3.28 x.
+Full SALT is confirmed at 6. What limits it is cost, not convergence — every
+mode count from 1 to 6 converged on the first attempt.
+
+**Cost.** ~M^1.55, measured 1..4 before the speed-up work of §11; the 6-mode
+solve is 364 s at `n_steps = 128` on 4 cores. The two optimisations that landed
+(per-object interpolation cache, sampling the field at the propagator's
+abscissae) together give 2.48x on a 3-mode solve, which is what made 6 tractable
+in the first place.
+
+**Seeding matters.** Seed the set from the linear competition matrix rather than
+from `a = 1e-3`: it costs 0.6 s and starts the continuation near the answer.
+Seeding cold, or asking for six modes at a pump where only one lases (1.01 x),
+both leave the solver driving most of the set to zero and are far slower — the
+6-mode solve at 1.01 x had not finished in 14 minutes, against 6 minutes for the
+same set at the pump where all six genuinely lase.
+
+## 13. A mode going dark is an answer, not a failure
+
+§12 leaves the six-mode solve at `1.05 x` the lowest threshold. Pushing the pump
+higher runs into the question this section settles: at `1.0846 x`, one of the six
+is driven to zero and the remaining five converge cleanly. Is that a mode the
+solver lost, or a mode the laser turned off?
+
+It matters which, because the two are indistinguishable from the residual. The
+amplitude floor is exactly where a mode stops contributing to the least-squares,
+so the surviving set is well conditioned and converges happily either way, and
+the run reports a clean number with a mode missing from it.
+
+**The measurement.** `net_gain_alpha` walks a candidate's root off the real axis
+on a given saturated background — the admission test the caller already uses to
+let modes *in*, here pointed at a mode on its way *out*. Run on the background
+the five survivors burn at that pump (`examples/audit/` reproducer; the
+five-mode set solved independently converges there to 8.5e-07):
+
+| slot | k | α | |
+| ---: | --- | ---: | --- |
+| 0 | 10.679331 | +2.68e-10 | incumbent |
+| 1 | 10.704320 | −2.22e-11 | incumbent |
+| 2 | 10.660697 | +5.50e-11 | incumbent |
+| **3** | **10.680091** | **+4.35e-05** | **excluded — lossy** |
+| 4 | 10.687460 | −1.13e-09 | incumbent |
+| 5 | 10.740817 | −4.45e-10 | incumbent |
+
+The five incumbents sit at |α| ≤ 1.1e-09, which is what a lasing mode must do
+and what calibrates the test's noise floor. The departing mode is lossy by four
+orders of magnitude more than that, and its root is pulled toward its
+near-degenerate partner at 10.679331 — 7.60e-04 away, 660x inside
+`gamma_perp = 0.5`. Of two modes drawing on the same gain, one wins. **Five
+modes is the physical answer at 1.0846 x**, and the linear model's six is an
+overcount.
+
+That is the interesting disagreement, and it is where a linearised competition
+matrix should be expected to fail: near degeneracy the correction it omits is
+the one that decides which of the pair survives.
+
+**Two alternatives ruled out first**, since "the solver lost it" was the prior:
+
+* *Field lag.* At the six-mode state, the hole-burning field was driven to its
+  own fixed point at frozen `(k, a, D0)` — fixed-point residual 3.6e+00 down to
+  1.3e-06, a factor of 3e6. The per-mode λ residuals did not move, to five
+  significant figures (5.2e-2 / 4.2e-2 / 3.2e-2 / 1.0e-1 / 3.3e-2 / 2.0e-2). The
+  six-mode state is not a SALT solution and no field refinement makes it one.
+* *A mis-split degenerate pair.* The residual was spread across all six modes
+  rather than carried by the pair, which is not what a wrong split looks like.
+  A continuity regularisation on the split was written, measured and reverted:
+  at full strength it tracked the unpenalised run to four digits for five
+  iterations and collapsed the same mode at the same iteration.
+
+**Consequence for the solver.** `solve_salt_varying` now verifies rather than
+forbids: a mode that came in lasing and left on the weight floor is put through
+`net_gain_alpha` against the survivors' background, and the reduced set is
+reported as the solution when it comes back lossy. A mode with *net* gain on
+that background is still a failure, and still refuses to converge.
+
+**Consequence for the set.** A mode that has gone dark has λ ≠ 0 by definition,
+so leaving it in the set leaves two residual rows that can never be driven to
+zero — and `least_squares` minimises the *sum*, so it trades the live modes'
+residuals against the irreducible one and settles on a compromise. The damage is
+not confined to `max(residuals)`. Measured at 1.0846 x with the dead mode still
+in the set: 80 iterations, no convergence, and the five *live* modes stuck at
+2.3e-03 / 2.6e-03 / 3.6e-03 / 1.5e-02 / 1.2e-02. The same five solved on their
+own converge to 8.5e-07 in 21 iterations.
+
+So `solve_salt_varying` drops a mode the admission test has confirmed dark and
+re-solves the reduced set, warm-started from the state the loop has reached.
+Dropped modes come back at zero amplitude, preserving the caller's indexing;
+their returned residual is *not* a SALT residual and is not small, because
+λ ≠ 0 is what being dark means. Judge such a solve by `converged`, and read the
+residuals of the modes with non-zero amplitude.
+
+With that, the pump ladder walks through the extinction: six modes converged at
+1.0769 x (residuals ≤ 4.4e-07), the sixth dropped at 1.0846 x, five modes
+converged there (residuals ≤ 7.3e-07) at
+`a = 2.253 / 23.980 / 9.699 / — / 8.976 / 9.726`, which reproduces the
+independently solved five-mode set to four figures.
+
+## 14. What the linear model misses, measured
+
+§13 established that full SALT extinguishes a mode the linear competition matrix
+keeps. That is the qualitative difference; it is not the largest one. Two
+separable failures, both measured on the `buffon_competition` fixture over the
+pump ladder 1.0769 … 1.1616 x (12 pumps, 0.77 % steps, every one converged to
+≤ 1e-6 on the live modes).
+
+### 14.1 The mode count is nearly irrelevant to the intensities
+
+Full SALT's five surviving modes run 22–82 % above linear's by the top of the
+range. The obvious explanation — linear is spreading the gain over six modes
+instead of five — is wrong. Striking the extinguished mode from linear's
+*candidate set* and re-running it (`examples/audit/` reproducer) gives:
+
+| D0/thr | SALT vs linear-6 | SALT vs linear-5 |
+| --- | ---: | ---: |
+| 1.0846 | +7.5 % | +4.9 % |
+| 1.1077 | +8.9 % | +6.0 % |
+| 1.1308 | +11.8 % | +10.7 % |
+| 1.1616 | +16.8 % | **+16.4 %** |
+
+At the top of the range, correcting the mode count recovers 0.4 of the 16.8
+points. What linear actually misses is that **full SALT extracts more power from
+the same pump**, by a margin that grows monotonically with it.
+
+The sign is the one the algebra demands. The linear model expands the
+hole-burning denominator to first order, 1/(1 + u) ≈ 1 − u, and 1/(1+u) > 1 − u
+for every u > 0 — so the expansion always *overestimates* gain depletion, clamps
+too hard, and under-predicts output. The error is O(u²), i.e. quadratic in
+intensity, which is the observed growth from +4.9 % to +16.4 % across an 8 %
+pump range. Profile deformation (§14.2) pushes the same way: a saturated
+eigenvector can redistribute towards unsaturated gain, a frozen one cannot.
+
+It is not a uniform rescaling either. At 1.0846 x the per-mode spread against
+linear-5 runs −11 % … +20 %: gain is being *redistributed* between modes, not
+just added.
+
+### 14.2 The extinction is profile deformation, and nothing else
+
+`net_gain_alpha` takes the saturated background as an argument, so the
+background can be built the way either model would build it, at the same five
+amplitudes, and the candidate's net gain read off each:
+
+| background | profiles | k | α | verdict |
+| --- | --- | --- | ---: | --- |
+| A | saturated | pulled | +4.3482e-05 | dark |
+| B | threshold | pulled | −7.3351e-05 | lases |
+| C | threshold | threshold | −7.3341e-05 | lases |
+
+B and C agree to four significant figures, so **frequency pulling accounts for
+~0.01 % of the difference**. The whole swing — α from −7.3e-05 to +4.3e-05 — is
+profile deformation.
+
+What that deformation is:
+
+| mode | dk | \|Δprofile\| |
+| --- | ---: | ---: |
+| **10.679331** (the partner) | +2.99e-05 | **4.007** |
+| 10.704320 | +7.03e-06 | 0.819 |
+| 10.660697 | +9.34e-06 | 0.151 |
+| 10.687460 | +2.00e-05 | 0.375 |
+| 10.740817 | +8.23e-06 | 0.999 |
+
+The extinguished mode's near-degenerate partner deforms by 400 % of its own
+peak, five times more than any other mode in the set, and the pair's
+pump-weighted overlap **collapses from 0.68 to 0.29**.
+
+So the two modes, spatially near-identical at threshold (68 % overlap, 7.60e-04
+apart in k, 660x inside `gamma_perp`), **segregate** under saturation: the winner
+re-shapes to capture the pump-rich region and the loser is left with the
+depleted remainder. The overlap falls not because the competition weakened but
+because it was resolved. A competition matrix built once from threshold profiles
+sees only the 0.68 and cannot represent any of this.
+
+### 14.3 The existing conditioning diagnostic does not catch it
+
+`compute_modal_intensities` warns when the competition submatrix is
+ill-conditioned, on the reasoning that a near-degenerate pair leaves the split
+between them unresolvable. On this fixture it stays quiet, and rightly so by its
+own measure: `competition_conditioning` is 19.3 over all 12 candidates and
+**2.4** restricted to the pair that linear gets wrong. The failure is not
+ill-conditioning of `T`. It is that `T` — threshold profiles, first-order
+saturation — is the wrong operator. No conditioning test on `T` can detect that.
+
+
+## 15. The warm start was never used, and it cost a mode
+
+§14's sweeps stopped at ~1.15x because a ten-mode solve would not converge:
+three attempts across two sweeps, 6692 s, 7126 s and 14137 s, against ~1000 s
+for nine modes. It looked like a cost wall that scaled with mode count. It was
+not — it was a seeding bug, and it had been quietly taxing every multimode solve
+in the repository.
+
+`solve_salt_varying` initialised its hole-burning field from the **unsaturated**
+operator unconditionally:
+
+```python
+fields = [list(f) for f in unsaturated]
+```
+
+That is right when the caller has no state to offer — at `a ~ 0` the operator
+really is unsaturated. It is wrong for a warm start. A continuation hands this
+function a converged state from the previous pump, and pairing those amplitudes
+with an unsaturated field is a combination that solves no problem, so the first
+frozen-field solve does something drastic.
+
+Measured (`examples/audit/` reproducers, `buffon_competition`):
+
+* **Five modes, re-solved at their own converged answer.** The first solve drops
+  two of the five to 2e-08 and redistributes the rest — `D0/target = 0.9598`,
+  residual 3.1e-01, least-squares cost 1.1e-02 — then spends the run rebuilding
+  them. 15 iterations, 166 s.
+* **Ten modes at 1.1521x.** The same inconsistency puts the solve on its `k`
+  bound. `on_k_bound` reads that as "the caller's seed is not a continuation
+  point" and answers with a cold restart from `a ~ 0`, dropping the scale from
+  113.98 to the 1e-3 floor. It then climbs ~12 % per outer iteration, so
+  returning to the answer needs `log(114/0.00125)/log(1.12) ~ 101` iterations
+  against an `outer = 80` budget. That is the 4-hour failure, exactly.
+
+The restart branch is not itself wrong — a seed genuinely can be unusable, and it
+was added against a measured failure (buffon at 2.09x, §10). The bug is that a
+seed was being *declared* unusable on the strength of a solve run against a field
+that never matched it.
+
+**The fix** is to settle the field at the caller's seed before the first
+least-squares, with the same fixed-point iteration and tolerance the outer loop
+already runs after every solve. Two eigensolves per mode per round, against the
+~60 residual evaluations of the least-squares it precedes.
+
+| case | before | after |
+| --- | --- | --- |
+| 5 modes, re-solve at own answer | 166 s, 15 iterations | **51 s, 4 iterations** |
+| 10 modes at 1.1521x | 6692 s / 7126 s / 14137 s, none converged | **296 s, converged, 9 iterations** |
+| unit suite | 165 s | **96 s** |
+
+Unchanged: 210 unit tests pass, the functional test's stored fixtures are
+byte-identical, and the independent-solver cross-check reproduces §11 to every
+digit — median 4.35e-06 in `k` and 1.15e-04 in intensity. The fix changes how
+fast an answer is reached, not which answer.
+
+**What it unblocks.** The tenth mode enters at `k = 10.680007` with `a = 0.1334`
+— the re-ignited member of the near-degenerate cluster of §13 — lasing properly
+rather than pinned at a floor. So **ten modes do lase above 1.1476x**, which the
+solver previously could not demonstrate, and the L–I curve is no longer capped
+at ~1.15x.
