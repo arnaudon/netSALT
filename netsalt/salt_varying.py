@@ -1143,6 +1143,61 @@ def solve_salt_varying(
         )
     fields = [list(f) for f in unsaturated]
 
+    # ... and then settle them against the amplitudes the caller actually handed
+    # in, before the first least-squares sees them.
+    #
+    # The unsaturated field is the right start when the caller has no state to
+    # offer (a ~ 0, where the operator IS unsaturated). It is the wrong one for a
+    # warm start: a continuation hands this function a converged state from the
+    # previous pump, and pairing those amplitudes with an unsaturated field is a
+    # combination that solves no problem, so the first frozen-field solve does
+    # something drastic. Measured on the buffon at 1.0846x with five modes,
+    # seeded at its own converged answer, the first solve drops two of the five
+    # to 2e-08 and redistributes the rest, recovering only over the following
+    # iterations -- a cost paid at every pump of every sweep. At 1.1521x with ten
+    # modes the same inconsistency puts the solve on its k bound, which the
+    # branch below reads as "the seed is not a continuation point" and answers
+    # with a cold restart from a ~ 0: three sweeps spent 6692 s, 7126 s and
+    # 14137 s there without converging, against ~1000 s for nine modes.
+    #
+    # So run the field's own fixed point at the seed first. It is the same
+    # iteration the outer loop runs after every solve, at the same tolerance, and
+    # costs two eigensolves per mode per round against the ~60 residual
+    # evaluations of the least-squares it precedes.
+    if float(np.sum(np.maximum(amplitudes, 0.0))) > _AMPLITUDE_TRUST_FLOOR:
+        settle_previous = np.inf
+        settle_relax = float(damping)
+        for _ in range(_FIELD_REFRESH_MAX):
+            settle_profiles = saturated_eps_profiles(graph, ks, amplitudes, fields, D0_target, pump)
+            settle_refreshed = []
+            for k in ks:
+                settle_gain = gamma(complex(k), graph.graph["params"])
+                for settle_profile in settle_profiles:
+                    if settle_profile is not None:
+                        settle_profile.gain = settle_gain
+                _, settle_psi = node_solution_varying(
+                    float(k), graph, settle_profiles, n_steps=n_steps
+                )
+                settle_refreshed.append(
+                    edge_field_profiles(
+                        float(k), graph, settle_psi, settle_profiles, n_steps=n_steps, pump=pump
+                    )
+                )
+            settle_mixed = [
+                [
+                    (1.0 - settle_relax) * old_s + settle_relax * new_s
+                    for old_s, new_s in zip(per_old, per_new, strict=True)
+                ]
+                for per_old, per_new in zip(fields, settle_refreshed, strict=True)
+            ]
+            settle_change = _field_change(fields, settle_mixed)
+            fields = settle_mixed
+            if settle_change <= _FIELD_TRACK_TOL:
+                break
+            if settle_change >= _RELAX_IMPROVE * settle_previous and settle_relax > _RELAX_MIN:
+                settle_relax = max(settle_relax * _RELAX_BACKOFF, _RELAX_MIN)
+            settle_previous = settle_change
+
     # Layout of the unknown vector: k's first, then the M-1 free weights, then
     # D0 last. Explicitly contiguous rather than the interleaved x[0::2] / x[1::2]
     # this used to be -- with a trailing scalar unknown that slicing silently

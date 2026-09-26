@@ -1010,3 +1010,65 @@ own measure: `competition_conditioning` is 19.3 over all 12 candidates and
 **2.4** restricted to the pair that linear gets wrong. The failure is not
 ill-conditioning of `T`. It is that `T` — threshold profiles, first-order
 saturation — is the wrong operator. No conditioning test on `T` can detect that.
+
+
+## 15. The warm start was never used, and it cost a mode
+
+§14's sweeps stopped at ~1.15x because a ten-mode solve would not converge:
+three attempts across two sweeps, 6692 s, 7126 s and 14137 s, against ~1000 s
+for nine modes. It looked like a cost wall that scaled with mode count. It was
+not — it was a seeding bug, and it had been quietly taxing every multimode solve
+in the repository.
+
+`solve_salt_varying` initialised its hole-burning field from the **unsaturated**
+operator unconditionally:
+
+```python
+fields = [list(f) for f in unsaturated]
+```
+
+That is right when the caller has no state to offer — at `a ~ 0` the operator
+really is unsaturated. It is wrong for a warm start. A continuation hands this
+function a converged state from the previous pump, and pairing those amplitudes
+with an unsaturated field is a combination that solves no problem, so the first
+frozen-field solve does something drastic.
+
+Measured (`examples/audit/` reproducers, `buffon_competition`):
+
+* **Five modes, re-solved at their own converged answer.** The first solve drops
+  two of the five to 2e-08 and redistributes the rest — `D0/target = 0.9598`,
+  residual 3.1e-01, least-squares cost 1.1e-02 — then spends the run rebuilding
+  them. 15 iterations, 166 s.
+* **Ten modes at 1.1521x.** The same inconsistency puts the solve on its `k`
+  bound. `on_k_bound` reads that as "the caller's seed is not a continuation
+  point" and answers with a cold restart from `a ~ 0`, dropping the scale from
+  113.98 to the 1e-3 floor. It then climbs ~12 % per outer iteration, so
+  returning to the answer needs `log(114/0.00125)/log(1.12) ~ 101` iterations
+  against an `outer = 80` budget. That is the 4-hour failure, exactly.
+
+The restart branch is not itself wrong — a seed genuinely can be unusable, and it
+was added against a measured failure (buffon at 2.09x, §10). The bug is that a
+seed was being *declared* unusable on the strength of a solve run against a field
+that never matched it.
+
+**The fix** is to settle the field at the caller's seed before the first
+least-squares, with the same fixed-point iteration and tolerance the outer loop
+already runs after every solve. Two eigensolves per mode per round, against the
+~60 residual evaluations of the least-squares it precedes.
+
+| case | before | after |
+| --- | --- | --- |
+| 5 modes, re-solve at own answer | 166 s, 15 iterations | **51 s, 4 iterations** |
+| 10 modes at 1.1521x | 6692 s / 7126 s / 14137 s, none converged | **296 s, converged, 9 iterations** |
+| unit suite | 165 s | **96 s** |
+
+Unchanged: 210 unit tests pass, the functional test's stored fixtures are
+byte-identical, and the independent-solver cross-check reproduces §11 to every
+digit — median 4.35e-06 in `k` and 1.15e-04 in intensity. The fix changes how
+fast an answer is reached, not which answer.
+
+**What it unblocks.** The tenth mode enters at `k = 10.680007` with `a = 0.1334`
+— the re-ignited member of the near-degenerate cluster of §13 — lasing properly
+rather than pinned at a floor. So **ten modes do lase above 1.1476x**, which the
+solver previously could not demonstrate, and the L–I curve is no longer capped
+at ~1.15x.
