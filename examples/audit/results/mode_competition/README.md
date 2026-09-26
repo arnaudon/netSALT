@@ -238,10 +238,17 @@ that solution. Until M = 10 converges, this fixture cannot be followed past ~1.1
   them apart, and finer pump steps around 1.150x.
 * **Above 1.16x.** The sweep never got there. Whether the count keeps climbing,
   and whether the re-ignited mode stays on, is unmeasured.
-* **The M = 10 wall — now the blocking item.** Three attempts across two sweeps
-  (6692 s, 7126 s, 14137 s), all non-convergent, against ~1000 s at M = 9. §6
-  shows it is not incidental: it sits exactly at the pump where the re-ignited
-  mode must be admitted, so it is what stops the L-I curve at ~1.15x.
+* ~~**The M = 10 wall.**~~ **Fixed** — see `AUDIT.md` §15. It was not a cost wall
+  that scales with mode count but a seeding bug: the solver initialised its
+  hole-burning field from the *unsaturated* operator even when handed a converged
+  warm start, which put the ten-mode solve on its `k` bound, triggered a cold
+  restart to `a ~ 0`, and left it unable to climb back within its iteration
+  budget. Settling the field at the seed first turns the three failures
+  (6692 s, 7126 s, 14137 s) into **296 s, converged, 9 iterations**, with the
+  tenth mode entering at `k = 10.680007`, `a = 0.1334`. **Every figure and
+  number in this README was produced before that fix**, so the sweeps here stop
+  at ~1.15x for a reason that no longer applies; they are worth re-running
+  further up.
 * **Hysteresis.** Sweeping down from the top state and comparing counts at the
   same pumps would separate "the branch matters" from "the step size mattered",
   which §6 could not: its seed differed from §5's as well as its resolution.
