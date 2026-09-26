@@ -173,6 +173,63 @@ which cannot extinguish a mode once it has won, has no mechanism for any of this
   at 1.1538× refused to converge on two attempts, 6692 s and 7126 s, against
   ~1000 s for 9 modes — that is the current cost wall.
 
+## 6. The transitions, at 0.25 % steps — nothing actually jumps
+
+![fine transitions](fine_transitions.png)
+
+§5's count moved 6 → 5 → 9 in steps that looked abrupt, and it was reconstructed
+from *solve attempts* in a log rather than from accepted sets — the grow step
+accepts a set only if every amplitude clears the lasing floor **and** the
+residuals pass, so a solve can report converged and still be rejected.
+`sweep_fine_transitions.py` records the accepted set directly and steps at
+0.25 %, three times finer, seeding from the converged five-mode state at 1.0846×
+so the fine grid is affordable.
+
+**Underneath every transition, net gain is linear in pump and crosses zero
+transversally.** For `k = 10.6133` the successive α differences over six pumps
+are −5.68, −5.66, −5.66, −5.64, −5.63, −5.62 (×1e-6 per step) — a straight line
+to four figures. Fitted crossings:
+
+| k | crosses at | dα/d(D0/thr) | departure from linear |
+| --- | --- | --- | --- |
+| 10.6264 | 1.1276× | −8.46e-04 | 10.8 % |
+| 10.6522 | 1.1286× | −1.23e-03 | 2.2 % |
+| 10.6499 | 1.1347× | — | — |
+| 10.6133 | 1.1103× | −2.26e-03 | 0.1 % |
+| 10.6801 | **1.1476×** | −3.98e-04 | 1.4 % |
+
+So the apparent jumps were three effects stacked on smooth physics:
+
+* **Counting is discrete.** A mode either lases or does not; the underlying α is
+  continuous.
+* **Two crossings closer than the grid.** `k = 10.6264` crosses at 1.1276× and
+  `k = 10.6522` at 1.1286× — **0.09 % of threshold apart**, against a 0.25 %
+  grid, so both are admitted in one step and the count appears to jump by two.
+  They are not degenerate in threshold, merely closer together than the
+  resolution.
+* **Admission lags the physics by up to a step.** `k = 10.6133` crosses at
+  1.1103× and is past the −1e-6 admission margin by 1.1121×, but is only
+  accepted at 1.1146×: the trial solve at 1.1121× failed, which shows in that
+  pump costing 348 s against a typical 145 s. That lag is a solver property, not
+  a laser one.
+
+And the 6 → 5 dip of §5 **did not reproduce**: at 0.25 % the count is a flat 5
+from 1.0846× to 1.1121× and then rises monotonically. Note this sweep also
+starts from a different seed, so step size and branch both changed — what is
+established is that the dip is not robust, not which of the two caused it.
+
+### The re-ignition is confirmed, and cannot be followed
+
+The extinguished mode's α crosses zero at **1.1476×** (linear to 1.4 % over the
+six approaching pumps), confirming §5 and pinning it to ±0.25 %. At 1.1521× it
+is past the admission margin, the sweep tried to admit it — and the ten-mode
+solve ran **14137 s (3.9 h) and failed**. The accepted count stayed at 9.
+
+That is the same wall §5 hit twice at 1.1538× (6692 s, 7126 s), and it is now
+clear it is not bad luck: **it sits exactly where the re-ignited mode has to
+join.** The physics says ten modes lase above 1.1476×; the solver cannot produce
+that solution. Until M = 10 converges, this fixture cannot be followed past ~1.15×.
+
 ## Open questions
 
 * **Which mode re-ignites, and exactly where.** §5 answers the yes/no; it does
@@ -181,9 +238,13 @@ which cannot extinguish a mode once it has won, has no mechanism for any of this
   them apart, and finer pump steps around 1.150x.
 * **Above 1.16x.** The sweep never got there. Whether the count keeps climbing,
   and whether the re-ignited mode stays on, is unmeasured.
-* **The M = 10 wall.** Two attempts at 1.1538x, ~2 h each, both non-convergent,
-  against ~1000 s at M = 9. Until that is understood the sweep cannot be pushed
-  much further.
+* **The M = 10 wall — now the blocking item.** Three attempts across two sweeps
+  (6692 s, 7126 s, 14137 s), all non-convergent, against ~1000 s at M = 9. §6
+  shows it is not incidental: it sits exactly at the pump where the re-ignited
+  mode must be admitted, so it is what stops the L-I curve at ~1.15x.
+* **Hysteresis.** Sweeping down from the top state and comparing counts at the
+  same pumps would separate "the branch matters" from "the step size mattered",
+  which §6 could not: its seed differed from §5's as well as its resolution.
 * **It is a triplet, not a pair.** `k = 10.6793, 10.6800, 10.6801` all sit inside
   1e-3, and the third turns on at 1.0355×. Three modes competing for the same
   gain is a richer situation than the two-mode picture above.
@@ -215,6 +276,8 @@ python examples/audit/probe_extinction_mechanism.py                # ~5 min -> o
 python examples/audit/plot_extinction_mechanism.py                 # figure 3
 python examples/audit/probe_mode_reignition.py 1.30 40             # hours -> out/reignite_alpha.npy
 python examples/audit/plot_reignition.py                           # figure 4
+python examples/audit/sweep_fine_transitions.py 1.16 0.25          # ~7 h -> out/fine_transitions.npz
+python examples/audit/plot_fine_transitions.py                     # figure 5
 ```
 
 `data/` holds the arrays these figures were drawn from, so they can be redrawn
