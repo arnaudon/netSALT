@@ -293,3 +293,70 @@ pumped samples only, thinned 4x, float32 — against 8.9 MB for the full array t
 probe writes.
 
 Narrative and the surrounding audit: `AUDIT.md` §§12–14.
+
+## 7. The jump before 1.085x is a first-order mode switch
+
+The small jump in §1's L–I just below 1.085x is not under-resolution. Resolving
+it at **0.05 % steps** — ten times finer than the step that produced it — makes
+it *sharper*, not smoother, and shows why.
+
+**The dying mode's intensity is still rising when its branch ends.** At 1.0750x,
+1.0755x and 1.0760x the mode at `k = 10.6801` carries a = 3.445, 3.47, 3.50; at
+1.0765x the six-mode solve stops converging altogether, and by 1.0800x the
+five-mode set converges without it. A branch that ends while its amplitude is
+finite and growing is a **fold**, not a continuous switch-off.
+
+**Both branches exist over a window.** Solving the five- and six-mode sets at the
+same pumps, and asking `net_gain_alpha` what the sixth mode does on the
+five-mode background:
+
+| pump | six-mode | five-mode | α of the sixth on the five-mode state |
+| --- | --- | --- | ---: |
+| 1.0700 | converges, a=3.157 | converges | −1.35e-04 net gain |
+| 1.0730 | converges, a=3.334 | converges | −1.47e-04 net gain |
+| 1.0740 | — | converges | +5.07e-05 lossy |
+| 1.0760 | converges, a=3.499 | converges | +4.94e-05 lossy |
+| 1.0765 | **fails** (a → 2.586) | converges | +4.91e-05 lossy |
+| 1.0780 | **fails** (a → 2.584) | converges | +4.81e-05 lossy |
+
+Below ~1.0735x the five-mode state is not a steady state at all — the sixth mode
+has net gain on it and must rejoin. Above the fold at ~1.0763x the six-mode
+branch is gone. **Between them both are stable.**
+
+**Hysteresis confirms it**, and needs no continuation through the fold.
+Sweeping the pump back *down* from the five-mode state (`probe_hysteresis.py`),
+five modes hold from 1.0800x all the way to 1.0740x, and only at 1.0730x does
+the sixth regain net gain and have to rejoin. So:
+
+* sweeping **up**, the laser holds six modes to ~1.0763x, then drops to five;
+* sweeping **down**, it holds five modes to ~1.0735x, then jumps back to six.
+
+A hysteresis loop **~0.3 % of threshold wide**. The survivors' +20 % to +54 %
+jump at the switch is the gain of the extinguished mode being redistributed in
+one step.
+
+This is the sharpest qualitative failure of the linear model in this document.
+Its solution is **unique by construction** — a linear complementarity problem
+with a fixed competition matrix — so it has no second branch to be trapped on,
+no fold, and no history dependence. It cannot produce a hysteresis loop at all,
+at any pump, on any graph.
+
+### A correction, and a caveat
+
+An earlier version of this section reported α = +5.13e-05 (lossy) at 1.0730x,
+which would have put the bistable window's lower edge below 1.0730x. That number
+is **wrong**: re-solving the five-mode state at that pump by two independent
+routes — fresh from the 1.0760x six-mode state, and continued down from the
+1.0800x five-mode state — gives the *same* state to five digits
+(2.0419 / 20.7425 / 8.3013 / 6.7951 / 7.2593) and the same α = −1.4743e-04, net
+gain. Three of four determinations agree; the outlier came from a single run and
+did not reproduce.
+
+The caveat that remains: `conv=False` is evidence a branch has ended, but it is
+also what solver trouble looks like. What supports the fold reading is the
+combination — amplitude rising to the last converged pump, the five-mode state
+simultaneously stable there, failure reproducing above the fold and at none of
+the pumps below, and the failed solves drifting to a ≈ 2.58 (below the 3.50 they
+had been climbing), which is what losing a stable branch to its unstable partner
+looks like near a saddle-node. Proving a fold outright needs continuation
+*through* the turning point — pseudo-arclength — which this solver does not do.
