@@ -314,7 +314,7 @@ five-mode background:
 | --- | --- | --- | ---: |
 | 1.0700 | converges, a=3.157 | converges | −1.35e-04 net gain |
 | 1.0730 | converges, a=3.334 | converges | −1.47e-04 net gain |
-| 1.0740 | — | converges | +5.07e-05 lossy |
+| 1.0740 | — | converges | +5.07e-05 lossy (min over all candidates) |
 | 1.0760 | converges, a=3.499 | converges | +4.94e-05 lossy |
 | 1.0765 | **fails** (a → 2.586) | converges | +4.91e-05 lossy |
 | 1.0780 | **fails** (a → 2.584) | converges | +4.81e-05 lossy |
@@ -325,8 +325,9 @@ branch is gone. **Between them both are stable.**
 
 **Hysteresis confirms it**, and needs no continuation through the fold.
 Sweeping the pump back *down* from the five-mode state (`probe_hysteresis.py`),
-five modes hold from 1.0800x all the way to 1.0740x, and only at 1.0730x does
-the sixth regain net gain and have to rejoin. So:
+five modes hold from 1.0800x all the way to 1.0740x, and only at 1.0730x does a
+mode regain net gain and have to rejoin — which the all-candidate stability scan
+below confirms is a real root appearing, not a probe artefact. So:
 
 * sweeping **up**, the laser holds six modes to ~1.0763x, then drops to five;
 * sweeping **down**, it holds five modes to ~1.0735x, then jumps back to six.
@@ -341,16 +342,42 @@ with a fixed competition matrix — so it has no second branch to be trapped on,
 no fold, and no history dependence. It cannot produce a hysteresis loop at all,
 at any pump, on any graph.
 
-### A correction, and a caveat
+### How the window's lower edge is set, and a correction
 
-An earlier version of this section reported α = +5.13e-05 (lossy) at 1.0730x,
-which would have put the bistable window's lower edge below 1.0730x. That number
-is **wrong**: re-solving the five-mode state at that pump by two independent
-routes — fresh from the 1.0760x six-mode state, and continued down from the
-1.0800x five-mode state — gives the *same* state to five digits
-(2.0419 / 20.7425 / 8.3013 / 6.7951 / 7.2593) and the same α = −1.4743e-04, net
-gain. Three of four determinations agree; the outlier came from a single run and
-did not reproduce.
+The lower edge is not the five-mode state gradually gaining stability. **A root
+annihilates.** Probing *every* candidate on the five-mode background
+(`probe_state_stability.py`):
+
+| pump | five-mode state | the cluster near 10.6800 |
+| --- | --- | --- |
+| 1.0700 | **unstable** | root 10.680071, α = −1.354e-04 (net gain) |
+| 1.0720 | **unstable** | root 10.680070, α = −1.434e-04 |
+| 1.0730 | **unstable** | root 10.680069, α = −1.474e-04 |
+| 1.0740 | stable | both probes now find **one** root, 10.679989, α = +5.07e-05 |
+| 1.0750 | stable | one root, α = +5.00e-05 |
+| 1.0760 | stable | one root, α = +4.94e-05 |
+
+Below 1.0740x two roots sit near 10.6800 — one with net gain at ~10.68007, one
+lossy at ~10.679988 — and probes started 1.5e-05 apart land on either. At and
+above 1.0740x *both probes converge to the same root*. The net-gain root has not
+drifted away; it has **merged with its lossy partner and annihilated**. That is
+a saddle-node in the root structure: the same bifurcation as the fold, seen from
+the five-mode side.
+
+**A correction.** An earlier version of this section reported the +5.13e-05 at
+1.0730x as simply *wrong* and attributed it to a non-reproducible run. That is
+itself wrong twice over. Re-running the fold test verbatim reproduces it bit for
+bit, and the solver is not path dependent — the same five-mode solve run cold,
+after a six-mode solve, and cold again gives identical states and identical α,
+with the cubic resampling cache empty throughout. The real explanation is that
+the probe answered about the *other* root of the pair, which genuinely is lossy.
+
+Both numbers were right. What was wrong was reading a single `net_gain_alpha`
+call as a verdict on a *state*: it reports what the root nearest `k0` does, and
+a state is unstable if **any** root has net gain. Stability is the minimum α
+over all candidates. Where the spectrum is this dense, one probe cannot decide
+it — and this is the second time in this document that the cluster near 10.6800
+has produced a result that looked like a solver problem and was not.
 
 The caveat that remains: `conv=False` is evidence a branch has ended, but it is
 also what solver trouble looks like. What supports the fold reading is the
