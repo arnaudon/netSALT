@@ -80,8 +80,41 @@ n_steps = _resolved_n_steps(qg, float(np.max(np.abs(list(all_k.values())))), N_S
 active = [order[i] for i in (0, 1, 2, 4, 5)]
 ks = [all_k[i] for i in active]
 amps = [2.253, 23.980, 9.699, 8.976, 9.726]
+records, alpha_log = [], []
+start = START
 
-grid = np.arange(START, TOP + 0.5 * STEP, STEP)
+# Resume, if this output already holds pumps. These sweeps run for hours and have
+# now outlived three containers; restarting from the top would re-pay everything
+# already on disk. The last recorded row is a converged state, which is exactly
+# what the next pump wants as its seed.
+if os.path.exists(OUT):
+    prev = np.load(OUT)
+    if len(prev["mult"]):
+        for row in range(len(prev["mult"])):
+            live = [j for j in range(12) if prev["ids"][row][j] >= 0]
+            records.append(
+                {
+                    "mult": float(prev["mult"][row]),
+                    "n": int(prev["n_active"][row]),
+                    "ids": [int(prev["ids"][row][j]) for j in live],
+                    "ks": [float(prev["ks"][row][j]) for j in live],
+                    "amps": [float(prev["amps"][row][j]) for j in live],
+                }
+            )
+        alpha_log = [tuple(map(float, r)) for r in prev["alpha"]]
+        last = records[-1]
+        active, ks, amps = last["ids"], last["ks"], last["amps"]
+        start = last["mult"] + STEP
+        print(
+            f"resuming from {OUT}: {len(records)} pumps done, last {last['mult']:.4f}x "
+            f"with M={last['n']}",
+            flush=True,
+        )
+
+grid = np.arange(start, TOP + 0.5 * STEP, STEP)
+if not len(grid):
+    print(f"nothing to do: {start:.4f}x is already past {TOP:.4f}x", flush=True)
+    raise SystemExit
 print(f"{len(grid)} pumps, {START:.4f}x .. {grid[-1]:.4f}x, {100 * STEP:.2f}% steps", flush=True)
 print("seed:", " ".join(f"{all_k[i]:.5f}" for i in active), flush=True)
 
@@ -95,7 +128,6 @@ def solve(set_ids, set_ks, set_amps, D0):
     return sol, live, ok
 
 
-records, alpha_log = [], []
 for mult in grid:
     D0 = thr0 * float(mult)
     t0 = time.time()
