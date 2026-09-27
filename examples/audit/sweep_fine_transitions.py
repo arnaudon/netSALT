@@ -128,7 +128,7 @@ grid = np.arange(start, TOP + 0.5 * STEP, STEP)
 if not len(grid):
     print(f"nothing to do: {start:.4f}x is already past {TOP:.4f}x", flush=True)
     raise SystemExit
-print(f"{len(grid)} pumps, {START:.4f}x .. {grid[-1]:.4f}x, {100 * STEP:.2f}% steps", flush=True)
+print(f"{len(grid)} pumps, {grid[0]:.4f}x .. {grid[-1]:.4f}x, {100 * STEP:.2f}% steps", flush=True)
 print("seed:", " ".join(f"{all_k[i]:.5f}" for i in active), flush=True)
 
 
