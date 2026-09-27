@@ -54,7 +54,13 @@ from netsalt.salt_varying import (  # noqa: E402
 TOP = float(sys.argv[1]) if len(sys.argv) > 1 else 1.16
 STEP = (float(sys.argv[2]) if len(sys.argv) > 2 else 0.25) / 100.0
 OUT = sys.argv[3] if len(sys.argv) > 3 else "out/fine_transitions.npz"
-START = 1.0846
+# Where to begin. The default starts from the converged five-mode state at
+# 1.0846x, which is what makes a fine grid affordable. Passing a start at or
+# below _FROM_THRESHOLD instead begins at the first lasing threshold with a
+# single mode just above it, and lets the admit/drop logic build the whole set
+# from nothing -- slower, but it draws the L-I curve from its foot.
+START = float(sys.argv[4]) if len(sys.argv) > 4 else 1.0846
+_FROM_THRESHOLD = 1.02
 N_STEPS = 128
 
 p = load_config("config.yaml")
@@ -77,9 +83,16 @@ n_steps = _resolved_n_steps(qg, float(np.max(np.abs(list(all_k.values())))), N_S
 
 # the converged five-mode state at 1.0846x: the six lowest-threshold candidates
 # minus the one extinguished there (k = 10.680091)
-active = [order[i] for i in (0, 1, 2, 4, 5)]
-ks = [all_k[i] for i in active]
-amps = [2.253, 23.980, 9.699, 8.976, 9.726]
+if START <= _FROM_THRESHOLD:
+    # from the foot of the curve: only the lowest-threshold mode lases, and
+    # barely. Everything else the sweep admits on its own.
+    active = [order[0]]
+    ks = [all_k[order[0]]]
+    amps = [1e-3]
+else:
+    active = [order[i] for i in (0, 1, 2, 4, 5)]
+    ks = [all_k[i] for i in active]
+    amps = [2.253, 23.980, 9.699, 8.976, 9.726]
 records, alpha_log = [], []
 start = START
 
