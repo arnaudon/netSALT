@@ -146,8 +146,21 @@ for mult in grid:
     t0 = time.time()
 
     sol, live, ok = solve(active, ks, amps, D0)
-    if not sol.converged and len(live) == len(active):
-        print(f"  {mult:.4f}x  base solve did not converge; stopping", flush=True)
+    if not sol.converged:
+        # Stop on ANY non-converged base solve. This used to stop only when the
+        # solve also kept every mode, on the reasoning that a mode going dark is
+        # the ordinary way a set shrinks -- but that let a FAILED solve through
+        # whenever it happened to lose a mode too, and the failure and the loss
+        # are exactly what happen together. Measured at 1.4646x: a 26001 s solve
+        # dropped M from 11 to 10, rearranged the amplitudes wholesale (the
+        # first mode 2.94 -> 8.67, the second 101.45 -> 45.58) and came out with
+        # total output 7 % LOWER than the previous pump at 0.34 % less pump,
+        # which no branch does. It was written to the npz as data.
+        print(
+            f"  {mult:.4f}x  base solve did not converge "
+            f"(M {len(active)} -> {len(live)}); stopping",
+            flush=True,
+        )
         break
     # shrink to whatever survived
     active = [active[j] for j in live]
