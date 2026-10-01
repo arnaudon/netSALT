@@ -124,11 +124,25 @@ if os.path.exists(OUT):
             flush=True,
         )
 
-grid = np.arange(start, TOP + 0.5 * STEP, STEP)
-if not len(grid):
+if start > TOP + 0.5 * STEP:
     print(f"nothing to do: {start:.4f}x is already past {TOP:.4f}x", flush=True)
     raise SystemExit
-print(f"{len(grid)} pumps, {grid[0]:.4f}x .. {grid[-1]:.4f}x, {100 * STEP:.2f}% steps", flush=True)
+
+# Step control. A fixed grid is the wrong instrument near a mode switch: the
+# state changes fast there, and a step sized for the smooth stretches overshoots
+# what the continuation can track. Measured at the second switch -- a 0.50 %
+# step from 1.4596x cost 8748 s and the next one 26001 s and never converged,
+# while a 0.05 % step from the same state costs ~580 s and converges normally.
+# The 26001 s solve also drove a mode to zero that a fine crossing shows still
+# lasing at ~0.18, i.e. a failed solve with a plausible-looking answer.
+#
+# So halve on failure and retry rather than giving up, and creep back towards
+# the requested step once things are smooth again. STEP is the ceiling, not the
+# fixed value.
+_STEP_SHRINK = 0.5
+_STEP_GROW = 1.5
+_STEP_MIN_FRACTION = 1 / 32  # below this, the failure is not about step size
+print(f"{start:.4f}x .. {TOP:.4f}x, steps up to {100 * STEP:.2f}%", flush=True)
 print("seed:", " ".join(f"{all_k[i]:.5f}" for i in active), flush=True)
 
 
@@ -141,11 +155,23 @@ def solve(set_ids, set_ks, set_amps, D0):
     return sol, live, ok
 
 
-for mult in grid:
+step = STEP
+mult = start
+while mult <= TOP + 0.5 * step:
     D0 = thr0 * float(mult)
     t0 = time.time()
 
     sol, live, ok = solve(active, ks, amps, D0)
+    if not sol.converged and step > STEP * _STEP_MIN_FRACTION:
+        failed_at = mult
+        step *= _STEP_SHRINK
+        mult = records[-1]["mult"] + step if records else start
+        print(
+            f"  {failed_at:.4f}x did not converge; step -> {100 * step:.3f} %, "
+            f"retrying at {mult:.4f}x",
+            flush=True,
+        )
+        continue
     if not sol.converged:
         # Stop on ANY non-converged base solve. This used to stop only when the
         # solve also kept every mode, on the reasoning that a mode going dark is
@@ -211,8 +237,11 @@ for mult in grid:
         k=np.array([all_k[i] for i in finite]),
     )
     print(
-        f"  {mult:.4f}x  M={len(active):2d}  [{time.time() - t0:5.0f}s]  "
+        f"  {mult:.4f}x  M={len(active):2d}  [{time.time() - t0:5.0f}s]"
+        f"{'' if step == STEP else f'  (step {100 * step:.3f} %)'}  "
         + " ".join(f"{all_k[i]:.4f}:{a:.2f}" for i, a in zip(active, amps, strict=True)),
         flush=True,
     )
+    step = min(step * _STEP_GROW, STEP)
+    mult += step
 print("DONE", flush=True)
