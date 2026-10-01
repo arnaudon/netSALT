@@ -605,10 +605,10 @@ show one.
 Both graphs still share the same 12-candidate cap over the same window, so
 neither says anything about pairs outside it.
 
-### What the sweep measured: the prediction fails, and not narrowly
+### What the sweep found instead: a bug in the solver
 
 The sweep (`sweep_fine_transitions.py 1.20 0.5 out/fine_b.npz 1.005
-buffon_competition_b`) finds its first extinction immediately, at the second
+buffon_competition_b`) records its first extinction immediately, at the second
 pump on the grid:
 
 ```
@@ -616,78 +616,90 @@ pump on the grid:
 1.0100x  M= 1  10.762463:3.3185
 ```
 
-**The event is real.** An independent solve at 1.0100x, warm-started from the
-1.0050x state, converges in 17 outer iterations and drives the second amplitude
-to exactly zero; on the survivor's saturated background the dead mode's net gain
-is `alpha = +2.015e-03` at every probe window from 1e-03 to 0.1, with the root
-moving only +3.5e-04 — so it is not the root-tracking artefact a wide window
-could produce (`probe_verified_drop.py out/fine_b.npz 0 1.0100
-buffon_competition_b`).
+**That extinction is not real.** `k = 10.787597` is still lasing at 1.0100x, and
+three independent checks say so (`probe_phantom_extinction.py`):
 
-The victim, `k = 10.787597`, *is* a member of the rank-1 overlap pair. That is
-where the agreement with prediction (1) ends, because its partner
-`k = 10.792965` is nowhere near lasing at 1.0100x — its own threshold is 1.0352x
-— so the rank-1 pair was not involved in the event at all. What killed it is
-`k = 10.762463`, the only other lasing mode, and that pair's standing in the two
-rankings is (`probe_cross_saturation.py buffon_competition_b`):
+1. **Its own root has net gain there.** Continue the root in pump from its
+   threshold at 1.0028x in 0.08 % steps, starting each solve from the previous
+   root in *both* unknowns rather than from `alpha = 0`, and it tracks smoothly
+   past 1.0204x: `k` drifting −1.23e-06 per step, `alpha` going monotonically
+   from 0 to −1.27e-04, `|lambda_1| ~ 1.5e-10` at every point. At 1.0100x,
+   `alpha = −5.2e-05`.
+2. **Gain competition is a hundredfold too weak to have killed it.** The mean
+   fractional gain depletion the survivor inflicts on it is **0.006 %**, against
+   its **0.718 %** margin above its own threshold; it saturates itself 57x harder
+   than the survivor saturates it, and the two modes are spatially disjoint
+   (pump-weighted overlap 0.0003).
+3. **The two-mode solution exists.** Re-seed the same solve at 1.0100x from the
+   linear model's amplitudes instead of from the previous pump, and it converges
+   in 16 outer iterations to `10.787598:0.30403` with residuals **1.0e-08 and
+   7.0e-07** — better converged than the one-mode answer that replaced it, and
+   within 3 % of the linear model's 0.294, which is what near-threshold
+   agreement should look like.
 
-| measure | value | rank |
-| --- | ---: | ---: |
-| symmetric overlap `O` | 0.0003 | 61 of 66 |
-| asymmetric cross-saturation `S[m->n]` | 0.001 | 121 of 132 |
+### The mechanism, and why the drop verification agreed
 
-Not a near miss: **the two modes are spatially disjoint**, and the ranking put
-their pair near the bottom of the list.
+`alpha = 0` is a bad place to start this root find. The trough is ~1e-05 wide in
+`alpha` while `|lambda_1|` at `alpha = 0` is already ~1.0 — the gradient near the
+root is ~6e+04 per unit `k` — and a **second, genuine root** sits 1.1e-03 away in
+`Re k` with `alpha = +2.0e-03`. MINPACK, given 30 function evaluations from that
+cold start, converges to the neighbour. Checking `|lambda_1|` at the answer does
+not catch it, because the neighbour is a real root: `|lambda_1| = 1.2e-10` there.
 
-### The asymmetric measure is not the fix
+What catches it is the distance travelled. The physical drift of this root is
+1.2e-06 per pump step; `net_gain_alpha`'s default `k_window` is **0.1**, roughly
+a thousand times wider than the gap to the wrong root. So the probe reports a
+neighbouring mode's loss as this mode's, `_floored_modes_are_dark` agrees that
+the floored mode is extinguished, and the sweep retires a mode that is lasing.
 
-`O` is symmetric, and what should decide whether `m` can starve `n` is
-asymmetric — how much of `n`'s gain `m` burns relative to what `n` burns itself,
-`S[m->n] = int p |E_m|^2 |E_n|^2 / int p |E_n|^4`, which is what the linear
-competition matrix is actually built from. It is the better-motivated quantity
-and it does no better. On the first graph it puts the two measured switches at
-ranks 3 and 9 of 132 — but rank 1, `S = 1.011` for
-`10.613346 -> 10.704320`, is a pair that never switches at all: `10.704320` is
-the strongest mode in the laser at every pump above 1.01x. On the second graph it
-ranks the measured event 121 of 132.
+Two aggravating details:
 
-### Gain competition is a hundredfold too small to be the cause
+- `_floored_modes_are_dark` treats `alpha = +inf` — `net_gain_alpha`'s "no
+  evidence of gain here" — as *dark*. A probe that fails to find any root
+  therefore retires the mode rather than abstaining.
+- Once a mode's amplitude is on the weight floor its `k` is unconstrained, so the
+  floored solve returns a drifted `k` (here 10.786176, 1.4e-03 off branch). Any
+  verification started from *that* `k` is already on the wrong root.
 
-With both fields in hand the mechanism can be checked rather than ranked. The
-mean fractional gain depletion mode `m` inflicts on mode `n`,
+The second detail is how this was nearly missed. A first version of the check
+(`probe_verified_drop.py`) varied the probe window around the drifted `k` and
+found the same verdict at every width from 1e-03 to 0.1, which was read as
+evidence that the drop was physical. Every window agreed about the wrong root.
+The window has to be judged against the physical drift of the root, not against
+whether the answer is stable.
 
-    Delta = Gamma_m a_m  int p |E_m|^2 |E_n|^2 / int p |E_n|^2,
+### What this invalidates, and what it does not
 
-is the `|E_n|^2`-weighted average of the saturation `n` actually sits in — an
-absolute number, not a ratio, so it can be compared with how far `n` is above its
-own threshold:
+- **The second graph's sweep above 1.0100x is void** and has been stopped. Every
+  pump it recorded from there up is missing a mode that should be lasing, so the
+  mode counts, the amplitudes and the total output on that leg are all wrong.
+  The prediction registered above is therefore **untested**, not failed: the
+  event that looked like its first test was an artefact.
+- **The first graph's two switches are not affected by the same mechanism**, and
+  should still be re-checked. Neither is a marginal near-threshold mode: the
+  fold at 1.0750x retires a mode at `a = 3.445` — its own maximum, 8 % of the
+  laser's output — and is corroborated independently by a measured hysteresis
+  loop on the downward sweep, which a lost root does not produce. The second
+  switch is a mode declining smoothly over twelve pumps with `a` falling by a
+  factor 1.94, which is also not a root that was dropped. What does need
+  re-checking with a tight window is the **re-ignition at 1.1476x** (section 5),
+  since that rests on a `net_gain_alpha` sign change alone.
+- **The overlap and cross-saturation rankings stand as measurements** — they are
+  computed from threshold fields and involve no root find.
 
-| | |
-| --- | ---: |
-| `10.787597` above its own threshold at 1.0100x | **0.718 %** |
-| depleted by `10.762463` at a = 3.32 | **0.006 %** |
-| depleted by itself at a = 0.093 | 0.342 % |
+### The fix this needs
 
-The mode is extinguished while the gain its rival has taken from it is **1/120 of
-its own margin**, and while it is saturating itself 57x harder than its rival
-saturates it. Gain competition is not what kills it. The linear competition
-matrix, which has nothing else in it, duly keeps it lasing all the way up —
-0.090 at 1.0050x (full SALT: 0.093, agreeing near threshold as it should), 0.294
-at 1.0100x where SALT has already extinguished it, and 7.16 at 1.20x.
+Not yet applied, because it changes what the solver admits and so touches every
+result above:
 
-So the second graph's SALT-vs-linear disagreement runs the *opposite* way from
-the first graph's: there full SALT lased a mode the linear model dropped, here it
-drops a mode the linear model lases.
-
-### Verdict on the registered prediction
-
-1. **Failed.** The victim is a member of the rank-1 pair, which is the letter of
-   the prediction and an accident: the pair never co-lased, the named member is
-   the wrong one, and the actual killer sits at rank 61 of 66. The honest reading
-   is that the overlap ranking has no predictive content here.
-2. and 3. Not yet testable — the sweep is at 1.05x of 1.20x.
-
-What is left of section 8 is a description of one graph, not a predictor. Spatial
-overlap does identify the two pairs that fight on the first graph, and on that
-graph the near-degenerate cluster really is why; it says nothing about the second
-graph, where the first mode to die is killed by a mode it does not overlap.
+1. Size `net_gain_alpha`'s `k_window` from the physical scale — the gap to the
+   nearest *other* candidate root, not a fixed 0.1 — and make the caller pass
+   it rather than inherit a default that is wrong by three orders of magnitude.
+2. Warm-start the probe in `alpha` as well as `k`. From `(k_prev, alpha_prev)`
+   with a real evaluation budget the root tracks over the whole pump range in
+   0.08 % steps; from `(k0, 0)` with 30 evaluations it jumps.
+3. Make `_floored_modes_are_dark` abstain on `alpha = +inf` instead of reading it
+   as darkness, and refuse to verify from a drifted `k`.
+4. Before accepting a floored mode as extinguished, retry the solve once with
+   that mode re-seeded from an independent estimate (its threshold value, or the
+   linear model) rather than from the warm start that lost it.
