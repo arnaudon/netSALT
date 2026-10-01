@@ -40,12 +40,14 @@ from netsalt.modes import (  # noqa: E402
     compute_mode_competition_matrix,
 )
 
-LOW = sys.argv[1] if len(sys.argv) > 1 else "out/fine_low.npz"
-HIGH = sys.argv[2] if len(sys.argv) > 2 else "out/fine_v2.npz"
-OUT = sys.argv[3] if len(sys.argv) > 3 else "figures/full_li.png"
+# The legs, in pump order. Each is its own continuation; they are joined only
+# because the overlaps agree where they meet (see the module docstring).
+LEGS = sys.argv[1:-1] or ["out/fine_low.npz", "out/fine_v2.npz", "out/fine_switch2.npz"]
+OUT = sys.argv[-1] if len(sys.argv) > 1 else "figures/full_li.png"
+LOW = LEGS[0]
 
 rows, kk = [], None
-for src in (LOW, HIGH):
+for src in LEGS:
     if not os.path.exists(src):
         print(f"missing {src}, skipping")
         continue
