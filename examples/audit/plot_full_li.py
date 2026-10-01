@@ -18,11 +18,16 @@ candidate, including the ones full SALT never lases.
 """
 
 import os
+import sys
 from pathlib import Path
 
-os.chdir(Path(__file__).resolve().parents[1] / "buffon" / "buffon_competition")
+# Which fixture, as --fixture=NAME anywhere in the arguments; the rest of the
+# command line keeps its old meaning (legs..., then the output path).
+_fix = [a for a in sys.argv[1:] if a.startswith("--fixture=")]
+FIXTURE = _fix[-1].split("=", 1)[1] if _fix else "buffon_competition"
+sys.argv = [sys.argv[0]] + [a for a in sys.argv[1:] if not a.startswith("--fixture=")]
+os.chdir(Path(__file__).resolve().parents[1] / "buffon" / FIXTURE)
 
-import sys  # noqa: E402
 import warnings  # noqa: E402
 
 import matplotlib  # noqa: E402
@@ -147,7 +152,7 @@ for a in ax:
     a.grid(alpha=0.25, lw=0.6)
 
 fig.suptitle(
-    "netSALT buffon, uniform pump — the full L–I from the first lasing threshold\n"
+    f"netSALT {FIXTURE}, uniform pump — the full L–I from the first lasing threshold\n"
     f"{len(mult)} pumps, {mult[0]:.4f}x .. {mult[-1]:.4f}x; full SALT (solid, modes admitted "
     f"and dropped by net gain) against the linear competition matrix (dashed). "
     f"SALT {n_active.min()}–{n_active.max()} modes, linear {lin_count.min()}–{lin_count.max()}.",
