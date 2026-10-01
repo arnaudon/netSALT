@@ -92,10 +92,16 @@ contributes essentially nothing. The whole swing is profile deformation.
 
 What that deformation is: the extinguished mode's near-degenerate partner
 deforms by **400 % of its own peak**, five times more than any other mode in the
-set, and the pair's pump-weighted overlap **collapses from 0.68 to 0.29**.
+set, and the pair's pump-weighted overlap **collapses from 0.9995 to 0.29**.
 
-So two modes that are spatially near-identical at threshold — 7.60e-04 apart in
-`k`, 660× inside `gamma_perp = 0.5`, 68 % overlap — **segregate** under
+*(An earlier version of this section gave the threshold overlap as 0.68. That was
+computed inconsistently — the dying mode's field evaluated on a saturated
+background against the partner's threshold shape. Taken consistently, both from
+the unsaturated operator, it is 0.9995; see §8. The collapse is larger than
+first reported, not smaller.)*
+
+So two modes that are spatially **the same mode** at threshold — 7.60e-04 apart
+in `k`, 660× inside `gamma_perp = 0.5`, 99.95 % overlap — **segregate** under
 saturation. The winner reshapes to capture the pump-rich region; the loser is
 left with the depleted remainder and starves. The left panel shows it directly:
 at threshold (grey) the two modes' sample intensities track the diagonal, and
@@ -387,3 +393,46 @@ the pumps below, and the failed solves drifting to a ≈ 2.58 (below the 3.50 th
 had been climbing), which is what losing a stable branch to its unstable partner
 looks like near a saddle-node. Proving a fold outright needs continuation
 *through* the turning point — pseudo-arclength — which this solver does not do.
+
+
+## 8. Spatial overlap predicts where this happens, and it happens twice
+
+Does the switch of §7 repeat for other pairs? The criterion is not proximity in
+`k`: `gamma_perp = 0.5` puts even the widest gap among these twelve candidates
+220x inside the gain linewidth, so every pair competes for gain. What singles a
+pair out is occupying the *same space*.
+
+Pump-weighted overlap over all 66 pairs of threshold modes
+(`probe_mode_overlaps.py`):
+
+| overlap | k_m | k_n | \|dk\| | |
+| ---: | --- | --- | ---: | --- |
+| 1.0000 | 10.680091 | 10.679976 | 1.16e-04 | the triplet |
+| 0.9997 | 10.679331 | 10.679976 | 6.44e-04 | " |
+| **0.9995** | **10.679331** | **10.680091** | 7.60e-04 | **the §7 pair** |
+| **0.9706** | **10.704320** | **10.707383** | 3.06e-03 | **a second pair** |
+| 0.5620 | 10.679331 | 10.649905 | 2.94e-02 | — and then a cliff |
+
+**The cluster at 10.680 is spatially one mode**, its members overlapping at
+0.9995–1.0000. That is why saturation has to resolve them by segregating, and
+why the resolution is so violent.
+
+**The pattern repeats, exactly where overlap says it should.** The pair
+`10.704320 / 10.707383` stands alone in fourth place at 0.9706, every remaining
+pair being below 0.57 — and it is precisely the pair in trouble at the top of the
+sweep. `k = 10.7043` is the *strongest* mode in the laser (a = 101.45 at
+1.4596x); `k = 10.7074` fell 0.44 → 0.21 between 1.2796x and 1.4596x and is what
+the eleven-mode solve could not hold. Same mechanism, second-most-overlapping
+pair, 0.38x further up the pump.
+
+Spacing would have missed it: the second pair is **four times wider apart in `k`**
+than the first and belongs to no near-degenerate cluster. Sorted by spacing this
+fixture has exactly one cluster, so a spacing-based heuristic predicts one switch
+and there are two.
+
+**Consequence for the cost wall.** Per-pump cost near 1.46x ran 500 s → 8748 s →
+26001 s with the eleven-mode solve never converging. On this reading that is not
+a solver defect but the same extinction physics — there is no eleven-mode
+solution to find once 10.7074 has gone — and the sweep should drop the mode
+rather than spend hours holding it. The ten-mode solve testing that is still
+running.
