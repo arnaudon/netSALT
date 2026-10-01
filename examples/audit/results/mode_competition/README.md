@@ -505,3 +505,69 @@ a step-size threshold, and the sweep's step control (shrink on failure *and* on
 strain) exists to stay below it. The one thing that control cannot do is rescue
 its own first step after a resume — the ceiling is a judgement at launch, and a
 0.5 % ceiling here cost two hours before being corrected to 0.15 %.
+
+
+## 10. A second graph, and a prediction registered before the sweep
+
+Everything above was measured on one Buffon realisation. The overlap reading of
+§8 was *derived* from the two switches it predicts, so on this fixture it cannot
+be wrong — the honest test is a graph the claim has not seen.
+
+`examples/buffon/buffon_competition_b/` is that graph: an independent draw at
+identical parameters (20 lines over a 200x200 square, intersections only, giant
+component, seed 7 — `make_graph.py` regenerates it), rescaled by the shared
+`inner_total_length` to the same optical length, so the mode density over the
+same `k` window is comparable by construction. Same uniform pump, same twelve
+candidates, same solver. 93 nodes / 117 edges against the first graph's 96 / 131.
+
+Its twelve thresholds span 4.66 % (the first graph's span 4.7 %), so this is
+again a fixture where competition, not threshold ordering, decides what lases.
+
+**Its overlap structure is not a copy of the first graph's.** Run
+`probe_mode_overlaps.py buffon_competition_b`:
+
+| rank | overlap | k_m | k_n | \|dk\| |
+| ---: | ---: | --- | --- | ---: |
+| 1 | 0.9693 | 10.787597 | 10.792965 | 5.37e-03 |
+| 2 | 0.9270 | 10.688173 | 10.682390 | 5.78e-03 |
+| 3 | 0.9148 | 10.653041 | 10.643730 | 9.31e-03 |
+| 4 | 0.8641 | 10.688173 | 10.692215 | 4.04e-03 |
+| 5 | 0.7988 | 10.792277 | 10.682390 | 1.10e-01 |
+
+Against the first graph this differs in two ways that matter:
+
+- **No spatially degenerate cluster.** The first graph's top three pairs sit at
+  0.9995–1.0000 — three modes that are one mode in space. The second graph's
+  highest is 0.9693, which is the first graph's *fourth* pair, the one whose
+  switch turned out continuous (§9).
+- **No cliff.** The first graph falls 0.9706 → 0.5620 between ranks 4 and 5, so
+  "the overlapping pairs" is a set of four and the rest are irrelevant. The
+  second graph decays smoothly: 25 pairs sit above 0.54, and rank 1 is only
+  0.04 clear of rank 2.
+
+**Registered prediction**, written before any pump sweep on this graph:
+
+1. The first mode to go dark is a member of the rank-1 pair, and specifically
+   `k = 10.792965` — the higher-threshold member (threshold ratio 1.0352 against
+   its partner's 1.0028), as in both switches on the first graph.
+2. The switch is **continuous**, not a fold: no bistable window, no hysteresis.
+   The first graph's fold came from its 0.9995 pair; its 0.9706 pair declined
+   smoothly to zero, and 0.9693 is that case.
+3. Consequently this graph shows **no first-order switch at all** over the swept
+   range — the mechanism needs a near-degenerate pair and there isn't one.
+
+The falsifiers are explicit: a first extinction in a pair outside the top of the
+ranking kills (1); a fold or hysteresis anywhere kills (2) and (3).
+
+Prediction (1) is weaker here than on the first graph, and deliberately so: with
+rank 1 only 0.04 above rank 2 and no cliff, the ranking barely separates the
+candidates, so a first extinction in the rank-2 or rank-3 pair would be a near
+miss rather than a clean refutation. That the ranking is this flat is itself the
+result worth having — **the first graph's violent switch needed a degeneracy that
+is not generic**, and a laser built on a random graph should not be expected to
+show one.
+
+Both graphs still share the same 12-candidate cap over the same window, so
+neither says anything about pairs outside it.
+
+Sweep in progress; the measured answer goes here.

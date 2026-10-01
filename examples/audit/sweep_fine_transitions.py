@@ -24,15 +24,21 @@ Per pump it
      candidate tested -- before moving on, since a sweep like this outlives
      several container restarts.
 
-Usage: python sweep_fine_transitions.py [top] [step_pct] [out_name]
+Usage: python sweep_fine_transitions.py [top] [step_pct] [out_name] [start] [fixture]
 """
 
 import os
+import sys
 from pathlib import Path
 
-os.chdir(Path(__file__).resolve().parents[1] / "buffon" / "buffon_competition")
+# Which fixture. `buffon_competition` is the graph every result in
+# examples/audit/results/mode_competition/ was measured on; `buffon_competition_b`
+# is an independent Buffon realisation at identical parameters, there to test the
+# same claims on a graph they were not derived from. Only the first fixture has a
+# hand-coded warm-start state, so any other must sweep from the foot of the curve.
+FIXTURE = sys.argv[5] if len(sys.argv) > 5 else "buffon_competition"
+os.chdir(Path(__file__).resolve().parents[1] / "buffon" / FIXTURE)
 
-import sys  # noqa: E402
 import time  # noqa: E402
 import warnings  # noqa: E402
 
@@ -90,6 +96,11 @@ if START <= _FROM_THRESHOLD:
     ks = [all_k[order[0]]]
     amps = [1e-3]
 else:
+    if FIXTURE != "buffon_competition":
+        raise SystemExit(
+            f"the warm-start state below belongs to buffon_competition, not {FIXTURE}; "
+            f"pass a start <= {_FROM_THRESHOLD} to sweep from the foot of the curve"
+        )
     active = [order[i] for i in (0, 1, 2, 4, 5)]
     ks = [all_k[i] for i in active]
     amps = [2.253, 23.980, 9.699, 8.976, 9.726]
