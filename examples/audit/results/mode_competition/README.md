@@ -436,3 +436,72 @@ a solver defect but the same extinction physics — there is no eleven-mode
 solution to find once 10.7074 has gone — and the sweep should drop the mode
 rather than spend hours holding it. The ten-mode solve testing that is still
 running.
+
+
+## 9. The second switch is a different kind of switch
+
+§8 predicted, from spatial overlap alone, that `10.704320 / 10.707383` would be
+the next pair to fight. It is — and the fight ends differently.
+
+Crossing it at 0.05 % and 0.15 % steps (`sweep_fine_transitions.py` resumed into
+`out/fine_switch2.npz`), the dying mode's intensity falls **linearly**:
+
+| D0/thr | a(k = 10.7074) |
+| --- | ---: |
+| 1.4596 | 0.211732 |
+| 1.4601 | 0.207523 |
+| 1.4606 | 0.203286 |
+| 1.4611 | 0.199027 |
+| 1.4616 | 0.194746 |
+| 1.4621 | 0.190443 |
+| 1.4636 | 0.177397 |
+
+Slope −8.583 per unit pump, with a maximum deviation from the straight line of
+1.07e-04 — **0.05 %** — across points taken at two different step sizes. Zero at
+**1.4843x**.
+
+That is an ordinary second-order switch-off, and it is *not* what the first
+switch did. There the dying mode's amplitude was still **rising** (3.445 → 3.50)
+when its branch ceased to exist. Side by side:
+
+| | pair 1 — overlap 0.9995 | pair 2 — overlap 0.9706 |
+| --- | --- | --- |
+| approach | amplitude **rising** | amplitude **falling**, linearly |
+| ends by | the branch folding away | reaching zero at 1.4843x |
+| bistable window | yes, ~0.28 % wide | none expected |
+| hysteresis | yes | no |
+
+So **high spatial overlap predicts that two modes will fight; it does not predict
+how the fight ends.** One pair resolves by a fold with a hysteresis loop, the
+other by a continuous extinction, and the only structural difference between
+them is 0.9995 against 0.9706 overlap.
+
+Linearity is worth a note of its own. A mode approaching a continuous switch-off
+has no *a priori* reason to be linear in pump, and the first one was not. Seven
+points spanning a 3x range of step size, deviating by 0.05 %, is a strong
+statement about this one.
+
+### What is measured and what is extrapolated
+
+Measured: the seven amplitudes above, the slope, and the linearity. Extrapolated:
+the extinction pump 1.4843x, which at the time of writing the sweep had not yet
+reached. The qualitative finding — falling linearly rather than rising into a
+fold — does not depend on reaching it.
+
+### A cost threshold, not a cost gradient
+
+Per-pump cost near this switch is flat in step size until it is not:
+
+| step | cost | outcome |
+| --- | --- | --- |
+| 0.05 % | ~580 s | converges |
+| 0.15 % | ~670-720 s | converges |
+| 0.50 % | 8748 s, then 26001 s | **fails** |
+
+Tripling the step costs ~15 % more; multiplying it by ten fails outright, and the
+failing solve at 1.4646x drove this mode to zero when the fine crossing shows it
+still lasing at ~0.18 there. So the wall reported earlier as a scaling problem is
+a step-size threshold, and the sweep's step control (shrink on failure *and* on
+strain) exists to stay below it. The one thing that control cannot do is rescue
+its own first step after a resume — the ceiling is a judgement at launch, and a
+0.5 % ceiling here cost two hours before being corrected to 0.15 %.
