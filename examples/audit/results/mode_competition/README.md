@@ -456,9 +456,16 @@ Crossing it at 0.05 % and 0.15 % steps (`sweep_fine_transitions.py` resumed into
 | 1.4621 | 0.190443 |
 | 1.4636 | 0.177397 |
 
-Slope −8.583 per unit pump, with a maximum deviation from the straight line of
-1.07e-04 — **0.05 %** — across points taken at two different step sizes. Zero at
-**1.4843x**.
+| 1.4651 | 0.164149 |
+| 1.4666 | 0.150688 |
+| 1.4681 | 0.137031 |
+| 1.4696 | 0.123165 |
+| 1.4711 | 0.109093 |
+
+Over the first seven points this looked exactly straight — slope −8.583 per unit
+pump, maximum deviation 1.07e-04, 0.05 % — and an extrapolated zero at 1.4843x.
+Twelve points over twice the range show it is not straight: the decline
+*accelerates*, and the straight-line fit now deviates by 6.9e-04.
 
 That is an ordinary second-order switch-off, and it is *not* what the first
 switch did. There the dying mode's amplitude was still **rising** (3.445 → 3.50)
@@ -476,17 +483,45 @@ how the fight ends.** One pair resolves by a fold with a hysteresis loop, the
 other by a continuous extinction, and the only structural difference between
 them is 0.9995 against 0.9706 overlap.
 
-Linearity is worth a note of its own. A mode approaching a continuous switch-off
-has no *a priori* reason to be linear in pump, and the first one was not. Seven
-points spanning a 3x range of step size, deviating by 0.05 %, is a strong
-statement about this one.
+### The exponent, which is what actually separates the two cases
+
+"Falls linearly" was the wrong way to put the distinction, and over a wider range
+it is also not quite true. Fit `a ~ A (D0_c − D0)^p`
+(`examples/audit/fit_switch_exponent.py`) — twelve points, 1.4596x to 1.4711x,
+the amplitude down by a factor 1.94:
+
+| | exponent | extinction | rms |
+| --- | ---: | ---: | ---: |
+| free | **0.848** | 1.4808x | 4.0e-05 |
+| fixed | 1.0 (continuous, linear) | 1.4835x | 5.0e-04 |
+| fixed | 0.5 (fold at the origin) | 1.4750x | 2.4e-03 |
+
+p = 0.85 beats p = 1 by 13x in residual and p = 0.5 by 60x. So the approach is
+*sub*-linear — accelerating into the extinction, not coasting — but nowhere near
+the square root a fold would give, and the extinction lands at **1.4808x**,
+0.2 % below the straight-line extrapolation.
+
+What separates the two switches is not an exponent at all, though, and the script
+says so before it fits anything. **A fold has no approach to zero to fit.** At
+the first switch the mode is lasing at a = 3.445 at 1.0750x — its own maximum —
+and absent at 1.0800x, where the survivors jump to absorb it:
+
+```
+1.0750x  M= 6  10.6794:1.765 10.7043:18.982 10.6607:7.498 10.6875:5.266 10.6801:3.445 10.7408:6.595
+1.0800x  M= 5  10.6794:2.170 10.7043:22.694 10.6607:9.145 10.6875:8.104              10.7408:8.747
+```
+
+`10.7043` gains 20 % and `10.6875` gains 54 % in one 0.5 % pump step. That is the
+fold. The second switch has a trace that decays through two decades of nothing
+much happening to anybody else.
 
 ### What is measured and what is extrapolated
 
-Measured: the seven amplitudes above, the slope, and the linearity. Extrapolated:
-the extinction pump 1.4843x, which at the time of writing the sweep had not yet
-reached. The qualitative finding — falling linearly rather than rising into a
-fold — does not depend on reaching it.
+Measured: the twelve amplitudes above, the exponent, and the fold's end-point and
+jump. Extrapolated: the extinction pump — 1.4808x on the p = 0.85 fit, 1.4835x if
+forced linear — which at the time of writing the sweep had not yet reached. The
+qualitative finding, decaying to zero rather than ending at its own maximum, does
+not depend on reaching it.
 
 ### A cost threshold, not a cost gradient
 
