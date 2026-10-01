@@ -142,6 +142,15 @@ if start > TOP + 0.5 * STEP:
 _STEP_SHRINK = 0.5
 _STEP_GROW = 1.5
 _STEP_MIN_FRACTION = 1 / 32  # below this, the failure is not about step size
+
+# Shrinking only on failure means paying the whole failure first: a solve that
+# will not converge still burns its full `outer` budget, which near this switch
+# is ~90 minutes. The solver reports how many outer iterations it used, and a
+# solve that needed most of its budget is already telling you the step is too
+# long for the region. So shrink on strain, not just on failure, and only grow
+# back after a solve that converged comfortably.
+_STEP_STRAIN = 0.5  # fraction of the outer budget above which the step shrinks
+_STEP_EASY = 0.25  # and below which it may grow again
 print(f"{start:.4f}x .. {TOP:.4f}x, steps up to {100 * STEP:.2f}%", flush=True)
 print("seed:", " ".join(f"{all_k[i]:.5f}" for i in active), flush=True)
 
@@ -242,6 +251,14 @@ while mult <= TOP + 0.5 * step:
         + " ".join(f"{all_k[i]:.4f}:{a:.2f}" for i, a in zip(active, amps, strict=True)),
         flush=True,
     )
-    step = min(step * _STEP_GROW, STEP)
+    used = sol.iterations / 80.0
+    if used > _STEP_STRAIN and step > STEP * _STEP_MIN_FRACTION:
+        step *= _STEP_SHRINK
+        print(
+            f"      used {sol.iterations} outer iterations; step -> {100 * step:.3f} %",
+            flush=True,
+        )
+    elif used < _STEP_EASY:
+        step = min(step * _STEP_GROW, STEP)
     mult += step
 print("DONE", flush=True)
