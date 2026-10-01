@@ -41,7 +41,6 @@ import numpy as np  # noqa: E402
 warnings.simplefilter("ignore")
 from netsalt import pipeline as pl  # noqa: E402
 from netsalt.config_loader import load_config  # noqa: E402
-from netsalt.io import load_modes  # noqa: E402
 from netsalt.salt_varying import (  # noqa: E402
     _resolved_n_steps,
     edge_field_profiles,
@@ -102,6 +101,8 @@ print(f"\ntop pair: {top[1]:.6f} / {top[2]:.6f} at overlap {top[0]:.4f}")
 gap = [i for i in range(1, len(rows)) if rows[i - 1][0] - rows[i][0] > 0.1]
 if gap:
     i = gap[0]
-    print(f"largest early cliff: rank {i} ({rows[i - 1][0]:.4f}) -> rank {i + 1} ({rows[i][0]:.4f})")
+    print(
+        f"largest early cliff: rank {i} ({rows[i - 1][0]:.4f}) -> rank {i + 1} ({rows[i][0]:.4f})"
+    )
     print(f"pairs above the cliff: {i}")
 print("DONE")

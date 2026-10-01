@@ -79,8 +79,8 @@ if last + 1 < len(mult):
     raise SystemExit
 
 print(
-    f"\nthe trace runs to the last pump in the file, so the sweep has not reached the\n"
-    f"extinction: the critical pump below is an EXTRAPOLATION, not a measurement."
+    "\nthe trace runs to the last pump in the file, so the sweep has not reached the\n"
+    "extinction: the critical pump below is an EXTRAPOLATION, not a measurement."
 )
 
 
