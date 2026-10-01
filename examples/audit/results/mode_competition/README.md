@@ -605,4 +605,89 @@ show one.
 Both graphs still share the same 12-candidate cap over the same window, so
 neither says anything about pairs outside it.
 
-Sweep in progress; the measured answer goes here.
+### What the sweep measured: the prediction fails, and not narrowly
+
+The sweep (`sweep_fine_transitions.py 1.20 0.5 out/fine_b.npz 1.005
+buffon_competition_b`) finds its first extinction immediately, at the second
+pump on the grid:
+
+```
+1.0050x  M= 2  10.762463:1.6501 10.787597:0.0934
+1.0100x  M= 1  10.762463:3.3185
+```
+
+**The event is real.** An independent solve at 1.0100x, warm-started from the
+1.0050x state, converges in 17 outer iterations and drives the second amplitude
+to exactly zero; on the survivor's saturated background the dead mode's net gain
+is `alpha = +2.015e-03` at every probe window from 1e-03 to 0.1, with the root
+moving only +3.5e-04 — so it is not the root-tracking artefact a wide window
+could produce (`probe_verified_drop.py out/fine_b.npz 0 1.0100
+buffon_competition_b`).
+
+The victim, `k = 10.787597`, *is* a member of the rank-1 overlap pair. That is
+where the agreement with prediction (1) ends, because its partner
+`k = 10.792965` is nowhere near lasing at 1.0100x — its own threshold is 1.0352x
+— so the rank-1 pair was not involved in the event at all. What killed it is
+`k = 10.762463`, the only other lasing mode, and that pair's standing in the two
+rankings is (`probe_cross_saturation.py buffon_competition_b`):
+
+| measure | value | rank |
+| --- | ---: | ---: |
+| symmetric overlap `O` | 0.0003 | 61 of 66 |
+| asymmetric cross-saturation `S[m->n]` | 0.001 | 121 of 132 |
+
+Not a near miss: **the two modes are spatially disjoint**, and the ranking put
+their pair near the bottom of the list.
+
+### The asymmetric measure is not the fix
+
+`O` is symmetric, and what should decide whether `m` can starve `n` is
+asymmetric — how much of `n`'s gain `m` burns relative to what `n` burns itself,
+`S[m->n] = int p |E_m|^2 |E_n|^2 / int p |E_n|^4`, which is what the linear
+competition matrix is actually built from. It is the better-motivated quantity
+and it does no better. On the first graph it puts the two measured switches at
+ranks 3 and 9 of 132 — but rank 1, `S = 1.011` for
+`10.613346 -> 10.704320`, is a pair that never switches at all: `10.704320` is
+the strongest mode in the laser at every pump above 1.01x. On the second graph it
+ranks the measured event 121 of 132.
+
+### Gain competition is a hundredfold too small to be the cause
+
+With both fields in hand the mechanism can be checked rather than ranked. The
+mean fractional gain depletion mode `m` inflicts on mode `n`,
+
+    Delta = Gamma_m a_m  int p |E_m|^2 |E_n|^2 / int p |E_n|^2,
+
+is the `|E_n|^2`-weighted average of the saturation `n` actually sits in — an
+absolute number, not a ratio, so it can be compared with how far `n` is above its
+own threshold:
+
+| | |
+| --- | ---: |
+| `10.787597` above its own threshold at 1.0100x | **0.718 %** |
+| depleted by `10.762463` at a = 3.32 | **0.006 %** |
+| depleted by itself at a = 0.093 | 0.342 % |
+
+The mode is extinguished while the gain its rival has taken from it is **1/120 of
+its own margin**, and while it is saturating itself 57x harder than its rival
+saturates it. Gain competition is not what kills it. The linear competition
+matrix, which has nothing else in it, duly keeps it lasing all the way up —
+0.090 at 1.0050x (full SALT: 0.093, agreeing near threshold as it should), 0.294
+at 1.0100x where SALT has already extinguished it, and 7.16 at 1.20x.
+
+So the second graph's SALT-vs-linear disagreement runs the *opposite* way from
+the first graph's: there full SALT lased a mode the linear model dropped, here it
+drops a mode the linear model lases.
+
+### Verdict on the registered prediction
+
+1. **Failed.** The victim is a member of the rank-1 pair, which is the letter of
+   the prediction and an accident: the pair never co-lased, the named member is
+   the wrong one, and the actual killer sits at rank 61 of 66. The honest reading
+   is that the overlap ranking has no predictive content here.
+2. and 3. Not yet testable — the sweep is at 1.05x of 1.20x.
+
+What is left of section 8 is a description of one graph, not a predictor. Spatial
+overlap does identify the two pairs that fight on the first graph, and on that
+graph the near-degenerate cluster really is why; it says nothing about the second
+graph, where the first mode to die is killed by a mode it does not overlap.
