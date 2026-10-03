@@ -51,10 +51,13 @@ from .physics import gamma
 from .varying_laplacian import construct_laplacian_varying
 
 __all__ = [
+    "NetGainTracker",
     "SaltVaryingSolution",
     "compute_modal_intensities_varying",
     "edge_field_profiles",
     "net_gain_alpha",
+    "net_gain_alpha_continued",
+    "net_gain_window",
     "node_solution_varying",
     "salt_residuals_varying",
     "saturated_eps_profiles",
@@ -401,6 +404,14 @@ def saturated_eps_profiles(
 #: the caller's 1e-3 seed to the buffon's a = 68 costs ~8 steps of the 25
 #: available.
 _AMPLITUDE_TRUST_GROWTH = 4.0
+
+#: How close the achieved pump must be to the requested one before a floored
+#: mode is judged at all. The continuation walks ``D0`` up to its target, and on
+#: the way there it passes through states where a mode sits on the weight floor
+#: for no physical reason -- 22 % above target on the measured case. 0.1 % is
+#: tight enough that the survivors are at their final amplitudes, which is what
+#: the re-seed's growth ratio needs.
+_D0_SETTLE_TOL = 1e-3
 
 #: Floor under the amplitude scale, so a mode starting from zero (or from the
 #: caller's 1e-3 seed) can still leave it: a multiplicative update from ``s = 0``
@@ -782,15 +793,46 @@ SALT_VARYING_GAIN_MARGIN = -1e-6
 
 
 def _floored_modes_are_dark(
-    graph, ks, amplitudes, fields, floored, lasing, D0: float, pump, n_steps: int
+    graph,
+    ks,
+    entering_ks,
+    amplitudes,
+    fields,
+    floored,
+    lasing,
+    D0: float,
+    pump,
+    n_steps: int,
+    thresholds=None,
+    threshold_ks=None,
 ) -> bool:
     """Are the modes on the weight floor extinguished, or merely dropped?
 
     Builds the saturated background from the modes still lasing and asks
     :func:`net_gain_alpha` what each floored mode does on it. Returns ``True``
-    only if every one of them is lossy there, i.e. the surviving set really has
-    burnt them out. With no survivors to burn anything there is no background to
-    test against, so nothing is declared dark.
+    only if every one of them is *answered*, and lossy -- i.e. the surviving set
+    really has burnt them out. With no survivors to burn anything there is no
+    background to test against, so nothing is declared dark.
+
+    Two things this gets right that an earlier version did not, both of which
+    retired a lasing mode on ``buffon_competition_b`` (AUDIT.md section 16):
+
+    * It probes from each mode's **entering** ``k``, not its current one. A mode
+      on the weight floor contributes nothing to the residual, so its ``k`` is
+      unconstrained and the solve leaves it adrift -- 1.4e-03 off branch in the
+      measured case, which is *past* a neighbouring root. A verification started
+      there is already answering about the wrong root, at any window width.
+    * It treats ``alpha = +inf`` as undecided rather than as darkness. That
+      return means the probe could not identify this root; reading it as "no
+      gain" turns every failed probe into an extinction.
+
+    Given each mode's own threshold (``thresholds`` / ``threshold_ks``, which the
+    caller has and this solver does not) it asks the question by continuation
+    from that threshold rather than by a single probe -- see
+    :func:`net_gain_alpha_continued`. Without them it falls back to the single
+    probe, which on a crowded spectrum often cannot identify the root and
+    abstains, leaving the solve to report that it lost a mode rather than
+    inventing an extinction.
     """
     if not lasing:
         return False
@@ -803,10 +845,276 @@ def _floored_modes_are_dark(
         pump,
     )
     for i in floored:
-        _, alpha = net_gain_alpha(graph, float(ks[i]), profiles, n_steps=n_steps)
-        if alpha < 0.0:
+        k_entering = float(entering_ks[i])
+        window = net_gain_window(k_entering, [entering_ks[j] for j in range(len(ks)) if j != i])
+        if thresholds is not None and threshold_ks is not None:
+            _, alpha = net_gain_alpha_continued(
+                graph,
+                float(threshold_ks[i]),
+                float(thresholds[i]),
+                D0,
+                pump,
+                n_steps=n_steps,
+                k_window=window,
+                background=profiles,
+            )
+        else:
+            _, alpha = net_gain_alpha(graph, k_entering, profiles, n_steps=n_steps, k_window=window)
+        if not np.isfinite(alpha) or alpha < 0.0:
             return False
     return True
+
+
+#: Fraction of the gap to the nearest other known root that
+#: :func:`net_gain_window` lets the probe travel.
+_NET_GAIN_WINDOW_FRACTION = 0.2
+
+#: Absolute ceiling on that window, and the constant that matters. A lasing
+#: root's *physical* drift is tiny -- measured on both shipped buffon fixtures,
+#: 1.2e-06 per 0.08 % pump step and 2.7e-05 over a whole continuation leg from
+#: threshold to 1.08x -- while the saturated operator carries roots that are no
+#: candidate at all: on ``buffon_competition_b`` one sits 1.1e-03 from the
+#: candidate at ``k = 10.787597`` with ``alpha = +2.0e-03``. A probe allowed to
+#: travel that far reports the neighbour's loss as the candidate's, and since
+#: the neighbour is a genuine root (``|lambda_1| = 1.2e-10``) no residual check
+#: catches it. Sizing the window from the candidate *set* is not enough either:
+#: the nearest other candidate there is 4.7e-03 away, so the fraction above
+#: gives 9.4e-04 and the wrong root is only just outside it. 1e-04 is ~80x the
+#: per-step drift and ~4x a whole leg's drift, and 10x inside the wrong root.
+_NET_GAIN_WINDOW_CAP = 1e-4
+
+#: Floor, so a window is never degenerate.
+_NET_GAIN_WINDOW_MIN = 1e-7
+
+#: Gaps below this are read as "that neighbour is the candidate itself". Callers
+#: naturally pass the whole candidate list, and the entry for the candidate under
+#: test rarely matches to the last bit -- a `k` that has drifted, or one quoted to
+#: six decimals, sits ~1e-07 from its own tabulated value and would otherwise
+#: collapse the window onto the floor. Nothing here can track two roots 1e-06
+#: apart in any case: that is the drift of a single root across a pump step.
+_NET_GAIN_SELF_TOL = 1e-6
+
+#: ``|lambda_1|`` at the probe's answer above which the answer is not a root at
+#: all and the probe abstains. MINPACK reports its last iterate whether or not
+#: it converged, and the old code read that iterate as physics.
+_NET_GAIN_LAM_TOL = 1e-5
+
+#: MINPACK function-evaluation budget for the probe. Each evaluation is one
+#: eigensolve. The old 30 was tuned against a cold ``alpha = 0`` start that this
+#: function no longer uses; a warm start converges in ~15, so the larger budget
+#: is only ever spent on a probe that is struggling, where spending it is the
+#: point.
+_NET_GAIN_MAX_STEPS = 200
+
+
+def net_gain_window(k_candidate: float, other_ks=()) -> float:
+    r"""How far :func:`net_gain_alpha` may carry ``k_candidate``'s root.
+
+    The probe walks a root off the real axis and has no way of knowing which
+    root it landed on, so the caller has to say how far "the same root" can be.
+    The honest bound is the physical one: a lasing ``k`` drifts by ~1e-06 per
+    pump step, and anything an order of magnitude beyond that is a different
+    object -- including roots of the saturated operator that are in no candidate
+    list (see :data:`_NET_GAIN_WINDOW_CAP`).
+
+    Args:
+        k_candidate: the root's starting ``Re k``.
+        other_ks: every other root the caller knows about -- the whole candidate
+            set, not only the lasing ones. Narrows the window where candidates
+            crowd; passing nothing leaves the absolute cap. The candidate itself
+            may be in the list: entries within :data:`_NET_GAIN_SELF_TOL` are
+            read as the candidate rather than as a neighbour to avoid.
+
+    Returns:
+        The window, in ``Re k``.
+    """
+    window = _NET_GAIN_WINDOW_CAP
+    gaps = [abs(float(k_candidate) - float(k)) for k in other_ks]
+    gaps = [gap for gap in gaps if gap > _NET_GAIN_SELF_TOL]
+    if gaps:
+        window = min(window, _NET_GAIN_WINDOW_FRACTION * min(gaps))
+    return float(np.clip(window, _NET_GAIN_WINDOW_MIN, _NET_GAIN_WINDOW_CAP))
+
+
+#: Largest pump increment, as a fraction of a candidate's own threshold, that
+#: :func:`net_gain_alpha_continued` takes in one step. Measured on the root that
+#: defeated the single-shot probe (``buffon_competition_b``, ``k = 10.787597``,
+#: threshold 1.0028x, probed at 1.0100x): one step and two steps both abstain,
+#: three steps -- 0.24 % each -- land on the right root and agree with a 10-step
+#: continuation to 4e-10. 0.2 % keeps a margin under that.
+_NET_GAIN_CONTINUATION_STEP = 0.002
+
+#: Fewest steps the continuation takes, however small the pump excess.
+_NET_GAIN_CONTINUATION_MIN_STEPS = 3
+
+#: And the most, whatever the excess. Without a ceiling a caller asking about a
+#: pump far above a candidate's threshold gets a walk proportional to the ratio
+#: -- 1000x threshold would be half a million root finds -- and the step size is
+#: a means, not the goal. Past the ceiling the steps simply grow; if that loses
+#: the root the walk abstains, which is the safe answer.
+_NET_GAIN_CONTINUATION_MAX_STEPS = 400
+
+
+def net_gain_alpha_continued(
+    graph,
+    k_threshold: float,
+    D0_threshold: float,
+    D0_target: float,
+    pump,
+    n_steps: int = 64,
+    *,
+    k_window: float,
+    background=None,
+    step: float = _NET_GAIN_CONTINUATION_STEP,
+) -> tuple[float, float]:
+    r"""``(k, alpha)`` of a candidate's own root, reached by continuation.
+
+    :func:`net_gain_alpha` is one local root find, and above a candidate's own
+    threshold there is nowhere safe to start it. ``alpha = 0`` is the physically
+    right guess -- a lasing mode sits on the real axis -- and it is still the
+    wrong *basin*: the trough is ~1e-05 wide in ``alpha`` while
+    ``|lambda_1|`` on the real axis is ~1, and MINPACK walks out of it to
+    whatever root it meets. Measured on ``buffon_competition_b`` at 1.0100x, it
+    meets a genuine root 1.1e-03 away carrying ``alpha = +2.0e-03``, and no
+    amount of MINPACK tuning (``diag``, ``eps``, ``factor``, a 200-evaluation
+    budget) changes which one it finds.
+
+    There *is* one place where ``alpha = 0`` is exact, though: the candidate's own
+    threshold. So start there and walk up, warm-starting each step in both
+    unknowns. The walk runs on the **unsaturated** pumped operator, which needs
+    no fields and no other mode, and then takes one final warm-started step onto
+    ``background`` -- a small perturbation of where the walk ended, and so a step
+    the root find can make without leaving the branch.
+
+    Args:
+        graph: quantum graph.
+        k_threshold: the candidate's ``k`` at its own threshold, where
+            ``alpha = 0`` exactly.
+        D0_threshold: that threshold pump.
+        D0_target: the pump to report ``alpha`` at.
+        pump: per-edge pump.
+        n_steps: sub-intervals per varying edge.
+        k_window: per-step window, from :func:`net_gain_window`.
+        background: saturated profiles to finish on -- what the other modes have
+            burnt. ``None`` reports the unsaturated ``alpha``, which is the
+            candidate's gain with nothing competing.
+        step: largest pump increment per step, as a fraction of the threshold.
+
+    Returns:
+        ``(k, alpha)``, or ``(k_threshold, +inf)`` if any step lost the root.
+    """
+    k, alpha = float(k_threshold), 0.0
+    D0_threshold, D0_target = float(D0_threshold), float(D0_target)
+    if D0_threshold <= 0.0:
+        raise ValueError(f"D0_threshold must be positive, got {D0_threshold}")
+    excess = D0_target / D0_threshold - 1.0
+    count = int(
+        np.clip(
+            np.ceil(abs(excess) / step),
+            _NET_GAIN_CONTINUATION_MIN_STEPS,
+            _NET_GAIN_CONTINUATION_MAX_STEPS,
+        )
+    )
+    for index in range(1, count + 1):
+        D0 = D0_threshold + (D0_target - D0_threshold) * index / count
+        profiles = saturated_eps_profiles(graph, [], [], [], D0, pump)
+        k, alpha = net_gain_alpha(
+            graph, k, profiles, n_steps=n_steps, k_window=k_window, alpha0=alpha
+        )
+        if not np.isfinite(alpha):
+            return float(k_threshold), np.inf
+    if background is None:
+        return k, alpha
+    k, alpha = net_gain_alpha(
+        graph, k, background, n_steps=n_steps, k_window=k_window, alpha0=alpha
+    )
+    if not np.isfinite(alpha):
+        return float(k_threshold), np.inf
+    return k, alpha
+
+
+class NetGainTracker:
+    r"""Per-candidate unsaturated root, continued in pump and remembered.
+
+    :func:`net_gain_alpha_continued` walks a candidate's root up from its own
+    threshold every time it is asked, which is the right answer and the wrong
+    cost: at 1.46x threshold that is ~220 steps of ~15 eigensolves each, per
+    candidate, per pump. The walk does not depend on what the other modes have
+    burnt, though -- only on the pump -- so it can be done once and then
+    extended. A sweep that visits pumps in order pays one or two steps per pump
+    instead of the whole walk.
+
+    Keep one tracker per sweep and ask it for each candidate by a stable key
+    (its mode index). The saturated step onto a given background is not cached:
+    that background changes with every solve.
+    """
+
+    def __init__(self, graph, pump, n_steps: int = 64, step: float | None = None):
+        self._graph = graph
+        self._pump = pump
+        self._n_steps = int(n_steps)
+        self._step = _NET_GAIN_CONTINUATION_STEP if step is None else float(step)
+        #: key -> (D0 reached, k there, alpha there)
+        self._state: dict[object, tuple[float, float, float]] = {}
+
+    def unsaturated(
+        self, key, k_threshold: float, D0_threshold: float, D0_target: float, *, k_window: float
+    ) -> tuple[float, float]:
+        """``(k, alpha)`` on the unsaturated pumped operator at ``D0_target``."""
+        D0_threshold, D0_target = float(D0_threshold), float(D0_target)
+        if D0_threshold <= 0.0:
+            raise ValueError(f"D0_threshold must be positive, got {D0_threshold}")
+        D0_from, k, alpha = self._state.get(key, (D0_threshold, float(k_threshold), 0.0))
+        span = abs(D0_target - D0_from) / D0_threshold
+        count = max(1, int(np.ceil(span / self._step)))
+        if key not in self._state:
+            count = max(count, _NET_GAIN_CONTINUATION_MIN_STEPS)
+        count = min(count, _NET_GAIN_CONTINUATION_MAX_STEPS)
+        for index in range(1, count + 1):
+            D0 = D0_from + (D0_target - D0_from) * index / count
+            profiles = saturated_eps_profiles(self._graph, [], [], [], D0, self._pump)
+            k, alpha = net_gain_alpha(
+                self._graph,
+                k,
+                profiles,
+                n_steps=self._n_steps,
+                k_window=k_window,
+                alpha0=alpha,
+            )
+            if not np.isfinite(alpha):
+                # the walk is broken; forget it so the next call starts over
+                self._state.pop(key, None)
+                return float(k_threshold), np.inf
+        self._state[key] = (D0_target, k, alpha)
+        return k, alpha
+
+    def alpha_on(
+        self,
+        key,
+        k_threshold: float,
+        D0_threshold: float,
+        D0_target: float,
+        background,
+        *,
+        k_window: float,
+    ) -> tuple[float, float]:
+        """``(k, alpha)`` on ``background``, warm started from the walk above."""
+        k, alpha = self.unsaturated(key, k_threshold, D0_threshold, D0_target, k_window=k_window)
+        if not np.isfinite(alpha):
+            return float(k_threshold), np.inf
+        if background is None:
+            return k, alpha
+        k, alpha = net_gain_alpha(
+            self._graph,
+            k,
+            background,
+            n_steps=self._n_steps,
+            k_window=k_window,
+            alpha0=alpha,
+        )
+        if not np.isfinite(alpha):
+            return float(k_threshold), np.inf
+        return k, alpha
 
 
 def net_gain_alpha(
@@ -815,8 +1123,10 @@ def net_gain_alpha(
     profiles,
     n_steps: int = 64,
     *,
-    k_window: float = 0.1,
-    max_steps: int = 30,
+    k_window: float,
+    alpha0: float = 0.0,
+    max_steps: int = _NET_GAIN_MAX_STEPS,
+    lam_tol: float = _NET_GAIN_LAM_TOL,
 ) -> tuple[float, float]:
     r"""``(k, alpha)`` of the root nearest ``k0`` on a *given* saturated background.
 
@@ -841,12 +1151,24 @@ def net_gain_alpha(
         k_window: how far the root may travel in ``Re k`` before the probe is
             judged to have left the candidate's branch, in which case ``k0`` is
             returned with ``alpha = +inf`` -- "no evidence of gain here" rather
-            than a neighbouring mode's gain misattributed to this one.
-        max_steps: MINPACK function-evaluation budget.
+            than a neighbouring mode's gain misattributed to this one. Required,
+            and :func:`net_gain_window` is how to size it: the default this
+            argument used to carry (0.1) is a thousand times the physical drift
+            of a lasing root, and let the probe answer with a neighbouring root.
+        alpha0: where to start the search in ``alpha``. The default 0 is a cold
+            start and a bad one -- the trough is ~1e-05 wide in ``alpha`` while
+            ``|lambda_1|`` on the real axis is already ~1, so from there MINPACK
+            can walk to a neighbouring root instead. A caller continuing a mode
+            in pump should pass the previous ``alpha``, which tracks the root
+            over a whole leg.
+        max_steps: MINPACK function-evaluation budget, one eigensolve each.
+        lam_tol: ``|lambda_1|`` at the answer above which it is not a root and
+            the probe abstains.
 
     Returns:
-        ``(k, alpha)``. Admit when ``alpha`` is below
-        :data:`SALT_VARYING_GAIN_MARGIN`.
+        ``(k, alpha)``, or ``(k0, +inf)`` when the probe could not identify this
+        root -- which means "no answer", not "no gain". Admit when ``alpha`` is
+        below :data:`SALT_VARYING_GAIN_MARGIN`; treat ``+inf`` as undecided.
     """
     from scipy.optimize import root
 
@@ -859,13 +1181,19 @@ def net_gain_alpha(
         warnings.simplefilter("ignore")
         result = root(
             residual,
-            np.array([float(k0), 0.0]),
+            np.array([float(k0), float(alpha0)]),
             method="hybr",
             tol=0,
-            options={"maxfev": int(max_steps), "xtol": 1e-9},
+            options={"maxfev": int(max_steps), "xtol": 1e-12},
         )
     k, alpha = float(result.x[0]), float(result.x[1])
     if not np.isfinite(k) or not np.isfinite(alpha) or abs(k - k0) > k_window:
+        return float(k0), np.inf
+    # MINPACK returns its last iterate whether or not it found a root, so check.
+    # This does not catch landing on a *neighbouring* root -- that one is a root
+    # and only `k_window` excludes it -- but it does catch a stalled search being
+    # read as a verdict.
+    if abs(_lam_varying(graph, complex(k, -alpha), profiles, n_steps)) > lam_tol:
         return float(k0), np.inf
     return k, alpha
 
@@ -966,6 +1294,9 @@ def solve_salt_varying(
     residual_tol: float = SALT_VARYING_RESIDUAL_TARGET,
     max_nfev: int = 60,
     k_window_cap: float | None = None,
+    thresholds=None,
+    threshold_ks=None,
+    _reseed_floored: bool = True,
 ) -> SaltVaryingSolution:
     r"""Solve SALT for a given set of lasing modes, without oversampling.
 
@@ -1247,6 +1578,11 @@ def solve_salt_varying(
     # precisely so the solve can reject it, and driving such a candidate to zero
     # is the correct outcome, not a lost mode.
     entering_amplitudes = np.array(amplitudes, dtype=float, copy=True)
+    # And the frequencies, for the same reason plus one more: a floored mode's
+    # `k` is unconstrained and drifts, so every question about a mode on its way
+    # out has to be asked at the `k` it came in with.
+    entering_ks = np.array(ks, dtype=float, copy=True)
+    reseed_tried = False
     converged = False
     iterations = 0
     # (scale, achieved D0) of the previous accepted solve, and the believed
@@ -1557,10 +1893,35 @@ def solve_salt_varying(
             and entering_amplitudes[i] > SALT_VARYING_LASING_AMPLITUDE
         ]
         lasing = [i for i in range(n_modes) if amplitudes[i] > SALT_VARYING_LASING_AMPLITUDE]
-        lost = bool(floored) and not _floored_modes_are_dark(
-            graph, ks, amplitudes, fields, floored, lasing, D0_target, pump, n_steps
+
+        # Nothing about a floored mode is worth asking until the continuation has
+        # arrived at the pump it was asked for. Measured on `buffon_competition_b`
+        # at 1.0100x: the second mode is on the weight floor at the FIRST outer
+        # iteration, with the achieved D0 still 22 % above target and the
+        # survivor at 1.74 against the 3.32 it ends at. A verdict there is a
+        # verdict about a state the solver is still travelling through, and a
+        # re-seed there re-seeds from the state that just failed -- the growth
+        # ratio it needs is 2.01 and at that point it reads 1.06.
+        settled = D0_target <= 0.0 or abs(D0_now / D0_target - 1.0) <= _D0_SETTLE_TOL
+        lost = (
+            bool(floored)
+            and settled
+            and not _floored_modes_are_dark(
+                graph,
+                ks,
+                entering_ks,
+                amplitudes,
+                fields,
+                floored,
+                lasing,
+                D0_target,
+                pump,
+                n_steps,
+                thresholds=thresholds,
+                threshold_ks=threshold_ks,
+            )
         )
-        if floored and not lost and lasing:
+        if floored and settled and not lost and lasing:
             # Extinguished, and confirmed so. It has to leave the *problem*, not
             # just the verdict: this solver asks lambda_1(k_mu) = 0 of every mode
             # in the set, and a mode below threshold has lambda_1 != 0 by
@@ -1589,6 +1950,10 @@ def solve_salt_varying(
                 residual_tol=residual_tol,
                 max_nfev=max_nfev,
                 k_window_cap=k_window_cap,
+                thresholds=[thresholds[i] for i in keep] if thresholds is not None else None,
+                threshold_ks=(
+                    [threshold_ks[i] for i in keep] if threshold_ks is not None else None
+                ),
             )
             for slot, i in enumerate(keep):
                 ks[i] = sub.ks[slot]
@@ -1602,6 +1967,68 @@ def solve_salt_varying(
             return SaltVaryingSolution(
                 ks, amplitudes, fields, residuals, sub.converged, iterations + sub.iterations
             )
+        # Before believing the floor, try once from somewhere else. A warm start
+        # is the whole reason this continuation is affordable, and it is also a
+        # way to lose a mode: the seed is the previous pump's split of a smaller
+        # total, and for a mode close to its own threshold that split is a poor
+        # guess at the next pump's. Measured on `buffon_competition_b` at
+        # 1.0100x: warm started from the 1.0050x amplitudes the solve converges
+        # in 17 iterations with the second mode at exactly 0 and a residual of
+        # 1.1e+00 on its rows, while re-seeded it converges in 16 to a = 0.304
+        # with residuals 1.0e-08 and 7.0e-07 -- the better-converged answer, and
+        # within 3 % of the linear model, which is what near-threshold agreement
+        # should look like.
+        #
+        # The re-seed assumes the floored mode grew in proportion with the laser,
+        # which is the near-threshold expectation and uses only what the solver
+        # already has: its entering amplitude times how much the survivors grew.
+        if lost and lasing and _reseed_floored and not reseed_tried:
+            # Once per solve. The flooring is detected on every outer iteration
+            # it persists, and a retry per iteration would be `outer` extra
+            # complete solves rather than one.
+            reseed_tried = True
+            grown = [
+                amplitudes[i] / entering_amplitudes[i]
+                for i in lasing
+                if entering_amplitudes[i] > SALT_VARYING_LASING_AMPLITUDE
+            ]
+            growth = float(np.median(grown)) if grown else 1.0
+            seeds = [
+                (
+                    max(float(entering_amplitudes[i]) * growth, _AMPLITUDE_TRUST_FLOOR)
+                    if i in floored
+                    else float(amplitudes[i])
+                )
+                for i in range(n_modes)
+            ]
+            retry = solve_salt_varying(
+                graph,
+                [float(entering_ks[i]) for i in range(n_modes)],
+                seeds,
+                D0_target,
+                pump,
+                n_steps=n_steps,
+                outer=max(outer - iterations, 1),
+                damping=damping,
+                residual_tol=residual_tol,
+                max_nfev=max_nfev,
+                k_window_cap=k_window_cap,
+                thresholds=thresholds,
+                threshold_ks=threshold_ks,
+                _reseed_floored=False,
+            )
+            if retry.converged and all(
+                retry.amplitudes[i] > SALT_VARYING_LASING_AMPLITUDE for i in floored
+            ):
+                return SaltVaryingSolution(
+                    retry.ks,
+                    retry.amplitudes,
+                    retry.fields,
+                    retry.residuals,
+                    retry.converged,
+                    iterations + retry.iterations,
+                )
+
         residuals = salt_residuals_varying(
             graph, ks, amplitudes, fields, D0_target, pump, n_steps=n_steps
         )
@@ -1756,6 +2183,9 @@ def compute_modal_intensities_varying(
     grid = np.linspace(first, float(max_pump_intensity), int(D0_steps))
     intensities = pd.DataFrame(index=modes_df.index)
     state: dict[int, tuple[float, float]] = {}
+    # The candidates' unsaturated roots, walked up from their own thresholds once
+    # and extended as the pump rises.
+    tracker = NetGainTracker(graph, pump, n_steps=n_steps)
     # Per mode, the (D0, amplitude) pairs accepted so far. Only this loop knows
     # how a mode's amplitude has moved across pumps, and that trail is what puts
     # the next solve in the right basin (see :func:`_predicted_amplitude`).
@@ -1801,6 +2231,11 @@ def compute_modal_intensities_varying(
             k_window_cap=(
                 [caps[i] for i in candidate_set] if all(i in caps for i in candidate_set) else None
             ),
+            # Only this loop knows each candidate's own threshold, and the
+            # extinction test needs it to continue a root from where alpha = 0 is
+            # exact rather than guess a basin (see `net_gain_alpha_continued`).
+            thresholds=[float(thresholds[i]) for i in candidate_set],
+            threshold_ks=[float(np.real(threshold_modes[i])) for i in candidate_set],
         )
         ok = all(
             solution.amplitudes[slot] > SALT_VARYING_LASING_AMPLITUDE
@@ -1826,9 +2261,26 @@ def compute_modal_intensities_varying(
             graph, solution.ks, solution.amplitudes, solution.fields, D0, pump
         )
         k_cand = state.get(cand, (float(np.real(threshold_modes[cand])), 0.0))[0]
-        gap = min(abs(k_cand - float(k)) for k in solution.ks)
-        window = float(np.clip(0.2 * gap, 1e-6, 0.3))
-        _, alpha = net_gain_alpha(graph, k_cand, profiles, n_steps=n_steps, k_window=window)
+        # Every root the caller knows about, not only the lasing ones: the window
+        # has to exclude the nearest *candidate* as well as the nearest incumbent.
+        known = [float(k) for j, k in enumerate(cand_ks) if finite[j] != cand]
+        known += [float(k) for k in solution.ks]
+        window = net_gain_window(k_cand, known)
+        # Above a candidate's own threshold there is nowhere safe to start a
+        # single probe, so continue from that threshold, where alpha = 0 is
+        # exact, and finish on the incumbents' background. The tracker keeps each
+        # candidate's unsaturated walk so this costs a step or two per pump
+        # rather than the whole walk (see :class:`NetGainTracker`).
+        _, alpha = tracker.alpha_on(
+            cand,
+            float(np.real(threshold_modes[cand])),
+            float(thresholds[cand]),
+            float(D0),
+            profiles,
+            k_window=window,
+        )
+        # `+inf` is "could not identify this root", so it is not an admission and
+        # not a rejection on physical grounds either; the candidate waits.
         return alpha < SALT_VARYING_GAIN_MARGIN
 
     for D0 in grid:

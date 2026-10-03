@@ -80,7 +80,7 @@ def intensities(frame, mult):
     return np.nan_to_num(o[cols].to_numpy(dtype=float))[:, -1]
 
 
-d = np.load("ladder.npz")
+d = np.load("out/ladder.npz")
 x, salt = d["mult"], d["salt"]
 keep = [j for j in range(6) if j != 3]
 print(
@@ -97,10 +97,18 @@ for j, mult in enumerate(x):
     t6 = sum(I6[order[i]] for i in range(6))
     t5 = sum(I5[order[i]] for i in keep)
     per = [100 * (s[i] / I5[order[i]] - 1) for i in keep if I5[order[i]] > 1e-12]
-    rows.append((mult, st, t6, t5, per))
+    rows.append((mult, st, t6, t5))
     print(
         f"{mult:7.4f} {st:9.2f} {t6:9.2f} {t5:9.2f} "
         f"{100 * (st / t6 - 1):+9.1f}% {100 * (st / t5 - 1):+9.1f}%   "
         f"{min(per):+6.1f}% .. {max(per):+6.1f}%"
     )
+np.savez(
+    "out/linear_same_modes.npz",
+    mult=np.array([r[0] for r in rows]),
+    salt_total=np.array([r[1] for r in rows]),
+    lin6_total=np.array([r[2] for r in rows]),
+    lin5_total=np.array([r[3] for r in rows]),
+)
+print("\nwrote out/linear_same_modes.npz")
 print("DONE")

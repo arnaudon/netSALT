@@ -115,6 +115,14 @@ venv.bak/
 
 *.png
 
+# ... except the checked-in audit results. Figures elsewhere are build
+# artifacts that `run.sh` regenerates; these are the record of a measurement
+# that costs hours of solver time, and are meant to outlive the run that made
+# them. Same for the small .npz they were plotted from, so the figures can be
+# redrawn without repeating the sweep.
+!examples/audit/results/**/*.png
+!examples/audit/results/**/*.npz
+
 # uv lockfile (not pinned for this project)
 uv.lock
 

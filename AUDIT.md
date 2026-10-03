@@ -1072,3 +1072,129 @@ fast an answer is reached, not which answer.
 rather than pinned at a floor. So **ten modes do lase above 1.1476x**, which the
 solver previously could not demonstrate, and the L–I curve is no longer capped
 at ~1.15x.
+
+
+## 16. A second graph, and a phantom extinction
+
+Every result in §§12–15 and in `examples/audit/results/mode_competition/` was
+measured on one Buffon realisation. `examples/buffon/buffon_competition_b/` is an
+independent draw at identical parameters (seed 7; `make_graph.py` regenerates
+it), rescaled by the shared `inner_total_length` so the mode density over the
+same `k` window is comparable. Twelve candidates spanning 4.66 % in threshold,
+against the first graph's 4.7 %.
+
+**It broke the §14 reading immediately, and then it broke the solver.**
+
+The overlap ranking of §14 — three pairs at 0.9995–1.0000 and a cliff to 0.56 —
+has no counterpart on the second graph, whose highest pair is 0.9693 and whose
+distribution decays smoothly with 25 pairs above 0.54. So the first graph's
+violent switch needed a spatial degeneracy that is **not generic**.
+
+With a prediction registered up front (which mode dies, that the switch is
+continuous, that nothing is first-order), the sweep's first extinction looked
+like its first test: at 1.0050x two modes lase, at 1.0100x one is gone. It is
+not a test, because the extinction is not real. `probe_phantom_extinction.py`:
+
+1. The retired mode's own root, continued in pump in 0.08 % steps and warm
+   started in *both* `k` and `alpha`, has net gain from its threshold at 1.0028x
+   past 1.0204x — `alpha` monotone from 0 to −1.27e-04, `|lambda_1| ~ 1.5e-10`
+   throughout. At 1.0100x, where it was retired, `alpha = −5.2e-05`.
+2. The mean fractional gain depletion the survivor inflicts on it is 0.006 %
+   against its 0.718 % margin above threshold. The two modes are spatially
+   disjoint (pump-weighted overlap 3e-04); it saturates itself 57x harder.
+3. Re-seeding the same solve at 1.0100x from the linear model instead of from the
+   previous pump converges in 16 iterations to `a = 0.30403` with residuals
+   1.0e-08 / 7.0e-07 — better converged than the one-mode answer, and within 3 %
+   of the linear model's 0.294.
+
+**Why it happened.** `alpha = 0` is a bad start for this root find: the trough is
+~1e-05 wide in `alpha` while `|lambda_1|` at `alpha = 0` is already ~1.0
+(gradient ~6e+04 per unit `k`), and a second **genuine** root sits 1.1e-03 away
+in `Re k` with `alpha = +2.0e-03`. MINPACK with 30 function evaluations from the
+cold start converges to the neighbour, and since the neighbour is a real root
+(`|lambda_1| = 1.2e-10`) a residual check does not catch it. The physical drift
+of the right root is 1.2e-06 per pump step, while `net_gain_alpha`'s default
+`k_window` is **0.1** — a thousand times wider than the gap to the wrong root.
+`_floored_modes_are_dark` then agrees the mode is dark, and the sweep retires a
+lasing mode. Two aggravating details: that function reads `alpha = +inf` ("no
+root found here") as *darkness* rather than abstaining, and a floored mode's `k`
+is unconstrained, so any verification started from the drifted `k` the solve
+returns is already on the wrong root.
+
+**What it invalidates.** The second graph's sweep above 1.0100x, which has been
+stopped; its registered prediction is untested, not failed. The first graph's two
+switches are not marginal near-threshold modes — the fold retires a mode at
+`a = 3.445`, its own maximum, corroborated by a measured hysteresis loop, and the
+second switch declines smoothly over twelve pumps — but the **re-ignition of §13
+(1.1476x) rests on a `net_gain_alpha` sign change alone** and needs re-checking
+with a window sized to the physical drift. The overlap and cross-saturation
+rankings are computed from threshold fields and involve no root find.
+
+**The fix** (not applied; it changes what the solver admits, so it touches every
+result above): size `k_window` from the gap to the nearest other candidate rather
+than a fixed default; warm start the probe in `alpha` as well as `k`; make
+`_floored_modes_are_dark` abstain on `+inf` and refuse to verify from a drifted
+`k`; and retry a floored mode once from an independent seed before accepting it
+as extinguished.
+
+
+## 17. The fix for §16, and what it costs
+
+Four changes, all in `netsalt/salt_varying.py`.
+
+**1. The probe's window is sized, and required.** `net_gain_alpha`'s
+`k_window` has no default any more; `net_gain_window(k, other_ks)` computes it
+from the nearest other root the caller knows about, under an absolute cap of
+`1e-04`. The cap is the part that matters: sizing from the candidate *set* alone
+is not enough, because the root that defeated the old probe is in no candidate
+list — the nearest other candidate is 4.7e-03 away, so a 0.2 fraction gives
+9.4e-04 and the wrong root at 1.1e-03 is only just outside. 1e-04 is ~80x a
+lasing root's per-pump-step drift and ~4x its drift over a whole continuation
+leg.
+
+**2. The probe says when it does not know.** It already returned `+inf` for "the
+root left the window"; it now also returns `+inf` when `|lambda_1|` at the answer
+is not small, because MINPACK hands back its last iterate whether or not it
+converged. And every caller now reads `+inf` as *undecided*: an undecided
+candidate is not admitted, an undecided floored mode is not declared dark, and
+`solve_salt_varying` reports a lost mode rather than inventing an extinction.
+
+**3. Above threshold, the question is asked by continuation.** There is no safe
+place to start a single probe above a candidate's own threshold. `alpha = 0` is
+the right physics and the wrong basin — and not marginally: with the window at
+1e-04, `diag` scaling, `eps` down to 1e-09, `factor` at 0.01 and a
+200-evaluation budget, *every* setting tried still converged on the root
+1.1e-03 away. `net_gain_alpha_continued` walks up from the threshold, where
+`alpha = 0` is exact, warm-starting both unknowns, then takes one step onto the
+saturated background. Measured on the case that broke: one step and two steps
+abstain, three steps (0.24 % each) land on the right root and agree with a
+ten-step walk to **4e-10**; the final step onto the survivor's background moves
+`alpha` from −5.2241e-05 to **−5.1971e-05**, i.e. the competitor costs this mode
+0.5 % of its net gain, consistent with the 0.006 % gain depletion of §16. The
+cold probe on that same background abstains.
+
+**4. A floored mode gets a second seed before it is believed.** The warm start is
+what makes the continuation affordable and is also how a mode is lost: the seed
+is the previous pump's split of a smaller total, which for a mode near its own
+threshold is a poor guess at the next pump's. `solve_salt_varying` now retries
+once, re-seeding each floored mode at its entering amplitude times the median
+growth of the survivors — information the solver already has, and the
+near-threshold expectation that a mode grows with the laser.
+
+**Cost.** The continuation is proportional to the pump excess, so re-walking it
+from threshold at every pump would be ~220 steps per candidate at 1.46x
+threshold, several times the solve it is screening for. It does not depend on
+what the other modes have burnt, though, only on the pump — so `NetGainTracker`
+walks each candidate once and extends it as the pump rises, one or two steps per
+pump. The step count is also capped at 400 whatever the excess; past that the
+steps grow, and if that loses the root the walk abstains, which is the safe
+answer. The retry is attempted once per solve, not once per outer iteration —
+without that guard it is `outer` extra complete solves, which is how the first
+version of this fix appeared to hang.
+
+**API.** `net_gain_alpha` now requires `k_window`; `net_gain_window`,
+`net_gain_alpha_continued` and `NetGainTracker` are public;
+`solve_salt_varying` takes optional `thresholds=` / `threshold_ks=`, which a
+caller that knows each mode's threshold should pass so the extinction test can
+continue rather than guess. `compute_modal_intensities_varying` passes them, and
+`examples/audit/sweep_fine_transitions.py` does too.

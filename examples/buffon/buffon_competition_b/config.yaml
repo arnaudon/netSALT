@@ -1,0 +1,17 @@
+defaults: ../_base.yaml
+
+# `buffon_competition` on a *second* Buffon realisation (seed 7, see
+# make_graph.py), with everything else identical: same k window, same uniform
+# pump, same twelve candidates, same varying-operator SALT solver.
+#
+# Every result in examples/audit/results/mode_competition/ -- the extinction
+# mechanism, the fold at the first switch, the overlap ranking that predicts
+# which pair switches -- was measured on one graph. This fixture exists to test
+# those claims on a graph they were not derived from.
+pump_mode: uniform
+n_modes_max: 12
+n_workers: 2
+
+intensity_method: full_salt_varying
+salt_D0_steps: 6
+intensity_varying_n_steps: 128
