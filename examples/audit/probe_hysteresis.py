@@ -41,6 +41,7 @@ from netsalt.io import load_modes  # noqa: E402
 from netsalt.salt_varying import (  # noqa: E402
     _resolved_n_steps,
     net_gain_alpha,
+    net_gain_window,
     saturated_eps_profiles,
     solve_salt_varying,
 )
@@ -92,7 +93,9 @@ for mult in np.arange(TOP, BOT - 0.5 * STEP, -STEP):
         prof = saturated_eps_profiles(
             qg, list(sol.ks), list(sol.amplitudes), list(sol.fields), D0, pump
         )
-        _, alpha = net_gain_alpha(qg, DOOM_K, prof, n_steps=n_steps)
+        _, alpha = net_gain_alpha(
+            qg, DOOM_K, prof, n_steps=n_steps, k_window=net_gain_window(DOOM_K, ks)
+        )
     tag = "NET GAIN -> must jump back up" if alpha < 0 else "lossy -> five modes hold"
     rows.append((float(mult), len(live), bool(sol.converged), float(alpha)))
     np.save("out/hysteresis.npy", np.array(rows))

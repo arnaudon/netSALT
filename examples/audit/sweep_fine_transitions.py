@@ -51,8 +51,9 @@ from netsalt.io import load_modes  # noqa: E402
 from netsalt.salt_varying import (  # noqa: E402
     SALT_VARYING_GAIN_MARGIN,
     SALT_VARYING_LASING_AMPLITUDE,
+    NetGainTracker,
     _resolved_n_steps,
-    net_gain_alpha,
+    net_gain_window,
     saturated_eps_profiles,
     solve_salt_varying,
 )
@@ -104,6 +105,9 @@ else:
     active = [order[i] for i in (0, 1, 2, 4, 5)]
     ks = [all_k[i] for i in active]
     amps = [2.253, 23.980, 9.699, 8.976, 9.726]
+# One walk per candidate, extended as the pump rises, rather than re-walked from
+# each threshold at every pump (which at 1.46x is ~220 steps per candidate).
+tracker = NetGainTracker(qg, pump, n_steps=n_steps)
 records, alpha_log = [], []
 start = START
 
@@ -167,7 +171,21 @@ print("seed:", " ".join(f"{all_k[i]:.5f}" for i in active), flush=True)
 
 
 def solve(set_ids, set_ks, set_amps, D0):
-    sol = solve_salt_varying(qg, set_ks, set_amps, D0, pump, n_steps=N_STEPS, outer=80)
+    # The solver cannot know each mode's own threshold, and its extinction test
+    # needs it: above threshold there is nowhere safe to start a single net-gain
+    # probe, so the test continues a root up from where alpha = 0 is exact.
+    # Without this the sweep retires modes that are still lasing (AUDIT.md 16).
+    sol = solve_salt_varying(
+        qg,
+        set_ks,
+        set_amps,
+        D0,
+        pump,
+        n_steps=N_STEPS,
+        outer=80,
+        thresholds=[float(thr[i]) for i in set_ids],
+        threshold_ks=[float(all_k[i]) for i in set_ids],
+    )
     live = [
         j for j in range(len(set_ids)) if float(sol.amplitudes[j]) > SALT_VARYING_LASING_AMPLITUDE
     ]
@@ -219,9 +237,17 @@ while mult <= TOP + 0.5 * step:
         for cand in sorted(finite, key=lambda i: thr[i]):
             if cand in active or thr[cand] >= D0:
                 continue
-            gap = min(abs(all_k[cand] - k) for k in ks)
-            window = float(np.clip(0.2 * gap, 1e-6, 0.3))
-            _, alpha = net_gain_alpha(qg, all_k[cand], profiles, n_steps=n_steps, k_window=window)
+            window = net_gain_window(
+                all_k[cand], [all_k[j] for j in finite if j != cand] + list(ks)
+            )
+            _, alpha = tracker.alpha_on(
+                cand,
+                all_k[cand],
+                float(thr[cand]),
+                D0,
+                profiles,
+                k_window=window,
+            )
             alpha_log.append((float(mult), float(all_k[cand]), float(alpha)))
             if alpha >= SALT_VARYING_GAIN_MARGIN:
                 continue

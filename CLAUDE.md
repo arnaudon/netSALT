@@ -41,6 +41,22 @@ mapping.
     only as the test oracle in
     `tests/test_unit.py::TestModeCompetitionVectorisation`. Benchmark:
     `benchmark/bench_competition.py`.
+  - `salt_varying.py` — the operator-level SALT solver that keeps the edge count
+    fixed and resolves the within-edge field (`solve_salt_varying`,
+    `compute_modal_intensities_varying`, `intensity_method: full_salt_varying`).
+    One contract matters and is easy to get wrong: **the net-gain probe needs a
+    window and a basin.** `net_gain_alpha` walks a root off the real axis and
+    cannot tell which root it found, so `k_window` is required — size it with
+    `net_gain_window(k, other_ks)`, never by hand — and it returns
+    `alpha = +inf` for "could not identify this root", which means *undecided*,
+    not *lossy*. Above a candidate's own threshold a single probe has no safe
+    start (`alpha = 0` is the right physics and the wrong basin), so use
+    `net_gain_alpha_continued`, which walks up from the threshold where
+    `alpha = 0` is exact. Callers that know each mode's threshold should pass
+    `thresholds=` / `threshold_ks=` to `solve_salt_varying` so its extinction
+    test can do the same. A probe with the old 0.1 window retired a mode that
+    was still lasing; see AUDIT.md §16 and
+    `examples/audit/probe_phantom_extinction.py`.
   - `algorithm.py` — rough mode detection (skimage `peak_local_max`) and
     two refinement algorithms: `refine_mode_root` (MINPACK ``hybr``,
     default) and `refine_mode_brownian_ratchet` (legacy random-walk

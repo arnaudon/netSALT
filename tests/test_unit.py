@@ -3724,3 +3724,223 @@ class TestSaltVaryingKWindow:
                 graph, [k0], [0.05], 0.5, pump, n_steps=32, outer=4, k_window_cap=1e-3
             )
         assert abs(solution.ks[0] - k0) <= 1e-3 + 1e-9
+
+
+class TestNetGainWindow:
+    """Sizing the net-gain probe's window, which used to default to 0.1.
+
+    A lasing root drifts ~1e-06 per pump step while the saturated operator
+    carries roots that are in no candidate list -- on ``buffon_competition_b``
+    one sits 1.1e-03 from a candidate with ``alpha = +2.0e-03``. A probe allowed
+    to travel 0.1 answers with that neighbour, and because the neighbour is a
+    genuine root no residual check catches it. See AUDIT.md section 16.
+    """
+
+    def test_window_without_neighbours_is_the_absolute_cap(self):
+        from netsalt.salt_varying import _NET_GAIN_WINDOW_CAP, net_gain_window
+
+        assert net_gain_window(10.787597) == pytest.approx(_NET_GAIN_WINDOW_CAP)
+
+    def test_window_never_reaches_the_wrong_root_of_the_measured_case(self):
+        from netsalt.salt_varying import net_gain_window
+
+        # the 12 candidates of buffon_competition_b, and the root that caught the
+        # old probe out
+        candidates = [
+            10.643730,
+            10.653041,
+            10.657600,
+            10.682390,
+            10.688173,
+            10.692215,
+            10.696754,
+            10.729803,
+            10.762463,
+            10.787597,
+            10.792277,
+            10.792965,
+        ]
+        window = net_gain_window(10.787597, [k for k in candidates if k != 10.787597])
+        assert window < 1.08e-3  # the distance to the wrong root
+        assert window > 0.0
+
+    def test_crowding_narrows_the_window_below_the_cap(self):
+        from netsalt.salt_varying import _NET_GAIN_WINDOW_CAP, net_gain_window
+
+        window = net_gain_window(10.680091, [10.679976, 10.679331])
+        assert window < _NET_GAIN_WINDOW_CAP
+        assert window == pytest.approx(0.2 * abs(10.680091 - 10.679976))
+
+    def test_a_coincident_neighbour_is_ignored_not_fatal(self):
+        from netsalt.salt_varying import _NET_GAIN_WINDOW_CAP, net_gain_window
+
+        # the caller's "every root I know about" list normally contains the
+        # candidate itself; a zero gap must not collapse the window
+        assert net_gain_window(10.5, [10.5]) == pytest.approx(_NET_GAIN_WINDOW_CAP)
+
+
+class TestNetGainAlphaAbstains:
+    """``+inf`` means "could not identify this root", not "no gain".
+
+    Reading it as darkness is how ``_floored_modes_are_dark`` retired a lasing
+    mode: a probe that fails to find the root retires it.
+    """
+
+    def test_window_is_required(self):
+        from netsalt.salt_varying import net_gain_alpha
+
+        graph, pump = TestSaltVarying._graph()
+        with pytest.raises(TypeError):
+            net_gain_alpha(graph, 10.45, [None] * len(graph.edges), n_steps=16)
+
+    def test_a_root_outside_the_window_is_not_reported_as_lossy(self):
+        from netsalt.salt_varying import net_gain_alpha, saturated_eps_profiles
+
+        graph, pump = TestSaltVarying._graph()
+        profiles = saturated_eps_profiles(graph, [], [], [], 0.0, pump)
+        # a window far tighter than any root displacement: the probe must abstain
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            k, alpha = net_gain_alpha(
+                graph, 10.45, profiles, n_steps=16, k_window=1e-12, max_steps=20
+            )
+        assert k == pytest.approx(10.45)
+        assert alpha == np.inf
+        assert not alpha < 0.0  # and so it is not an admission either
+
+    def test_a_non_root_answer_is_rejected(self):
+        from netsalt.salt_varying import net_gain_alpha, saturated_eps_profiles
+
+        graph, pump = TestSaltVarying._graph()
+        profiles = saturated_eps_profiles(graph, [], [], [], 0.0, pump)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            # one function evaluation cannot find a root, and whatever iterate it
+            # stops at must not come back as a verdict
+            _, alpha = net_gain_alpha(graph, 10.45, profiles, n_steps=16, k_window=0.1, max_steps=1)
+        assert alpha == np.inf
+
+
+class TestNetGainContinuation:
+    """Walking a root up from the threshold, where ``alpha = 0`` is exact.
+
+    A single probe has no safe start above a candidate's own threshold:
+    ``alpha = 0`` is the right physics and the wrong basin, and on
+    ``buffon_competition_b`` every MINPACK setting tried landed on a genuine
+    root 1.1e-03 away carrying ``alpha = +2.0e-03``. The continuation is the
+    answer, and :class:`NetGainTracker` is how it stays affordable.
+    """
+
+    @staticmethod
+    def _case():
+        graph, pump = TestSaltVarying._graph()
+        # a root of the unsaturated pumped operator, found the cheap way: the
+        # threshold of this fixture's lowest mode is not tabulated here, so take
+        # a small pump and treat it as the reference point
+        return graph, pump
+
+    def test_rejects_a_non_positive_threshold(self):
+        from netsalt.salt_varying import net_gain_alpha_continued
+
+        graph, pump = self._case()
+        with pytest.raises(ValueError, match="D0_threshold must be positive"):
+            net_gain_alpha_continued(graph, 10.45, 0.0, 1e-4, pump, n_steps=16, k_window=1e-4)
+
+    def test_a_broken_walk_abstains_rather_than_answering(self):
+        from netsalt.salt_varying import net_gain_alpha_continued
+
+        graph, pump = self._case()
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            k, alpha = net_gain_alpha_continued(
+                graph, 10.45, 1e-4, 1.02e-4, pump, n_steps=16, k_window=1e-12
+            )
+        assert k == pytest.approx(10.45)
+        assert alpha == np.inf
+
+    @staticmethod
+    def _counting_probe(answers=None):
+        """A deterministic stand-in for the probe, so the walk's logic is testable.
+
+        The physics of a root find on a seven-edge line graph is not what these
+        tests are about -- the step count, the caching and the abstention are,
+        and with a real probe on a fixture whose modes sit at large alpha they
+        were all skipped. This records every call and walks a notional root.
+        """
+        calls = []
+
+        def probe(graph, k0, profiles, n_steps=64, *, k_window, alpha0=0.0, **kwargs):
+            calls.append((float(k0), float(alpha0)))
+            if answers is not None and len(calls) >= answers:
+                return float(k0), np.inf
+            return float(k0) + 1e-7, float(alpha0) - 1e-6
+
+        return probe, calls
+
+    def test_the_first_walk_takes_at_least_the_minimum_steps(self, monkeypatch):
+        from netsalt import salt_varying as sv
+
+        graph, pump = self._case()
+        probe, calls = self._counting_probe()
+        monkeypatch.setattr(sv, "net_gain_alpha", probe)
+        tracker = sv.NetGainTracker(graph, pump, n_steps=16)
+        # a pump excess far below one step: the minimum still applies, because
+        # alpha = 0 is exact only at the threshold and the first step off it is
+        # the one that can jump
+        tracker.unsaturated(0, 10.45, 1e-4, 1.0001e-4, k_window=1e-4)
+        assert len(calls) == sv._NET_GAIN_CONTINUATION_MIN_STEPS
+
+    def test_a_later_pump_extends_the_walk_rather_than_repeating_it(self, monkeypatch):
+        from netsalt import salt_varying as sv
+
+        graph, pump = self._case()
+        probe, calls = self._counting_probe()
+        monkeypatch.setattr(sv, "net_gain_alpha", probe)
+        tracker = sv.NetGainTracker(graph, pump, n_steps=16)
+        tracker.unsaturated(0, 10.45, 1.0, 1.1, k_window=1e-4)
+        first = len(calls)
+        assert first in (50, 51)  # 0.1 / 0.002, give or take the last bit
+        tracker.unsaturated(0, 10.45, 1.0, 1.102, k_window=1e-4)
+        extension = len(calls) - first
+        # a step or two for the extra 0.2 %, not another fifty: that is the saving
+        assert 1 <= extension <= 3
+        # and it continued from the cached root, not from the threshold
+        assert calls[first][1] == pytest.approx(-1e-6 * first)
+
+    def test_the_walk_is_capped_however_far_the_target(self, monkeypatch):
+        from netsalt import salt_varying as sv
+
+        graph, pump = self._case()
+        probe, calls = self._counting_probe()
+        monkeypatch.setattr(sv, "net_gain_alpha", probe)
+        # 1000x the threshold would be half a million steps at the nominal size
+        sv.net_gain_alpha_continued(graph, 10.45, 1e-3, 1.0, pump, n_steps=16, k_window=1e-4)
+        assert len(calls) == sv._NET_GAIN_CONTINUATION_MAX_STEPS
+
+    def test_tracker_matches_the_one_shot_continuation(self, monkeypatch):
+        from netsalt import salt_varying as sv
+
+        graph, pump = self._case()
+        probe, _ = self._counting_probe()
+        monkeypatch.setattr(sv, "net_gain_alpha", probe)
+        one = sv.net_gain_alpha_continued(graph, 10.45, 1.0, 1.1, pump, n_steps=16, k_window=1e-4)
+        tracker = sv.NetGainTracker(graph, pump, n_steps=16)
+        walked = tracker.unsaturated(0, 10.45, 1.0, 1.1, k_window=1e-4)
+        assert walked[0] == pytest.approx(one[0])
+        assert walked[1] == pytest.approx(one[1])
+
+    def test_a_broken_walk_forgets_its_cache(self, monkeypatch):
+        from netsalt import salt_varying as sv
+
+        graph, pump = self._case()
+        probe, _ = self._counting_probe()
+        monkeypatch.setattr(sv, "net_gain_alpha", probe)
+        tracker = sv.NetGainTracker(graph, pump, n_steps=16)
+        tracker.unsaturated(0, 10.45, 1.0, 1.1, k_window=1e-4)
+        assert 0 in tracker._state
+        # now the probe starts failing
+        failing, _ = self._counting_probe(answers=1)
+        monkeypatch.setattr(sv, "net_gain_alpha", failing)
+        _, alpha = tracker.unsaturated(0, 10.45, 1.0, 1.2, k_window=1e-4)
+        assert alpha == np.inf
+        assert 0 not in tracker._state  # stale state would poison the next call

@@ -687,19 +687,45 @@ whether the answer is stable.
 - **The overlap and cross-saturation rankings stand as measurements** — they are
   computed from threshold fields and involve no root find.
 
-### The fix this needs
+### The fix, applied
 
-Not yet applied, because it changes what the solver admits and so touches every
-result above:
+All four parts are in `netsalt/salt_varying.py`; AUDIT.md section 17 has the
+details and the measurements behind each constant.
 
-1. Size `net_gain_alpha`'s `k_window` from the physical scale — the gap to the
-   nearest *other* candidate root, not a fixed 0.1 — and make the caller pass
-   it rather than inherit a default that is wrong by three orders of magnitude.
-2. Warm-start the probe in `alpha` as well as `k`. From `(k_prev, alpha_prev)`
-   with a real evaluation budget the root tracks over the whole pump range in
-   0.08 % steps; from `(k0, 0)` with 30 evaluations it jumps.
-3. Make `_floored_modes_are_dark` abstain on `alpha = +inf` instead of reading it
-   as darkness, and refuse to verify from a drifted `k`.
-4. Before accepting a floored mode as extinguished, retry the solve once with
-   that mode re-seeded from an independent estimate (its threshold value, or the
-   linear model) rather than from the warm start that lost it.
+1. **The window is sized, and required.** `net_gain_alpha`'s `k_window` has no
+   default; `net_gain_window(k, other_ks)` computes it from the nearest other
+   known root under an absolute cap of `1e-04` — ~80x a lasing root's per-step
+   drift, and 10x inside the wrong root. Sizing from the candidate set alone
+   would not have been enough: the wrong root is in no candidate list, and the
+   nearest actual candidate is far enough away that the fraction alone leaves it
+   just outside.
+2. **The probe says when it does not know.** `+inf` now also covers "the answer
+   is not a root", and every caller reads it as *undecided*: no admission, no
+   extinction, and `solve_salt_varying` reports a lost mode instead of inventing
+   one.
+3. **Above threshold the question is asked by continuation.**
+   `net_gain_alpha_continued` walks up from the candidate's own threshold, where
+   `alpha = 0` is exact, then steps onto the saturated background. Three steps
+   suffice where one and two abstain, and the result agrees with a ten-step walk
+   to 4e-10. No MINPACK setting rescues the single probe — `diag`, `eps`,
+   `factor` and a 200-evaluation budget all still land on the wrong root.
+   `NetGainTracker` keeps each candidate's walk so a sweep pays a step or two
+   per pump rather than re-walking from threshold (~220 steps at 1.46x).
+4. **A floored mode gets a second seed before it is believed.**
+   `solve_salt_varying` retries once, re-seeding each floored mode at its
+   entering amplitude times the survivors' median growth.
+
+Callers that know each mode's threshold pass `thresholds=` / `threshold_ks=` to
+`solve_salt_varying` so its extinction test can continue rather than guess;
+`compute_modal_intensities_varying` and `sweep_fine_transitions.py` both do.
+
+### Re-running everything
+
+Both fixtures are being swept again from the foot of the curve under the fixed
+solver. Until those finish, **the figures and per-mode numbers in sections 1-9
+are from the old solver**, and the specific thing to distrust is any mode
+*leaving* the set: an extinction it reports may be a lost root. The two switches
+of sections 7-9 have corroboration the phantom lacks — a mode leaving at its own
+maximum with a measured hysteresis loop, and a mode declining smoothly over
+twelve pumps — but corroboration is not a re-run, and the re-run is what will
+settle them.

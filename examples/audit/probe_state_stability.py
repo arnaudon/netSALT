@@ -35,6 +35,7 @@ from netsalt.io import load_modes  # noqa: E402
 from netsalt.salt_varying import (  # noqa: E402
     _resolved_n_steps,
     net_gain_alpha,
+    net_gain_window,
     saturated_eps_profiles,
     solve_salt_varying,
 )
@@ -87,7 +88,13 @@ for mult in PUMPS:
     for cand in finite:
         if cand in ids5:
             continue
-        kr, al = net_gain_alpha(qg, all_k[cand], prof, n_steps=n_steps)
+        kr, al = net_gain_alpha(
+            qg,
+            all_k[cand],
+            prof,
+            n_steps=n_steps,
+            k_window=net_gain_window(all_k[cand], [v for k, v in all_k.items() if k != cand]),
+        )
         if np.isfinite(al):
             found.append((all_k[cand], kr, al))
     worst = min(found, key=lambda t: t[2]) if found else None

@@ -52,6 +52,7 @@ from netsalt.salt_varying import (  # noqa: E402
     _resolved_n_steps,
     edge_field_profiles,
     net_gain_alpha,
+    net_gain_window,
     node_solution_varying,
     saturated_eps_profiles,
     solve_salt_varying,
@@ -130,7 +131,13 @@ print(f"  {'background':<54} {'k root':>11} {'alpha':>12}  verdict", flush=True)
 alphas = {}
 for name, fields, ks_bg in cases:
     profiles = saturated_eps_profiles(qg, list(ks_bg), amps, fields, D0, pump)
-    k_root, alpha = net_gain_alpha(qg, all_k[DOOMED], profiles, n_steps=n_steps)
+    k_root, alpha = net_gain_alpha(
+        qg,
+        all_k[DOOMED],
+        profiles,
+        n_steps=n_steps,
+        k_window=net_gain_window(all_k[DOOMED], [v for k, v in all_k.items() if k != DOOMED]),
+    )
     alphas[name[0]] = alpha
     verdict = "LASES" if alpha < 0 else "dark"
     print(f"  {name:<54} {k_root:11.6f} {alpha:12.4e}  {verdict}", flush=True)
@@ -152,7 +159,13 @@ saved = {
 }
 for name, fields, ks_bg in cases:
     profiles = saturated_eps_profiles(qg, list(ks_bg), amps, fields, D0, pump)
-    k_root, _ = net_gain_alpha(qg, all_k[DOOMED], profiles, n_steps=n_steps)
+    k_root, _ = net_gain_alpha(
+        qg,
+        all_k[DOOMED],
+        profiles,
+        n_steps=n_steps,
+        k_window=net_gain_window(all_k[DOOMED], [v for k, v in all_k.items() if k != DOOMED]),
+    )
     _, psi = node_solution_varying(k_root, qg, profiles, n_steps=n_steps)
     f_doomed = edge_field_profiles(k_root, qg, psi, profiles, n_steps=n_steps, pump=pump)
     f_partner = fields[keep.index(PARTNER)]
