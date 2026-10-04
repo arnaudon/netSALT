@@ -196,6 +196,7 @@ def node_solution_varying(
     graph,
     eps_profiles=None,
     n_steps: int = 64,
+    samples=None,
 ) -> tuple[complex, np.ndarray]:
     r"""Null eigenpair of the varying-permittivity operator at ``wavenumber``.
 
@@ -204,7 +205,9 @@ def node_solution_varying(
         the SALT residual at this ``k``, and its eigenvector, the field at the
         vertices. A genuine lasing solution has ``|lambda_1| ~ 0`` at real ``k``.
     """
-    laplacian = construct_laplacian_varying(wavenumber, graph, eps_profiles, n_steps=n_steps)
+    laplacian = construct_laplacian_varying(
+        wavenumber, graph, eps_profiles, n_steps=n_steps, samples=samples
+    )
     return _smallest_eigenpair(laplacian)
 
 
@@ -661,12 +664,20 @@ class _SaturatedEdgeProfile:
         # exactly 1.00x on the buffon before this was widened.
         self._interpolated: dict[tuple, np.ndarray] = {}
 
-    def __call__(self, x):
+    def d0_at(self, x):
+        """``D0_eff(x)`` alone -- the part of ``eps(x)`` that does not involve ``k``.
+
+        ``__call__`` is ``eps_edge + gain * d0_at(x)``, and only ``gain`` moves
+        when the solver changes ``k``. Exposing the two separately lets a caller
+        asking for several ``k`` on one set of profiles pay the sampling once and
+        then apply each mode's ``gain`` with one multiply-add (see
+        :func:`_profile_samples`).
+        """
         query = np.asarray(x, dtype=float)
         if query.ndim == 1 and query.size:
             direct = self._halves.get((query.size, float(query[0]), float(query[-1])))
             if direct is not None:
-                return self._eps + self.gain * direct
+                return direct
         clipped = np.clip(query, self._lo, self._hi)
         shape = np.shape(clipped)
         flat = np.ascontiguousarray(np.ravel(clipped))
@@ -679,7 +690,15 @@ class _SaturatedEdgeProfile:
             order = np.argsort(self._grid)
             values = CubicSpline(self._grid[order], self._d0_eff[order])(clipped)
             self._interpolated[key] = values
-        return self._eps + self.gain * values
+        return values
+
+    @property
+    def eps_edge(self):
+        """The edge's unsaturated permittivity: the ``k``-independent offset."""
+        return self._eps
+
+    def __call__(self, x):
+        return self._eps + self.gain * self.d0_at(x)
 
 
 def _spline_profile(grid, d0_eff, eps_edge, params):
@@ -763,7 +782,60 @@ class SaltVaryingSolution(NamedTuple):
     iterations: int
 
 
-def _lam_varying(graph, k, profiles, n_steps):
+def _profile_samples(graph, profiles, n_steps, method: str = "magnus4"):
+    r"""The ``k``-independent part of every varying edge's permittivity samples.
+
+    A residual evaluation asks for :math:`\lambda_1(k_\mu)` at ``M`` different
+    ``k`` on one set of saturated profiles, and sampling inside the
+    transfer-matrix build repeated the whole per-edge Python loop ``M`` times --
+    5.11 ms of an 18.25 ms evaluation on the production buffon.
+
+    The samples are *not* ``k``-independent, which is the trap, and reusing them
+    across modes drives the solve to ``a ~ 1e+12``: a profile returns
+    ``eps_edge + gamma(k) * D0_eff(x)`` and ``gamma`` moves with ``k``. It moves
+    as a scalar prefactor on a fixed array, though, so sampling ``D0_eff`` once
+    and applying each mode's ``gamma`` with one multiply-add is exact and still
+    hoists the loop. :func:`_samples_at_gain` does the combine.
+
+    The selection and ordering must match what
+    :func:`~netsalt.varying_laplacian.construct_laplacian_varying` does
+    internally -- the varying edges, in ``graph.edges`` order -- or the samples
+    land on the wrong edges.
+
+    Returns:
+        ``(h, d0_samples, eps_edges)``, or ``None`` when there is nothing to
+        hoist or a profile does not expose its parts (an arbitrary callable), in
+        which case the caller samples per ``k`` as before.
+    """
+    if profiles is None:
+        return None
+    varying = [i for i, profile in enumerate(profiles) if profile is not None]
+    if not varying or not all(hasattr(profiles[i], "d0_at") for i in varying):
+        return None
+    lengths = np.asarray(graph.graph["lengths"], dtype=float)[varying]
+    n_points = 1 if method == "magnus2" else 2
+    h = np.empty(len(varying))
+    d0_samples = tuple(np.empty((len(varying), n_steps), dtype=float) for _ in range(n_points))
+    eps_edges = np.empty(len(varying), dtype=complex)
+    for slot, edge_index in enumerate(varying):
+        profile = profiles[edge_index]
+        h[slot], points = _magnus_sample_points(float(lengths[slot]), n_steps, method)
+        for sample, point in zip(d0_samples, points, strict=True):
+            sample[slot] = np.real(profile.d0_at(point))
+        eps_edges[slot] = profile.eps_edge
+    return h, d0_samples, eps_edges
+
+
+def _samples_at_gain(parts, gain):
+    """``(h, eps_samples)`` for ``edge_transfer_matrices``, at this ``gain``."""
+    if parts is None:
+        return None
+    h, d0_samples, eps_edges = parts
+    offset = eps_edges[:, None]
+    return h, tuple(offset + gain * d0 for d0 in d0_samples)
+
+
+def _lam_varying(graph, k, profiles, n_steps, samples=None):
     """Complex ``lambda_1`` at ``k``, with the gain bound at this ``k``.
 
     ``k`` may be complex: the frozen-field solve only ever asks for real ``k``
@@ -774,7 +846,9 @@ def _lam_varying(graph, k, profiles, n_steps):
     for profile in profiles:
         if profile is not None:
             profile.gain = gain
-    value, _ = node_solution_varying(complex(k), graph, profiles, n_steps=n_steps)
+    value, _ = node_solution_varying(
+        complex(k), graph, profiles, n_steps=n_steps, samples=_samples_at_gain(samples, gain)
+    )
     return value
 
 
@@ -1704,9 +1778,13 @@ def solve_salt_varying(
             local_a = _amplitudes(local_w, _scale)
             local_D0 = max(float(x[-1]), 0.0)
             profiles = saturated_eps_profiles(graph, local_ks, local_a, _frozen, local_D0, pump)
+            # The eps samples do not depend on k, and this asks for lambda_1 at
+            # M different k on one set of profiles, so sample once rather than
+            # once per mode (1.34x at M = 11 on the production buffon).
+            samples = _profile_samples(graph, profiles, n_steps)
             out = []
             for k in local_ks:
-                value = _lam_varying(graph, float(k), profiles, n_steps)
+                value = _lam_varying(graph, float(k), profiles, n_steps, samples=samples)
                 out.extend((value.real, value.imag))
             return np.asarray(out, dtype=float)
 

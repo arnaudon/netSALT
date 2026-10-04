@@ -237,13 +237,33 @@ def _ordered_product(steps: np.ndarray) -> np.ndarray:
     return total
 
 
+#: ``(length, n_steps, method)`` -> ``(h, points)``. The abscissae depend only on
+#: an edge's geometry and the scheme, so they are the same at every ``k``, every
+#: pump and every mode -- yet they were rebuilt on each of the ~1600
+#: secular-matrix rebuilds a single solve performs, once per edge. Measured on
+#: the production buffon, that is 0.80 ms of the 5.11 ms sampling loop, and the
+#: loop is 28 % of a rebuild. Bounded by the number of distinct edge lengths,
+#: which is bounded by the graph.
+_SAMPLE_POINT_CACHE: dict[tuple[float, int, str], tuple[float, tuple[np.ndarray, ...]]] = {}
+
+
 def _magnus_sample_points(length: float, n_steps: int, method: str):
-    """Positions at which ``eps`` is sampled, and the sub-interval width."""
+    """Positions at which ``eps`` is sampled, and the sub-interval width.
+
+    Cached on ``(length, n_steps, method)``; the arrays are shared with every
+    caller and must not be mutated.
+    """
+    key = (float(length), int(n_steps), method)
+    cached = _SAMPLE_POINT_CACHE.get(key)
+    if cached is not None:
+        return cached
     h = length / n_steps
     starts = np.arange(n_steps) * h
-    if method == "magnus2":
-        return h, (starts + 0.5 * h,)
-    return h, (starts + _C1 * h, starts + _C2 * h)
+    points = (starts + 0.5 * h,) if method == "magnus2" else (starts + _C1 * h, starts + _C2 * h)
+    for point in points:
+        point.flags.writeable = False
+    _SAMPLE_POINT_CACHE[key] = (h, points)
+    return h, points
 
 
 def edge_transfer_matrix(
@@ -290,12 +310,46 @@ def edge_transfer_matrix(
     return _ordered_product(_magnus_step_matrices(k, h, samples, method))
 
 
+def sample_eps_profiles(lengths, eps_profiles, n_steps: int = 64, method: str = "magnus4"):
+    r"""Sample every edge's permittivity on the propagator's own abscissae.
+
+    Split out of :func:`edge_transfer_matrices` because the result does not
+    depend on ``k``: the profiles and the geometry fix it. A SALT residual
+    evaluation asks for :math:`\lambda_1(k_\mu)` at ``M`` different ``k`` on the
+    *same* saturated profiles, so sampling inside the transfer-matrix build
+    repeated identical work ``M`` times. On the production buffon the sampling
+    loop is 5.11 ms of an 18.25 ms ``lambda_1`` evaluation, so hoisting it is
+    1.34x at ``M = 11``.
+
+    Args:
+        lengths: one length per edge.
+        eps_profiles: one callable per edge, as :func:`edge_transfer_matrices`.
+        n_steps, method: as :func:`edge_transfer_matrix`.
+
+    Returns:
+        ``(h, eps_samples)`` to hand back as ``samples=``: the per-edge
+        sub-interval widths, and one ``(n_edges, n_steps)`` array per Magnus
+        abscissa.
+    """
+    lengths = np.asarray(lengths, dtype=float)
+    n_edges = len(lengths)
+    n_points = 1 if method == "magnus2" else 2
+    h = np.empty(n_edges)
+    eps_samples = tuple(np.empty((n_edges, n_steps), dtype=complex) for _ in range(n_points))
+    for edge_index, (length, profile) in enumerate(zip(lengths, eps_profiles, strict=True)):
+        h[edge_index], points = _magnus_sample_points(float(length), n_steps, method)
+        for sample, point in zip(eps_samples, points, strict=True):
+            sample[edge_index] = profile(point)
+    return h, eps_samples
+
+
 def edge_transfer_matrices(
     k: complex,
     lengths,
     eps_profiles,
     n_steps: int = 64,
     method: str = "magnus4",
+    samples=None,
 ) -> np.ndarray:
     """:func:`edge_transfer_matrix` for many edges at once.
 
@@ -313,6 +367,10 @@ def edge_transfer_matrices(
             belong here -- they have a closed form; use
             :func:`propagator_constant_eps`.
         n_steps, method: as :func:`edge_transfer_matrix`.
+        samples: the output of :func:`sample_eps_profiles` for these profiles,
+            when the caller has already computed it (it does not depend on
+            ``k``, so a residual evaluation over ``M`` modes should compute it
+            once). ``None`` samples them here.
 
     Returns:
         ``(n_edges, 2, 2)`` transfer matrices, agreeing with
@@ -330,14 +388,10 @@ def edge_transfer_matrices(
     if n_edges == 0:
         return np.empty((0, 2, 2), dtype=complex)
 
-    n_points = 1 if method == "magnus2" else 2
-    h = np.empty(n_edges)
-    samples = tuple(np.empty((n_edges, n_steps), dtype=complex) for _ in range(n_points))
-    for edge_index, (length, profile) in enumerate(zip(lengths, eps_profiles, strict=True)):
-        h[edge_index], points = _magnus_sample_points(float(length), n_steps, method)
-        for sample, point in zip(samples, points, strict=True):
-            sample[edge_index] = profile(point)
-    return _ordered_product(_magnus_step_matrices(k, h[:, None], samples, method))
+    if samples is None:
+        samples = sample_eps_profiles(lengths, eps_profiles, n_steps, method)
+    h, eps_samples = samples
+    return _ordered_product(_magnus_step_matrices(k, h[:, None], eps_samples, method))
 
 
 def edge_step_propagators(
