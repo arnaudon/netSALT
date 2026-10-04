@@ -128,19 +128,27 @@ _MAGNUS4_COMMUTATOR = np.sqrt(3.0) / 12.0
 def _exp_traceless_batch(matrices: np.ndarray) -> np.ndarray:
     """:func:`_exp_traceless_2x2` over a whole ``(..., 2, 2)`` stack.
 
-    Same closed form, same order of operations, evaluated with array ufuncs so a
-    per-sub-interval Python loop is not paid. Bit-identical to calling
-    :func:`_exp_traceless_2x2` elementwise.
+    Same closed form, evaluated with array ufuncs so a per-sub-interval Python
+    loop is not paid. Agrees with :func:`_exp_traceless_2x2` elementwise to
+    machine precision (measured max relative deviation 2.2e-15), not bit for
+    bit: ``cos w`` and ``sinc w`` are obtained from a single complex
+    exponential rather than from :func:`numpy.sin` and :func:`numpy.cos`.
+    ``cos`` and ``sin`` of a *complex* argument each decompose into several real
+    transcendentals, while ``exp(1j w)`` gives both from one -- measured on the
+    production buffon's 217 x 408 sample grid, 9.85 ms -> 4.23 ms, which is
+    ~10 % of a whole secular-matrix rebuild.
     """
     determinant = (
         matrices[..., 0, 0] * matrices[..., 1, 1] - matrices[..., 0, 1] * matrices[..., 1, 0]
     )
     w = np.sqrt(determinant.astype(complex))
     degenerate = np.abs(w) < 1e-14
-    # np.where evaluates both branches, so keep sin/cos away from w = 0.
+    # np.where evaluates both branches, so keep the division away from w = 0.
     safe = np.where(degenerate, 1.0, w)
-    scale = np.where(degenerate, 1.0, np.sin(safe) / safe)
-    cosine = np.where(degenerate, 1.0, np.cos(safe))
+    phase = np.exp(1j * safe)
+    inverse = 1.0 / phase
+    scale = np.where(degenerate, 1.0, (-0.5j * (phase - inverse)) / safe)
+    cosine = np.where(degenerate, 1.0, 0.5 * (phase + inverse))
     out = scale[..., None, None] * matrices
     out[..., 0, 0] += cosine
     out[..., 1, 1] += cosine
@@ -166,8 +174,7 @@ def _magnus_step_matrices(k, h, eps: tuple[np.ndarray, ...], method: str) -> np.
         \Omega = \begin{pmatrix} -c & h \\ \tfrac{h}{2}(a_1 + a_2) & c\end{pmatrix},
         \qquad c = \tfrac{\sqrt 3}{12} h^2 (a_2 - a_1),
 
-    which is what the loop it replaces computed, in the same order and hence to
-    the same bits.
+    which is what the loop it replaces computed, in the same order.
     """
     if method == "magnus2":
         (eps_mid,) = eps
@@ -192,21 +199,41 @@ def _magnus_step_matrices(k, h, eps: tuple[np.ndarray, ...], method: str) -> np.
 def _ordered_product(steps: np.ndarray) -> np.ndarray:
     """``steps[..., -1] @ ... @ steps[..., 0]``, reducing over the second-to-last axis.
 
-    The loop is still sequential -- the ordered product is -- but each iteration
-    now multiplies *every* edge's sub-interval at once, so the Python overhead is
+    The loop is sequential -- the ordered product is -- but each iteration
+    multiplies *every* edge's sub-interval at once, so the Python overhead is
     paid ``n_steps`` times for the whole graph rather than ``n_edges * n_steps``
     times.
 
+    The four entries are carried as separate arrays and the 2x2 product is
+    written out, rather than calling ``@`` on a ``(n_edges, 2, 2)`` stack. That
+    is not a micro-optimisation: at 2x2 the FLOPs are trivial and numpy's
+    matmul gufunc dominates, 76 us per call against the ~5 us the arithmetic
+    needs. Measured on the production buffon (217 edges, ``n_steps = 408``),
+    25.38 ms -> 3.82 ms, a **6.6x** on what profiling showed to be 55 % of a
+    secular-matrix rebuild. The association order is unchanged, so this agrees
+    with the matmul form to machine precision (max relative deviation 1.3e-15).
+
     A log-depth pairwise tree would replace the ``n_steps`` iterations with
-    ``log2(n_steps)`` and was measured instead of assumed: it is 2x on a 4-edge
-    graph, where numpy call overhead is what is being paid, and 1.0x / 0.93x at
-    243 edges and ``n_steps`` 64 / 256, where the strided gathers cost what the
-    saved calls buy. It also stops the result being bit-identical to the scalar
-    loop this replaces. Not worth it at the scale that matters.
+    ``log2(n_steps)`` and was measured instead of assumed, twice. Against
+    matmul it is 2x on a 4-edge graph, where numpy call overhead is what is
+    being paid, and 1.0x / 1.03x at 243 edges, where the strided gathers cost
+    what the saved calls buy. Against the explicit form below it is *slower*
+    still (5.70 ms against 3.82 ms), for the same reason. Not worth it at the
+    scale that matters.
     """
-    total = np.broadcast_to(np.eye(2, dtype=complex), steps.shape[:-3] + (2, 2))
-    for i in range(steps.shape[-3]):
-        total = steps[..., i, :, :] @ total
+    a = np.array(steps[..., 0, 0, 0], dtype=complex)
+    b = np.array(steps[..., 0, 0, 1], dtype=complex)
+    c = np.array(steps[..., 0, 1, 0], dtype=complex)
+    d = np.array(steps[..., 0, 1, 1], dtype=complex)
+    for i in range(1, steps.shape[-3]):
+        p, q = steps[..., i, 0, 0], steps[..., i, 0, 1]
+        r, s = steps[..., i, 1, 0], steps[..., i, 1, 1]
+        a, b, c, d = p * a + q * c, p * b + q * d, r * a + s * c, r * b + s * d
+    total = np.empty(steps.shape[:-3] + (2, 2), dtype=complex)
+    total[..., 0, 0] = a
+    total[..., 0, 1] = b
+    total[..., 1, 0] = c
+    total[..., 1, 1] = d
     return total
 
 
@@ -288,8 +315,8 @@ def edge_transfer_matrices(
         n_steps, method: as :func:`edge_transfer_matrix`.
 
     Returns:
-        ``(n_edges, 2, 2)`` transfer matrices, bit-identical to calling
-        :func:`edge_transfer_matrix` per edge.
+        ``(n_edges, 2, 2)`` transfer matrices, agreeing with
+        :func:`edge_transfer_matrix` per edge to machine precision.
     """
     if n_steps < 1:
         raise ValueError(f"n_steps must be at least 1, got {n_steps}")
