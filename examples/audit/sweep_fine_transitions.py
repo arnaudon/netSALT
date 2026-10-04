@@ -185,6 +185,8 @@ def solve(set_ids, set_ks, set_amps, D0, D0_entering=None):
         outer=80,
         thresholds=[float(thr[i]) for i in set_ids],
         threshold_ks=[float(all_k[i]) for i in set_ids],
+        # every candidate, for the extinction probe's window (see AUDIT.md 16-17)
+        candidate_ks=[float(all_k[i]) for i in finite],
         # The pump these amplitudes were a converged solution at. The solver
         # needs it to rescue a mode its own warm start floors: the seed is the
         # previous pump's split of a smaller total, and a mode near its own

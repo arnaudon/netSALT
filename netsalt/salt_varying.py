@@ -797,6 +797,7 @@ def _floored_modes_are_dark(
     n_steps: int,
     thresholds=None,
     threshold_ks=None,
+    candidate_ks=None,
 ) -> bool:
     """Are the modes on the weight floor extinguished, or merely dropped?
 
@@ -838,7 +839,19 @@ def _floored_modes_are_dark(
     )
     for i in floored:
         k_entering = float(entering_ks[i])
-        window = net_gain_window(k_entering, [entering_ks[j] for j in range(len(ks)) if j != i])
+        # The window has to exclude the nearest *candidate*, not the nearest
+        # member of the active set. Measured on `buffon_competition` at 1.0800x:
+        # the dying mode's nearest active neighbour is 7.25e-04 away, so the
+        # active set gives the 1e-04 cap -- and a probe from its entering k then
+        # travels -8.4e-05 and lands 1.6e-05 from a *candidate* 1.15e-04 away,
+        # reporting that neighbour's loss as this mode's. The candidate list
+        # gives 2.3e-05 and rejects the jump. Only the caller has that list.
+        neighbours = (
+            [float(k) for k in candidate_ks]
+            if candidate_ks is not None
+            else [float(entering_ks[j]) for j in range(len(ks)) if j != i]
+        )
+        window = net_gain_window(k_entering, neighbours)
         if thresholds is not None and threshold_ks is not None:
             _, alpha = net_gain_alpha_continued(
                 graph,
@@ -1290,6 +1303,7 @@ def _reseeded_retry(
     max_nfev: int,
     k_window_cap,
     threshold_ks=None,
+    candidate_ks=None,
 ):
     r"""Re-solve from a seed built from thresholds, not from the warm start.
 
@@ -1341,6 +1355,7 @@ def _reseeded_retry(
         k_window_cap=k_window_cap,
         thresholds=thresholds,
         threshold_ks=threshold_ks,
+        candidate_ks=candidate_ks,
         _reseed_floored=False,
     )
     if retry.converged and all(
@@ -1365,6 +1380,7 @@ def solve_salt_varying(
     k_window_cap: float | None = None,
     thresholds=None,
     threshold_ks=None,
+    candidate_ks=None,
     D0_entering: float | None = None,
     _reseed_floored: bool = True,
 ) -> SaltVaryingSolution:
@@ -1998,6 +2014,7 @@ def solve_salt_varying(
                 max_nfev=max_nfev,
                 k_window_cap=k_window_cap,
                 threshold_ks=threshold_ks,
+                candidate_ks=candidate_ks,
             )
             if retry is not None:
                 return SaltVaryingSolution(
@@ -2021,6 +2038,7 @@ def solve_salt_varying(
             n_steps,
             thresholds=thresholds,
             threshold_ks=threshold_ks,
+            candidate_ks=candidate_ks,
         )
         if floored and not lost and lasing:
             # Extinguished, and confirmed so. It has to leave the *problem*, not
@@ -2055,6 +2073,7 @@ def solve_salt_varying(
                 threshold_ks=(
                     [threshold_ks[i] for i in keep] if threshold_ks is not None else None
                 ),
+                candidate_ks=candidate_ks,
             )
             for slot, i in enumerate(keep):
                 ks[i] = sub.ks[slot]
@@ -2275,6 +2294,11 @@ def compute_modal_intensities_varying(
             # exact rather than guess a basin (see `net_gain_alpha_continued`).
             thresholds=[float(thresholds[i]) for i in candidate_set],
             threshold_ks=[float(np.real(threshold_modes[i])) for i in candidate_set],
+            # Every candidate, not just the active ones: the extinction test's
+            # probe window has to exclude the nearest candidate root, and on a
+            # near-degenerate cluster the nearest candidate is far closer than
+            # the nearest active mode.
+            candidate_ks=[float(k) for k in cand_ks],
         )
         ok = all(
             solution.amplitudes[slot] > SALT_VARYING_LASING_AMPLITUDE
