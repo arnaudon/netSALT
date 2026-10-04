@@ -170,7 +170,7 @@ print(f"{start:.4f}x .. {TOP:.4f}x, steps up to {100 * STEP:.2f}%", flush=True)
 print("seed:", " ".join(f"{all_k[i]:.5f}" for i in active), flush=True)
 
 
-def solve(set_ids, set_ks, set_amps, D0):
+def solve(set_ids, set_ks, set_amps, D0, D0_entering=None):
     # The solver cannot know each mode's own threshold, and its extinction test
     # needs it: above threshold there is nowhere safe to start a single net-gain
     # probe, so the test continues a root up from where alpha = 0 is exact.
@@ -185,6 +185,11 @@ def solve(set_ids, set_ks, set_amps, D0):
         outer=80,
         thresholds=[float(thr[i]) for i in set_ids],
         threshold_ks=[float(all_k[i]) for i in set_ids],
+        # The pump these amplitudes were a converged solution at. The solver
+        # needs it to rescue a mode its own warm start floors: the seed is the
+        # previous pump's split of a smaller total, and a mode near its own
+        # threshold grows faster than the laser, so that split understates it.
+        D0_entering=D0_entering,
     )
     live = [
         j for j in range(len(set_ids)) if float(sol.amplitudes[j]) > SALT_VARYING_LASING_AMPLITUDE
@@ -199,7 +204,8 @@ while mult <= TOP + 0.5 * step:
     D0 = thr0 * float(mult)
     t0 = time.time()
 
-    sol, live, ok = solve(active, ks, amps, D0)
+    previous_D0 = thr0 * float(records[-1]["mult"]) if records else None
+    sol, live, ok = solve(active, ks, amps, D0, D0_entering=previous_D0)
     if not sol.converged and step > STEP * _STEP_MIN_FRACTION:
         failed_at = mult
         step *= _STEP_SHRINK

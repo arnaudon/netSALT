@@ -405,14 +405,6 @@ def saturated_eps_profiles(
 #: available.
 _AMPLITUDE_TRUST_GROWTH = 4.0
 
-#: How close the achieved pump must be to the requested one before a floored
-#: mode is judged at all. The continuation walks ``D0`` up to its target, and on
-#: the way there it passes through states where a mode sits on the weight floor
-#: for no physical reason -- 22 % above target on the measured case. 0.1 % is
-#: tight enough that the survivors are at their final amplitudes, which is what
-#: the re-seed's growth ratio needs.
-_D0_SETTLE_TOL = 1e-3
-
 #: Floor under the amplitude scale, so a mode starting from zero (or from the
 #: caller's 1e-3 seed) can still leave it: a multiplicative update from ``s = 0``
 #: never moves.
@@ -1281,6 +1273,83 @@ def _predicted_amplitude(
     return float(max(guess, _AMPLITUDE_TRUST_FLOOR))
 
 
+def _reseeded_retry(
+    graph,
+    entering_ks,
+    entering_amplitudes,
+    floored,
+    D0_target: float,
+    D0_entering: float,
+    thresholds,
+    pump,
+    *,
+    n_steps: int,
+    outer: int,
+    damping: float,
+    residual_tol: float,
+    max_nfev: int,
+    k_window_cap,
+    threshold_ks=None,
+):
+    r"""Re-solve from a seed built from thresholds, not from the warm start.
+
+    The warm start is what makes a pump continuation affordable and is also how a
+    mode is lost: the seed is the previous pump's *split* of a smaller total, and
+    a mode near its own threshold grows faster than the laser does, so that split
+    understates its share at the next pump. The least-squares then drives its
+    weight to the floor rather than up.
+
+    Scaling every amplitude by the survivors' growth does not help, because that
+    is the one thing it leaves untouched -- the ratio. Measured on
+    ``buffon_competition_b`` between 1.0050x and 1.0100x: the entering ratio
+    ``a_2/a_1`` is 0.0566 and the answer's is 0.0916.
+
+    What does work is the near-threshold law, mode by mode:
+    :math:`a_\mu \propto D_0/D_0^{\rm thr,\mu} - 1`. Extrapolating each
+    entering amplitude along it, from the pump the warm start came from to the
+    pump asked for, gives 3.3002 and 0.3057 on that case against answers of
+    3.31857 and 0.30403 -- 0.6 % and 0.5 %, and well inside the basin the warm
+    start missed. It needs each mode's own threshold and the pump the seed came
+    from, which the caller has and this solver does not.
+
+    Returns the retried solution if it holds every floored mode above the lasing
+    floor and converged, otherwise ``None``.
+    """
+    # The law is the one-point case of :func:`_predicted_amplitude`, which is
+    # what the pump sweep in :func:`compute_modal_intensities_varying` already
+    # applies to its own seeds. Calling it keeps a single implementation.
+    seeds = [
+        _predicted_amplitude(
+            [(D0_entering, float(entering_amplitudes[index]))],
+            D0_target,
+            float(thresholds[index]),
+            float(entering_amplitudes[index]),
+        )
+        for index in range(len(entering_amplitudes))
+    ]
+    retry = solve_salt_varying(
+        graph,
+        [float(k) for k in entering_ks],
+        seeds,
+        D0_target,
+        pump,
+        n_steps=n_steps,
+        outer=outer,
+        damping=damping,
+        residual_tol=residual_tol,
+        max_nfev=max_nfev,
+        k_window_cap=k_window_cap,
+        thresholds=thresholds,
+        threshold_ks=threshold_ks,
+        _reseed_floored=False,
+    )
+    if retry.converged and all(
+        retry.amplitudes[index] > SALT_VARYING_LASING_AMPLITUDE for index in floored
+    ):
+        return retry
+    return None
+
+
 def solve_salt_varying(
     graph,
     ks,
@@ -1296,6 +1365,7 @@ def solve_salt_varying(
     k_window_cap: float | None = None,
     thresholds=None,
     threshold_ks=None,
+    D0_entering: float | None = None,
     _reseed_floored: bool = True,
 ) -> SaltVaryingSolution:
     r"""Solve SALT for a given set of lasing modes, without oversampling.
@@ -1894,34 +1964,65 @@ def solve_salt_varying(
         ]
         lasing = [i for i in range(n_modes) if amplitudes[i] > SALT_VARYING_LASING_AMPLITUDE]
 
-        # Nothing about a floored mode is worth asking until the continuation has
-        # arrived at the pump it was asked for. Measured on `buffon_competition_b`
-        # at 1.0100x: the second mode is on the weight floor at the FIRST outer
-        # iteration, with the achieved D0 still 22 % above target and the
-        # survivor at 1.74 against the 3.32 it ends at. A verdict there is a
-        # verdict about a state the solver is still travelling through, and a
-        # re-seed there re-seeds from the state that just failed -- the growth
-        # ratio it needs is 2.01 and at that point it reads 1.06.
-        settled = D0_target <= 0.0 or abs(D0_now / D0_target - 1.0) <= _D0_SETTLE_TOL
-        lost = (
-            bool(floored)
-            and settled
-            and not _floored_modes_are_dark(
+        # The re-seed comes first, and it does not look at the current state. A
+        # mode can be on the weight floor at the FIRST outer iteration, with the
+        # achieved D0 still 22 % above target and the survivors a factor two
+        # below where they end up (measured on `buffon_competition_b` at
+        # 1.0100x), so any seed built from where the solve has got to is built
+        # from the state that just failed. Waiting for the continuation to settle
+        # does not help either: with a floored mode in the set it never does --
+        # the solve degrades instead, the survivor collapsing to the amplitude
+        # trust floor over 80 iterations.
+        if (
+            floored
+            and lasing
+            and _reseed_floored
+            and not reseed_tried
+            and thresholds is not None
+            and D0_entering
+        ):
+            reseed_tried = True
+            retry = _reseeded_retry(
                 graph,
-                ks,
                 entering_ks,
-                amplitudes,
-                fields,
+                entering_amplitudes,
                 floored,
-                lasing,
                 D0_target,
+                float(D0_entering),
+                thresholds,
                 pump,
-                n_steps,
-                thresholds=thresholds,
+                n_steps=n_steps,
+                outer=max(outer - iterations, 1),
+                damping=damping,
+                residual_tol=residual_tol,
+                max_nfev=max_nfev,
+                k_window_cap=k_window_cap,
                 threshold_ks=threshold_ks,
             )
+            if retry is not None:
+                return SaltVaryingSolution(
+                    retry.ks,
+                    retry.amplitudes,
+                    retry.fields,
+                    retry.residuals,
+                    retry.converged,
+                    iterations + retry.iterations,
+                )
+        lost = bool(floored) and not _floored_modes_are_dark(
+            graph,
+            ks,
+            entering_ks,
+            amplitudes,
+            fields,
+            floored,
+            lasing,
+            D0_target,
+            pump,
+            n_steps,
+            thresholds=thresholds,
+            threshold_ks=threshold_ks,
         )
-        if floored and settled and not lost and lasing:
+        if floored and not lost and lasing:
             # Extinguished, and confirmed so. It has to leave the *problem*, not
             # just the verdict: this solver asks lambda_1(k_mu) = 0 of every mode
             # in the set, and a mode below threshold has lambda_1 != 0 by
@@ -1967,68 +2068,6 @@ def solve_salt_varying(
             return SaltVaryingSolution(
                 ks, amplitudes, fields, residuals, sub.converged, iterations + sub.iterations
             )
-        # Before believing the floor, try once from somewhere else. A warm start
-        # is the whole reason this continuation is affordable, and it is also a
-        # way to lose a mode: the seed is the previous pump's split of a smaller
-        # total, and for a mode close to its own threshold that split is a poor
-        # guess at the next pump's. Measured on `buffon_competition_b` at
-        # 1.0100x: warm started from the 1.0050x amplitudes the solve converges
-        # in 17 iterations with the second mode at exactly 0 and a residual of
-        # 1.1e+00 on its rows, while re-seeded it converges in 16 to a = 0.304
-        # with residuals 1.0e-08 and 7.0e-07 -- the better-converged answer, and
-        # within 3 % of the linear model, which is what near-threshold agreement
-        # should look like.
-        #
-        # The re-seed assumes the floored mode grew in proportion with the laser,
-        # which is the near-threshold expectation and uses only what the solver
-        # already has: its entering amplitude times how much the survivors grew.
-        if lost and lasing and _reseed_floored and not reseed_tried:
-            # Once per solve. The flooring is detected on every outer iteration
-            # it persists, and a retry per iteration would be `outer` extra
-            # complete solves rather than one.
-            reseed_tried = True
-            grown = [
-                amplitudes[i] / entering_amplitudes[i]
-                for i in lasing
-                if entering_amplitudes[i] > SALT_VARYING_LASING_AMPLITUDE
-            ]
-            growth = float(np.median(grown)) if grown else 1.0
-            seeds = [
-                (
-                    max(float(entering_amplitudes[i]) * growth, _AMPLITUDE_TRUST_FLOOR)
-                    if i in floored
-                    else float(amplitudes[i])
-                )
-                for i in range(n_modes)
-            ]
-            retry = solve_salt_varying(
-                graph,
-                [float(entering_ks[i]) for i in range(n_modes)],
-                seeds,
-                D0_target,
-                pump,
-                n_steps=n_steps,
-                outer=max(outer - iterations, 1),
-                damping=damping,
-                residual_tol=residual_tol,
-                max_nfev=max_nfev,
-                k_window_cap=k_window_cap,
-                thresholds=thresholds,
-                threshold_ks=threshold_ks,
-                _reseed_floored=False,
-            )
-            if retry.converged and all(
-                retry.amplitudes[i] > SALT_VARYING_LASING_AMPLITUDE for i in floored
-            ):
-                return SaltVaryingSolution(
-                    retry.ks,
-                    retry.amplitudes,
-                    retry.fields,
-                    retry.residuals,
-                    retry.converged,
-                    iterations + retry.iterations,
-                )
-
         residuals = salt_residuals_varying(
             graph, ks, amplitudes, fields, D0_target, pump, n_steps=n_steps
         )
