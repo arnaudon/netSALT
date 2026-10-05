@@ -1198,3 +1198,58 @@ version of this fix appeared to hang.
 caller that knows each mode's threshold should pass so the extinction test can
 continue rather than guess. `compute_modal_intensities_varying` passes them, and
 `examples/audit/sweep_fine_transitions.py` does too.
+
+
+## 18. The first graph's fold is real, and the regression test was the problem
+
+§16 found a phantom extinction on the second graph and §17 fixed the probe that
+caused it. The same fixed solver then appeared to condemn the *first* graph's
+switch too: asked for six modes at 1.0800x it returned `converged=False` with
+the dying mode at zero, and four seeds for that mode spanning 75x (3.764, 1.0,
+0.3, 0.05) all landed on **bit-identical** non-solutions. Worse, on the five
+survivors' converged state at that pump the sixth mode reads net gain
+(`alpha = -1.754e-04`), and a mode with net gain must lase — so neither the
+six-mode nor the five-mode state looked like a SALT solution.
+
+**The test was wrong, not the physics.** It asked the solver to cross the fold
+in a single 0.5 % pump step, which §9's own cost table says is exactly what
+fails there; the sweep that discovered this fold crossed it at 0.05 %. Walking
+the same interval properly:
+
+| pump | M | converged | residuals | dying mode |
+| --- | ---: | --- | --- | ---: |
+| 1.0750x | 6 | (seed, from the recorded sweep) | — | 3.445 |
+| 1.0755x | 6 | yes, 35 it | 3.4e-07 .. 5.3e-07 | 3.4724 |
+| 1.0760x | 6 | yes, 32 it | 4.4e-07 .. 7.5e-07 | 3.4993 |
+| 1.0780x | 6 | yes, 22 it | 8.9e-08 .. 5.6e-07 | **3.6042** |
+| 1.0800x | 5 | **no**, from four seeds | 2.5e-03 .. 2.8e-02 | — |
+
+So the six-mode branch demonstrably exists up to at least **1.0780x** with
+residuals in the 1e-07s, and the dying mode is *rising* into the turning point
+(3.445 -> 3.4724 -> 3.4993 -> 3.6042) rather than decaying — the signature §13
+recorded for this fold. The fold therefore sits in **1.0780x < D0 <= 1.0800x**, a
+0.2 % window, and §§7-9 stand.
+
+**What this costs the §16 reading.** Nothing about the second graph's phantom,
+which was verified three independent ways. But it does mean a non-converged
+six-mode solve at 1.0800x is the *expected* answer past a fold, not evidence of
+a defect, and the net-gain reading on the five-mode state there is a question
+about a pump beyond the branch rather than a contradiction.
+
+**Still open, and deliberately parked.** Pinning the fold from 0.2 % to 0.05 %
+needs three probes at 1.0785 / 1.0790 / 1.0795. They are independent — each
+warm starts from the banked 1.0780x solution — so `examples/audit/`'s probe
+scripts run them concurrently, ~7 min each after §17's speed-ups. It is
+precision, not a new conclusion, and it has not landed because this work ran in
+an environment whose container was recycled eight times in a day, each time
+before a 7-minute solve could finish. The 1.0780x result survives because its
+probe happened to land; it is checkpointed in
+`examples/buffon/buffon_competition/out/fold_bisect.json`.
+
+**Lesson for the test suite.** A regression test that crosses a fold in one step
+tests the step size, not the solver. Any future extinction regression should
+either start from a state adjacent to the event or declare the step size it
+needs, and `examples/audit/`'s harness now requires a *converged* solve with
+clean residuals rather than merely the expected mode count — which is how an
+earlier version of this check called a 80-iteration 2.8e-02-residual grind a
+pass.
