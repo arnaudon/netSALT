@@ -99,6 +99,7 @@ def construct_laplacian_varying(
     eps_profiles: Sequence[Callable[[np.ndarray], np.ndarray] | None] | None = None,
     n_steps: int = 64,
     method: str = "magnus4",
+    samples=None,
 ):
     r"""Secular matrix allowing permittivity to vary within each edge.
 
@@ -115,6 +116,11 @@ def construct_laplacian_varying(
         n_steps: sub-intervals per varying edge. Local to the edge; it does not
             enter the matrix, which is the point.
         method: passed to :func:`~netsalt.edge_propagator.edge_transfer_matrix`.
+        samples: :func:`~netsalt.edge_propagator.sample_eps_profiles` output for
+            the *varying* edges of ``eps_profiles``, in their order, when the
+            caller has it already. It does not depend on ``wavenumber``, so a
+            caller rebuilding at several ``k`` on one set of profiles should
+            compute it once and pass it here.
 
     Note:
         Varying edges are propagated at ``k / c``, matching the dispersion
@@ -191,6 +197,7 @@ def construct_laplacian_varying(
         [eps_profiles[i] for i in varying],
         n_steps=n_steps,
         method=method,
+        samples=samples,
     )
     varying_blocks = dict(zip(varying, transfers, strict=True))
 

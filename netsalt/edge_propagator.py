@@ -128,19 +128,27 @@ _MAGNUS4_COMMUTATOR = np.sqrt(3.0) / 12.0
 def _exp_traceless_batch(matrices: np.ndarray) -> np.ndarray:
     """:func:`_exp_traceless_2x2` over a whole ``(..., 2, 2)`` stack.
 
-    Same closed form, same order of operations, evaluated with array ufuncs so a
-    per-sub-interval Python loop is not paid. Bit-identical to calling
-    :func:`_exp_traceless_2x2` elementwise.
+    Same closed form, evaluated with array ufuncs so a per-sub-interval Python
+    loop is not paid. Agrees with :func:`_exp_traceless_2x2` elementwise to
+    machine precision (measured max relative deviation 2.2e-15), not bit for
+    bit: ``cos w`` and ``sinc w`` are obtained from a single complex
+    exponential rather than from :func:`numpy.sin` and :func:`numpy.cos`.
+    ``cos`` and ``sin`` of a *complex* argument each decompose into several real
+    transcendentals, while ``exp(1j w)`` gives both from one -- measured on the
+    production buffon's 217 x 408 sample grid, 9.85 ms -> 4.23 ms, which is
+    ~10 % of a whole secular-matrix rebuild.
     """
     determinant = (
         matrices[..., 0, 0] * matrices[..., 1, 1] - matrices[..., 0, 1] * matrices[..., 1, 0]
     )
     w = np.sqrt(determinant.astype(complex))
     degenerate = np.abs(w) < 1e-14
-    # np.where evaluates both branches, so keep sin/cos away from w = 0.
+    # np.where evaluates both branches, so keep the division away from w = 0.
     safe = np.where(degenerate, 1.0, w)
-    scale = np.where(degenerate, 1.0, np.sin(safe) / safe)
-    cosine = np.where(degenerate, 1.0, np.cos(safe))
+    phase = np.exp(1j * safe)
+    inverse = 1.0 / phase
+    scale = np.where(degenerate, 1.0, (-0.5j * (phase - inverse)) / safe)
+    cosine = np.where(degenerate, 1.0, 0.5 * (phase + inverse))
     out = scale[..., None, None] * matrices
     out[..., 0, 0] += cosine
     out[..., 1, 1] += cosine
@@ -166,8 +174,7 @@ def _magnus_step_matrices(k, h, eps: tuple[np.ndarray, ...], method: str) -> np.
         \Omega = \begin{pmatrix} -c & h \\ \tfrac{h}{2}(a_1 + a_2) & c\end{pmatrix},
         \qquad c = \tfrac{\sqrt 3}{12} h^2 (a_2 - a_1),
 
-    which is what the loop it replaces computed, in the same order and hence to
-    the same bits.
+    which is what the loop it replaces computed, in the same order.
     """
     if method == "magnus2":
         (eps_mid,) = eps
@@ -192,31 +199,71 @@ def _magnus_step_matrices(k, h, eps: tuple[np.ndarray, ...], method: str) -> np.
 def _ordered_product(steps: np.ndarray) -> np.ndarray:
     """``steps[..., -1] @ ... @ steps[..., 0]``, reducing over the second-to-last axis.
 
-    The loop is still sequential -- the ordered product is -- but each iteration
-    now multiplies *every* edge's sub-interval at once, so the Python overhead is
+    The loop is sequential -- the ordered product is -- but each iteration
+    multiplies *every* edge's sub-interval at once, so the Python overhead is
     paid ``n_steps`` times for the whole graph rather than ``n_edges * n_steps``
     times.
 
+    The four entries are carried as separate arrays and the 2x2 product is
+    written out, rather than calling ``@`` on a ``(n_edges, 2, 2)`` stack. That
+    is not a micro-optimisation: at 2x2 the FLOPs are trivial and numpy's
+    matmul gufunc dominates, 76 us per call against the ~5 us the arithmetic
+    needs. Measured on the production buffon (217 edges, ``n_steps = 408``),
+    25.38 ms -> 3.82 ms, a **6.6x** on what profiling showed to be 55 % of a
+    secular-matrix rebuild. The association order is unchanged, so this agrees
+    with the matmul form to machine precision (max relative deviation 1.3e-15).
+
     A log-depth pairwise tree would replace the ``n_steps`` iterations with
-    ``log2(n_steps)`` and was measured instead of assumed: it is 2x on a 4-edge
-    graph, where numpy call overhead is what is being paid, and 1.0x / 0.93x at
-    243 edges and ``n_steps`` 64 / 256, where the strided gathers cost what the
-    saved calls buy. It also stops the result being bit-identical to the scalar
-    loop this replaces. Not worth it at the scale that matters.
+    ``log2(n_steps)`` and was measured instead of assumed, twice. Against
+    matmul it is 2x on a 4-edge graph, where numpy call overhead is what is
+    being paid, and 1.0x / 1.03x at 243 edges, where the strided gathers cost
+    what the saved calls buy. Against the explicit form below it is *slower*
+    still (5.70 ms against 3.82 ms), for the same reason. Not worth it at the
+    scale that matters.
     """
-    total = np.broadcast_to(np.eye(2, dtype=complex), steps.shape[:-3] + (2, 2))
-    for i in range(steps.shape[-3]):
-        total = steps[..., i, :, :] @ total
+    a = np.array(steps[..., 0, 0, 0], dtype=complex)
+    b = np.array(steps[..., 0, 0, 1], dtype=complex)
+    c = np.array(steps[..., 0, 1, 0], dtype=complex)
+    d = np.array(steps[..., 0, 1, 1], dtype=complex)
+    for i in range(1, steps.shape[-3]):
+        p, q = steps[..., i, 0, 0], steps[..., i, 0, 1]
+        r, s = steps[..., i, 1, 0], steps[..., i, 1, 1]
+        a, b, c, d = p * a + q * c, p * b + q * d, r * a + s * c, r * b + s * d
+    total = np.empty(steps.shape[:-3] + (2, 2), dtype=complex)
+    total[..., 0, 0] = a
+    total[..., 0, 1] = b
+    total[..., 1, 0] = c
+    total[..., 1, 1] = d
     return total
 
 
+#: ``(length, n_steps, method)`` -> ``(h, points)``. The abscissae depend only on
+#: an edge's geometry and the scheme, so they are the same at every ``k``, every
+#: pump and every mode -- yet they were rebuilt on each of the ~1600
+#: secular-matrix rebuilds a single solve performs, once per edge. Measured on
+#: the production buffon, that is 0.80 ms of the 5.11 ms sampling loop, and the
+#: loop is 28 % of a rebuild. Bounded by the number of distinct edge lengths,
+#: which is bounded by the graph.
+_SAMPLE_POINT_CACHE: dict[tuple[float, int, str], tuple[float, tuple[np.ndarray, ...]]] = {}
+
+
 def _magnus_sample_points(length: float, n_steps: int, method: str):
-    """Positions at which ``eps`` is sampled, and the sub-interval width."""
+    """Positions at which ``eps`` is sampled, and the sub-interval width.
+
+    Cached on ``(length, n_steps, method)``; the arrays are shared with every
+    caller and must not be mutated.
+    """
+    key = (float(length), int(n_steps), method)
+    cached = _SAMPLE_POINT_CACHE.get(key)
+    if cached is not None:
+        return cached
     h = length / n_steps
     starts = np.arange(n_steps) * h
-    if method == "magnus2":
-        return h, (starts + 0.5 * h,)
-    return h, (starts + _C1 * h, starts + _C2 * h)
+    points = (starts + 0.5 * h,) if method == "magnus2" else (starts + _C1 * h, starts + _C2 * h)
+    for point in points:
+        point.flags.writeable = False
+    _SAMPLE_POINT_CACHE[key] = (h, points)
+    return h, points
 
 
 def edge_transfer_matrix(
@@ -263,12 +310,46 @@ def edge_transfer_matrix(
     return _ordered_product(_magnus_step_matrices(k, h, samples, method))
 
 
+def sample_eps_profiles(lengths, eps_profiles, n_steps: int = 64, method: str = "magnus4"):
+    r"""Sample every edge's permittivity on the propagator's own abscissae.
+
+    Split out of :func:`edge_transfer_matrices` because the result does not
+    depend on ``k``: the profiles and the geometry fix it. A SALT residual
+    evaluation asks for :math:`\lambda_1(k_\mu)` at ``M`` different ``k`` on the
+    *same* saturated profiles, so sampling inside the transfer-matrix build
+    repeated identical work ``M`` times. On the production buffon the sampling
+    loop is 5.11 ms of an 18.25 ms ``lambda_1`` evaluation, so hoisting it is
+    1.34x at ``M = 11``.
+
+    Args:
+        lengths: one length per edge.
+        eps_profiles: one callable per edge, as :func:`edge_transfer_matrices`.
+        n_steps, method: as :func:`edge_transfer_matrix`.
+
+    Returns:
+        ``(h, eps_samples)`` to hand back as ``samples=``: the per-edge
+        sub-interval widths, and one ``(n_edges, n_steps)`` array per Magnus
+        abscissa.
+    """
+    lengths = np.asarray(lengths, dtype=float)
+    n_edges = len(lengths)
+    n_points = 1 if method == "magnus2" else 2
+    h = np.empty(n_edges)
+    eps_samples = tuple(np.empty((n_edges, n_steps), dtype=complex) for _ in range(n_points))
+    for edge_index, (length, profile) in enumerate(zip(lengths, eps_profiles, strict=True)):
+        h[edge_index], points = _magnus_sample_points(float(length), n_steps, method)
+        for sample, point in zip(eps_samples, points, strict=True):
+            sample[edge_index] = profile(point)
+    return h, eps_samples
+
+
 def edge_transfer_matrices(
     k: complex,
     lengths,
     eps_profiles,
     n_steps: int = 64,
     method: str = "magnus4",
+    samples=None,
 ) -> np.ndarray:
     """:func:`edge_transfer_matrix` for many edges at once.
 
@@ -286,10 +367,14 @@ def edge_transfer_matrices(
             belong here -- they have a closed form; use
             :func:`propagator_constant_eps`.
         n_steps, method: as :func:`edge_transfer_matrix`.
+        samples: the output of :func:`sample_eps_profiles` for these profiles,
+            when the caller has already computed it (it does not depend on
+            ``k``, so a residual evaluation over ``M`` modes should compute it
+            once). ``None`` samples them here.
 
     Returns:
-        ``(n_edges, 2, 2)`` transfer matrices, bit-identical to calling
-        :func:`edge_transfer_matrix` per edge.
+        ``(n_edges, 2, 2)`` transfer matrices, agreeing with
+        :func:`edge_transfer_matrix` per edge to machine precision.
     """
     if n_steps < 1:
         raise ValueError(f"n_steps must be at least 1, got {n_steps}")
@@ -303,14 +388,10 @@ def edge_transfer_matrices(
     if n_edges == 0:
         return np.empty((0, 2, 2), dtype=complex)
 
-    n_points = 1 if method == "magnus2" else 2
-    h = np.empty(n_edges)
-    samples = tuple(np.empty((n_edges, n_steps), dtype=complex) for _ in range(n_points))
-    for edge_index, (length, profile) in enumerate(zip(lengths, eps_profiles, strict=True)):
-        h[edge_index], points = _magnus_sample_points(float(length), n_steps, method)
-        for sample, point in zip(samples, points, strict=True):
-            sample[edge_index] = profile(point)
-    return _ordered_product(_magnus_step_matrices(k, h[:, None], samples, method))
+    if samples is None:
+        samples = sample_eps_profiles(lengths, eps_profiles, n_steps, method)
+    h, eps_samples = samples
+    return _ordered_product(_magnus_step_matrices(k, h[:, None], eps_samples, method))
 
 
 def edge_step_propagators(
